@@ -2,6 +2,7 @@
 
 import hashlib
 import socket
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -245,14 +246,8 @@ def test_all_dns_entry_points_are_denied_without_resolver_io() -> None:
         socket.getnameinfo(("127.0.0.1", 443), socket.NI_NUMERICHOST | socket.NI_NUMERICSERV)
 
 
-def test_database_guard_permits_only_configured_resolved_endpoint() -> None:
-    resolved = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.10", 5432))
-    lookups: list[tuple[object, object]] = []
+def test_database_guard_permits_only_approved_private_socket(tmp_path: Path) -> None:
     connections: list[object] = []
-
-    def resolve(host: object, port: object, *args: object, **kwargs: object) -> list[object]:
-        lookups.append((host, port))
-        return [resolved]
 
     def connect(sock: socket.socket, address: object) -> None:
         connections.append(address)
@@ -261,29 +256,28 @@ def test_database_guard_permits_only_configured_resolved_endpoint() -> None:
         pytest.FixtureRequest,
         SimpleNamespace(node=SimpleNamespace(get_closest_marker=lambda name: object())),
     )
+    tmp_path.chmod(0o700)
+    dsn = f"dbname=cf_test_guard user=synthetic host={tmp_path}"
+    address = str(tmp_path / ".s.PGSQL.5432")
     with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("CF_TEST_ALLOW_DATABASE", "1")
-        patch.setenv("CF_TEST_DATABASE_URL", "postgresql://db.example.invalid:5432/test")
-        patch.setattr(socket, "getaddrinfo", resolve)
+        patch.setenv("CF_TEST_POSTGRES_DSN", dsn)
+        patch.setenv("CF_TEST_POSTGRES_APPROVED_DSN", dsn)
         patch.setattr(socket.socket, "connect", connect)
-        patch.setattr(socket, "create_connection", ORIGINAL_CREATE_CONNECTION)
         guard = deny_network.__wrapped__(request, patch)
         next(guard)
         try:
-            assert socket.getaddrinfo("db.example.invalid", 5432) == [resolved]
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.connect(address)
+                assert sock.connect_ex(address) == 0
+                with pytest.raises(RuntimeError, match="Network access is disabled"):
+                    sock.connect(str(tmp_path / ".s.PGSQL.5433"))
             with socket.socket() as sock:
-                sock.connect(("192.0.2.10", 5432))
-                assert sock.connect_ex(("192.0.2.10", 5432)) == 0
-                for address in (("192.0.2.11", 5432), ("192.0.2.10", 443)):
-                    with pytest.raises(RuntimeError, match="Network access is disabled"):
-                        sock.connect(address)
-            with socket.create_connection(("db.example.invalid", 5432)):
-                pass
+                with pytest.raises(RuntimeError, match="Network access is disabled"):
+                    sock.connect(("127.0.0.1", 5432))
             with pytest.raises(RuntimeError, match="Network access is disabled"):
-                socket.create_connection(("other.example.invalid", 5432))
+                socket.create_connection(("db.example.invalid", 5432))
             with pytest.raises(RuntimeError, match="Network access is disabled"):
-                socket.getaddrinfo("other.example.invalid", 5432)
-            assert lookups == [("db.example.invalid", 5432)] * 2
-            assert connections == [("192.0.2.10", 5432)] * 3
+                socket.getaddrinfo("db.example.invalid", 5432)
+            assert connections == [address, address]
         finally:
             guard.close()
