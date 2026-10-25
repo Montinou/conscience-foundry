@@ -214,6 +214,25 @@ class LocationRegistry:
     def _locations(self, ref: Ref) -> tuple[ArtifactLocation, ...]:
         return ref.locations + self._hints.get(self._identity(ref), ())
 
+    def open_location_verified(
+        self, ref: Ref, store_id: str, object_key: str, context: AccessContext
+    ) -> BinaryIO:
+        """Verify only this authorized location, without digest or hint fallback.
+
+        The returned private snapshot belongs to the caller and must be closed.
+        This supports custody inspection of an exact operator-registered source
+        path even when an identical content blob is already stored elsewhere.
+        """
+        self._authorize(ref, context, "read")
+        ceiling = self._ceiling(ref)
+        if ref.size_bytes > ceiling:
+            raise ContractError("limit_exceeded")
+        try:
+            location = ArtifactLocation(store_id=store_id, object_key=object_key)
+        except ValidationError:
+            raise ContractError("unsafe_path") from None
+        return self._snapshot(ref, location, ceiling)
+
     def register_location(
         self, ref: Ref, store_id: str, object_key: str, context: AccessContext
     ) -> None:
