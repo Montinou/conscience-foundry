@@ -118,7 +118,7 @@ def check_exact_quote(
         raise ContractError("unsupported_format")
     decoded = _decode_bounded_text(text.data, limits)
     validate_span_shape(span, revision, len(decoded))
-    if not isinstance(quote, str):
+    if type(quote) is not str:
         raise ContractError("invalid_encoding")
     if len(quote) > limits.max_string_scalars:
         raise ContractError("limit_exceeded")

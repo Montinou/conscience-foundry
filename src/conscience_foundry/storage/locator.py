@@ -68,7 +68,7 @@ def _copy_verified(source: BinaryIO, target_fd: int, expected: Ref, ceiling: int
     while True:
         request_size = min(IO_CHUNK_BYTES, expected.size_bytes - total + 1)
         chunk = source.read(request_size)
-        if not isinstance(chunk, bytes):
+        if type(chunk) is not bytes:
             raise ContractError("invalid_schema")
         if not chunk:
             break

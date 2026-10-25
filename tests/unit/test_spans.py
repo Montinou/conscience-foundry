@@ -127,6 +127,20 @@ def test_exact_quote_rejects_overridden_byte_decoding() -> None:
         check_exact_quote(verified, span(0, 1), "y", revision=revision(actual), limits=limits())
 
 
+def test_exact_quote_rejects_overridden_string_comparison() -> None:
+    class FalseQuote(str):
+        def __ne__(self, other: object) -> bool:
+            return False
+
+    actual = b"abc"
+    verified = VerifiedBytes(actual, hashlib.sha256(actual).hexdigest())
+    with pytest.raises(ContractError, match="invalid_encoding"):
+        check_exact_quote(
+            verified, span(0, 3), FalseQuote("xyz"),
+            revision=revision(actual), limits=limits(),
+        )
+
+
 def test_exact_quote_binds_revision_section_and_actual_text() -> None:
     verified = VerifiedBytes(SAMPLE, hashlib.sha256(SAMPLE).hexdigest())
     rev = revision(SAMPLE)
@@ -148,13 +162,18 @@ def test_exact_quote_binds_revision_section_and_actual_text() -> None:
     )
 
 
-def test_quote_length_ceiling_precedes_scalar_scan() -> None:
+def test_quote_length_ceiling_and_subclass_admission_precede_scalar_scan() -> None:
     class GuardedQuote(str):
         def __iter__(self) -> Iterator[str]:
             raise AssertionError("oversized quote scanned before configured length bound")
 
     verified = VerifiedBytes(SAMPLE, hashlib.sha256(SAMPLE).hexdigest())
     with pytest.raises(ContractError, match="limit_exceeded"):
+        check_exact_quote(
+            verified, span(1, 2), "x" * 1025,
+            revision=revision(SAMPLE), limits=limits(),
+        )
+    with pytest.raises(ContractError, match="invalid_encoding"):
         check_exact_quote(
             verified, span(1, 2), GuardedQuote("x" * 1025),
             revision=revision(SAMPLE), limits=limits(),

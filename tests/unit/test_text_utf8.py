@@ -200,6 +200,23 @@ def test_limits_pin_and_original_role_are_verified() -> None:
         process_text(asset(SAMPLE), verified, wrong_project, limits=bound, limits_bytes=raw)
 
 
+def test_processor_rejects_limits_bytes_with_fabricated_decoding() -> None:
+    bound = limits()
+    recipe, pinned = spec(limits(maxSourceBytes=1))
+    allowed = bound.model_dump_json(by_alias=True)
+
+    class FabricatedLimits(bytes):
+        def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
+            return allowed
+
+    actual = b"oversized"
+    with pytest.raises(ContractError, match="invalid_schema"):
+        process_text(
+            asset(actual), VerifiedBytes(actual, hashlib.sha256(actual).hexdigest()), recipe,
+            limits=bound, limits_bytes=FabricatedLimits(pinned),
+        )
+
+
 @pytest.mark.parametrize("bound", [limits(maxArrayItems=7), limits(maxOutputBytes=400)])
 def test_generated_quality_respects_configured_structured_limits(bound: ContractLimits) -> None:
     with pytest.raises(ContractError, match="limit_exceeded"):
