@@ -47,6 +47,15 @@ class BudgetEvidenceClaim:
 
 
 @dataclass(frozen=True)
+class DuplicateRiskAuthorization:
+    evidence_ref: Ref
+    expected_snapshot_digest: str
+    unresolved_attempt_ids: tuple[Id, ...]
+    new_plan_digest: str
+    new_authorization_id: Id
+
+
+@dataclass(frozen=True)
 class BudgetContext:
     now: Instant
     access: AccessContext
@@ -54,6 +63,9 @@ class BudgetContext:
     limits_by_schema: Mapping[str, ContractLimits] = field(repr=False)
     authorize: Callable[[str, Id, Id, Id], bool] = field(repr=False)
     verify_evidence: Callable[[BudgetEvidenceClaim], bool] = field(repr=False)
+    duplicate_risk_verifier: (
+        Callable[[DuplicateRiskAuthorization, object, object], bool] | None
+    ) = field(default=None, repr=False)
 
 
 def _limits(context: BudgetContext, schema: str) -> ContractLimits:

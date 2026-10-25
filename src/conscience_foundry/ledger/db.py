@@ -56,6 +56,8 @@ TABLES = frozenset(
         "billing_adjustments",
         "operation_results",
         "integrity_holds",
+        "attempt_observations",
+        "control_decisions",
         "reviews",
         "releases",
         "publications",
