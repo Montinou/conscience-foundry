@@ -696,6 +696,48 @@ def test_enrichment_trusted_evidence_and_registered_pins() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("anchors_applicable", "anchor_status"),
+    [(False, "not_applicable"), (True, "valid")],
+)
+def test_accepted_inference_cannot_claim_source_support(
+    anchors_applicable: bool, anchor_status: str
+) -> None:
+    request_bytes = json.dumps(enrichment_request()).encode()
+    request = EnrichmentRequest.from_wire(request_bytes, limits())
+    result = EnrichmentResult.model_validate(
+        enrichment_result(
+            schemaStatus="valid",
+            anchorStatus=anchor_status,
+            semanticStatus="supported",
+            disposition="accepted",
+            rawResponseRef=ref(),
+            candidateAnnotationsRef=ref(),
+            reasons=[],
+        )
+    )
+    context = enrichment_context(
+        anchors_applicable=anchors_applicable,
+        attributed_claims=False,
+        inference_allowed=True,
+        expected_schema_status="valid",
+        expected_anchor_status=anchor_status,
+        expected_semantic_status="supported",
+        expected_disposition="accepted",
+    )
+
+    with pytest.raises(ContractError) as caught:
+        correlate_enrichment(
+            request,
+            result,
+            request_bytes=request_bytes,
+            limits=limits(),
+            spec=EnrichmentSpec.model_validate(enrichment_spec()),
+            context=context,
+        )
+    assert caught.value.code == "invalid_schema"
+
+
 def test_payload_schema_references_require_schema_artifacts() -> None:
     for model, payload in ((EnrichmentSpec, enrichment_spec()), (DecisionTaskSpec, task_spec())):
         for field in ("inputSchemaRef", "outputSchemaRef"):
