@@ -59,6 +59,7 @@ TABLES = frozenset(
         "attempt_observations",
         "control_decisions",
         "reviews",
+        "admission_withdrawals",
         "releases",
         "publications",
         "active_releases",

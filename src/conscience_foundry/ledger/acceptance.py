@@ -26,6 +26,8 @@ from conscience_foundry.core.comparison import (
 )
 from conscience_foundry.core.identity import RevisionInputs, revision_id, structure_digest
 from conscience_foundry.execution.evidence import (
+    ResultPlan,
+    VerificationContext,
     clock,
     current_policy,
     identity,
@@ -34,7 +36,7 @@ from conscience_foundry.execution.evidence import (
     read_artifact,
     read_model,
 )
-from conscience_foundry.execution.ports import ControlContext, VerifiedPlan
+from conscience_foundry.execution.ports import ControlContext
 from conscience_foundry.ledger.attempts import json_ref
 from conscience_foundry.ledger.db import LedgerTxn
 from conscience_foundry.policy.access import require_permission
@@ -51,7 +53,7 @@ class VerifiedResult:
 
 
 def verify_result(
-    ref: Ref, attempt: StageAttempt, plan: VerifiedPlan, control: ControlContext
+    ref: Ref, attempt: StageAttempt, plan: ResultPlan, control: VerificationContext
 ) -> VerifiedResult:
     raw, result = read_model(ref, ResultManifest, control)
     if (

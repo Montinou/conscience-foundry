@@ -192,7 +192,7 @@ class Authority:
 
 
 class Case:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, *, source_bytes: bytes = b"Synthetic text") -> None:
         self.bound = limits()
         self.access = AccessContext(
             PROJECT,
@@ -249,7 +249,7 @@ class Case:
             self.store.put_verified(io.BytesIO(raw), ref, self.access)
         self.original = self.data.report.entries[0].snapshot_ref
         assert self.original is not None
-        self.store.put_verified(io.BytesIO(b"Synthetic text"), self.original, self.access)
+        self.store.put_verified(io.BytesIO(source_bytes), self.original, self.access)
         self.limits_ref = self.put(self.bound)
         self.spec = ExtractionSpec(
             schema_version="kf.extraction-spec.v1",

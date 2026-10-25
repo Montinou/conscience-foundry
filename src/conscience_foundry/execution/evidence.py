@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import io
-from dataclasses import replace
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, localcontext
-from typing import Any
+from typing import Any, Protocol, cast
 
 from psycopg import sql
 from pydantic import TypeAdapter, ValidationError
@@ -28,7 +29,11 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionConfig, ExecutionPlan, RunAuthorization
 from conscience_foundry.contracts.project import PolicyArtifact
-from conscience_foundry.contracts.registry import registered_schema_ids, validate_artifact
+from conscience_foundry.contracts.registry import (
+    ContractSet,
+    registered_schema_ids,
+    validate_artifact,
+)
 from conscience_foundry.core.identity import F1Operation, operation_key
 from conscience_foundry.execution.ports import (
     BillingFacts,
@@ -46,9 +51,53 @@ from conscience_foundry.execution.ports import (
 from conscience_foundry.ledger.budget import BudgetContext, BudgetEvidenceClaim
 from conscience_foundry.ledger.db import AdmissionRegistrationEvidence, LedgerTxn
 from conscience_foundry.policy.access import AccessContext, require_permission
+from conscience_foundry.storage.local import ObjectStore
 
 
-def limits_for(control: ControlContext, schema: str) -> ContractLimits:
+class VerificationContext(Protocol):
+    """Trusted verification dependencies shared by execution and private release."""
+
+    @property
+    def access(self) -> AccessContext: ...
+    @property
+    def clock(self) -> Callable[[], Instant]: ...
+    @property
+    def limits_by_schema(self) -> Mapping[str, ContractLimits]: ...
+    @property
+    def current_policy(self) -> Callable[[Id], PolicyArtifact]: ...
+    @property
+    def output_store_id(self) -> str: ...
+    @property
+    def store(self) -> ObjectStore: ...
+
+
+class ResultPlan(Protocol):
+    @property
+    def model(self) -> ExecutionPlan: ...
+    @property
+    def config(self) -> ExecutionConfig: ...
+    @property
+    def source_asset(self) -> SourceAsset: ...
+
+
+@dataclass(frozen=True)
+class HistoricalResultPlan:
+    ref: Ref
+    data: bytes = field(repr=False)
+    model: ExecutionPlan
+    authorization_ref: Ref
+    authorization: RunAuthorization
+    config: ExecutionConfig
+    config_bytes: bytes = field(repr=False)
+    source_asset: SourceAsset
+    manifest: IntakeManifest
+    admission: AdmissionReport
+    contract_set: ContractSet
+    spec: ExtractionSpec
+    limits: tuple[ContractLimits, ...]
+
+
+def limits_for(control: VerificationContext, schema: str) -> ContractLimits:
     value = control.limits_by_schema.get(schema)
     if type(value) is not ContractLimits:
         raise ContractError("limits_missing")
@@ -58,8 +107,8 @@ def limits_for(control: ControlContext, schema: str) -> ContractLimits:
         raise ContractError("limits_missing") from None
 
 
-def clock(control: ControlContext) -> Instant:
-    if type(control) is not ControlContext or type(control.access) is not AccessContext:
+def clock(control: VerificationContext) -> Instant:
+    if type(control.access) is not AccessContext:
         raise ContractError("forbidden")
     try:
         value = control.clock()
@@ -82,7 +131,7 @@ def authorize(control: ControlContext, action: str, project: Id, run: Id | None)
         raise ContractError("forbidden")
 
 
-def current_policy(control: ControlContext, project: Id) -> PolicyArtifact:
+def current_policy(control: VerificationContext, project: Id) -> PolicyArtifact:
     if project != control.access.project_id:
         raise ContractError("forbidden")
     try:
@@ -107,7 +156,7 @@ def encoded(value: WireModel) -> bytes:
     return value.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8")
 
 
-def bounded_request(value: object, control: ControlContext) -> bytes:
+def bounded_request(value: object, control: VerificationContext) -> bytes:
     """Bound internal decisions with the installed finite control-record limits."""
     import json
 
@@ -132,7 +181,7 @@ def bounded_request(value: object, control: ControlContext) -> bytes:
 
 
 def read_artifact(
-    ref: Ref, control: ControlContext, *, evidence: bool = False
+    ref: Ref, control: VerificationContext, *, evidence: bool = False
 ) -> tuple[bytes, Any]:
     if type(ref) is not Ref or ref.project_id != control.access.project_id:
         raise ContractError("forbidden")
@@ -142,7 +191,8 @@ def read_artifact(
         raise ContractError("invalid_schema") from None
     known = ref.artifact_schema in registered_schema_ids()
     if not known and (
-        not evidence or ref.artifact_schema not in control.evidence_authority.decoders
+        not evidence
+        or ref.artifact_schema not in cast(ControlContext, control).evidence_authority.decoders
     ):
         raise ContractError("unsupported_schema")
     bound = limits_for(control, ref.artifact_schema)
@@ -165,7 +215,9 @@ def read_artifact(
     if known:
         return raw, validate_artifact(ref, raw, limits_by_schema=control.limits_by_schema)
     try:
-        decoded = control.evidence_authority.decoders[ref.artifact_schema](raw, bound)
+        decoded = cast(ControlContext, control).evidence_authority.decoders[ref.artifact_schema](
+            raw, bound
+        )
     except Exception:
         raise ContractError("unsupported_schema") from None
     if decoded is None or type(decoded) is bool:
@@ -174,7 +226,7 @@ def read_artifact(
 
 
 def read_model[Model: WireModel](
-    ref: Ref, model: type[Model], control: ControlContext
+    ref: Ref, model: type[Model], control: VerificationContext
 ) -> tuple[bytes, Model]:
     raw, value = read_artifact(ref, control)
     if type(value) is not model:
@@ -182,7 +234,7 @@ def read_model[Model: WireModel](
     return raw, value
 
 
-def put_record(record: WireModel, control: ControlContext) -> Ref:
+def put_record(record: WireModel, control: VerificationContext) -> Ref:
     raw = encoded(record)
     schema = record.model_dump(by_alias=True).get("schemaVersion")
     if type(schema) is not str:
@@ -298,7 +350,7 @@ def control_facts(
 def admission_evidence(
     plan: ExecutionPlan,
     tx: LedgerTxn,
-    control: ControlContext,
+    control: VerificationContext,
 ) -> tuple[AdmissionRegistrationEvidence, IntakeManifest, AdmissionReport]:
     """Resolve exact historical refs from current transaction metadata, not guesses."""
     tx.lock(plan.project_id, plan.run_id)
@@ -343,7 +395,7 @@ def source_asset(
     plan: ExecutionPlan,
     manifest: IntakeManifest,
     report: AdmissionReport,
-    control: ControlContext,
+    control: VerificationContext,
     *,
     asset_id: Id | None = None,
 ) -> SourceAsset:
@@ -391,14 +443,13 @@ def source_asset(
     return candidates[0]
 
 
-def verified_plan(
+def historical_result_plan(
     plan_ref: Ref,
     authorization_ref: Ref,
     tx: LedgerTxn,
-    control: ControlContext,
-    *,
-    spending: bool,
-) -> VerifiedPlan:
+    control: VerificationContext,
+) -> HistoricalResultPlan:
+    """Verify historical content inputs without acquiring provider payloads or spending rights."""
     data, plan = read_model(plan_ref, ExecutionPlan, control)
     _, auth = read_model(authorization_ref, RunAuthorization, control)
     if (
@@ -414,14 +465,40 @@ def verified_plan(
     config_bytes, config = read_model(plan.execution_config_ref, ExecutionConfig, control)
     if identity(config.tariff_ref) != identity(plan.budget.tariff_ref):
         raise ContractError("forbidden")
-    read_artifact(plan.contract_set_ref, control)
+    _, contracts = read_model(plan.contract_set_ref, ContractSet, control)
     _, spec = read_model(plan.extraction_spec_ref, ExtractionSpec, control)
     if spec.image_digest != config.image_digest:
         raise ContractError("unsupported_capability")
     if not any(identity(ref) == identity(spec.limits_ref) for ref in plan.limits_refs):
         raise ContractError("limits_missing")
-    for ref in plan.limits_refs:
-        read_model(ref, ContractLimits, control)
+    pinned_limits = tuple(read_model(ref, ContractLimits, control)[1] for ref in plan.limits_refs)
+    return HistoricalResultPlan(
+        plan_ref,
+        data,
+        plan,
+        authorization_ref,
+        auth,
+        config,
+        config_bytes,
+        asset,
+        manifest,
+        report,
+        contracts,
+        spec,
+        pinned_limits,
+    )
+
+
+def verified_plan(
+    plan_ref: Ref,
+    authorization_ref: Ref,
+    tx: LedgerTxn,
+    control: ControlContext,
+    *,
+    spending: bool,
+) -> VerifiedPlan:
+    historical = historical_result_plan(plan_ref, authorization_ref, tx, control)
+    config, plan, asset = historical.config, historical.model, historical.source_asset
     tariff_bytes, _ = read_artifact(config.tariff_ref, control, evidence=True)
     resource_bytes, _ = read_artifact(config.resource_policy_ref, control, evidence=True)
     if spending:
@@ -432,12 +509,12 @@ def verified_plan(
             raise ContractError("forbidden")
     return VerifiedPlan(
         plan_ref,
-        data,
+        historical.data,
         plan,
         authorization_ref,
-        auth,
+        historical.authorization,
         config,
-        config_bytes,
+        historical.config_bytes,
         tariff_bytes,
         resource_bytes,
         asset,
