@@ -113,6 +113,7 @@ CREATE TABLE {schema}.reservations (
     project_id uuid NOT NULL,
     reservation_id uuid NOT NULL,
     run_id uuid NOT NULL,
+    authorization_id uuid NOT NULL,
     operation_key text,
     scope text NOT NULL CHECK (scope IN ('attempt','run_storage')),
     reserved_usd numeric NOT NULL CHECK (reserved_usd > 0),
@@ -125,6 +126,8 @@ CREATE TABLE {schema}.reservations (
     UNIQUE (project_id,run_id,reservation_id),
     UNIQUE (project_id,run_id,reservation_id,operation_key),
     FOREIGN KEY (project_id,run_id) REFERENCES {schema}.runs,
+    FOREIGN KEY (project_id,run_id,authorization_id)
+        REFERENCES {schema}.authorizations (project_id,run_id,authorization_id),
     FOREIGN KEY (project_id,operation_key) REFERENCES {schema}.operations,
     CHECK ((scope = 'attempt') = (operation_key IS NOT NULL)),
     CHECK (outstanding_usd + released_usd <= reserved_usd)

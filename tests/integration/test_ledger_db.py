@@ -362,12 +362,31 @@ def test_transaction_rollback_and_unique_event(ledger: Ledger) -> None:
     )
     with ledger.transaction() as tx:
         tx.create_run(PROJECT, RUN, data.report_ref.digest)
+        authorization_id = str(uuid4())
+        tx.connection.execute(
+            sql.SQL(
+                "INSERT INTO {} (project_id,authorization_id,run_id,authorization_ref,"
+                "allowed_plan_digests,max_run_cost,max_concurrent_attempts,actor_id,authorized_at,"
+                "expires_at) VALUES (%s,%s,%s,%s,%s,10,1,%s,%s,%s)"
+            ).format(tx.table("authorizations")),
+            (
+                PROJECT,
+                authorization_id,
+                RUN,
+                Jsonb({"synthetic": True}),
+                ["c" * 64],
+                ACTOR,
+                TIME,
+                "2026-10-25T01:00:00.000Z",
+            ),
+        )
         tx.connection.execute(
             sql.SQL(
                 "INSERT INTO {} (project_id,reservation_id,run_id,scope,reserved_usd,"
-                "outstanding_usd,settled_usd) VALUES (%s,%s,%s,'run_storage',4,4,0)"
+                "outstanding_usd,settled_usd,authorization_id) "
+                "VALUES (%s,%s,%s,'run_storage',4,4,0,%s)"
             ).format(tx.table("reservations")),
-            (PROJECT, RESERVATION, RUN),
+            (PROJECT, RESERVATION, RUN, authorization_id),
         )
         assert tx.append_budget_event(event, event_bytes=encoded(event), limits=limits()) is True
     with ledger.transaction() as tx:
@@ -550,9 +569,10 @@ def test_attempt_cannot_mix_plan_and_reservation_operations(ledger: Ledger) -> N
         tx.connection.execute(
             sql.SQL(
                 "INSERT INTO {} (project_id,reservation_id,run_id,operation_key,scope,reserved_usd,"
-                "outstanding_usd,settled_usd) VALUES (%s,%s,%s,%s,'attempt',4,4,0)"
+                "outstanding_usd,settled_usd,authorization_id) "
+                "VALUES (%s,%s,%s,%s,'attempt',4,4,0,%s)"
             ).format(tx.table("reservations")),
-            (PROJECT, RESERVATION, RUN, second),
+            (PROJECT, RESERVATION, RUN, second, authorization_id),
         )
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with ledger.transaction() as tx:
