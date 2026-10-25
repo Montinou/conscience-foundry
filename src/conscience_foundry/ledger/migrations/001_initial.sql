@@ -267,10 +267,13 @@ CREATE TABLE {schema}.reviews (
     project_id uuid NOT NULL REFERENCES {schema}.projects,
     review_id uuid NOT NULL,
     revision_digest text NOT NULL,
+    revision_ref jsonb NOT NULL,
+    operation_key text NOT NULL,
     review_ref jsonb NOT NULL,
     actor_id uuid NOT NULL,
     reviewed_at timestamptz NOT NULL,
-    PRIMARY KEY (project_id,review_id)
+    PRIMARY KEY (project_id,review_id),
+    FOREIGN KEY (project_id,operation_key) REFERENCES {schema}.operations
 );
 CREATE TABLE {schema}.releases (
     project_id uuid NOT NULL REFERENCES {schema}.projects,
@@ -324,4 +327,21 @@ CREATE TABLE {schema}.pause_history (
     PRIMARY KEY (project_id,decision_id),
     UNIQUE (project_id,scope,scope_id,version),
     FOREIGN KEY (project_id,scope,scope_id) REFERENCES {schema}.pause_state
+);
+
+CREATE TABLE {schema}.admission_withdrawals (
+    project_id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    asset_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    decision_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    reason jsonb NOT NULL,
+    evidence_ref jsonb NOT NULL,
+    request_digest text NOT NULL,
+    record_bytes bytea NOT NULL,
+    decided_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id,decision_id),
+    FOREIGN KEY (project_id,batch_id) REFERENCES {schema}.batches,
+    FOREIGN KEY (project_id,asset_id,source_id) REFERENCES {schema}.assets (project_id,asset_id,source_id)
 );
