@@ -153,6 +153,30 @@ class Environment:
         )
 
 
+def test_intake_rejects_pinned_denial_bytes_with_fabricated_decoding(
+    environment: Environment,
+) -> None:
+    env = environment
+    allowed = env.policy_bytes.decode()
+    policy_value = json.loads(env.policy_bytes)
+    policy_value["sources"][0]["read"] = "deny"
+    denied = encoded(policy_value)
+    env.project = ProjectConfig.model_validate(
+        env.project.model_dump() | {"policy_ref": reference(denied, "kf.policy.v1")}
+    )
+    actual = b"synthetic source"
+    (env.source_root / "manual.txt").write_bytes(actual)
+    manifest, raw = env.manifest([(ASSET_A, SOURCE_A, "manual.txt", actual)])
+
+    class FabricatedPolicy(bytes):
+        def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
+            return allowed
+
+    with pytest.raises(ContractError, match="invalid_schema"):
+        env.inspect(manifest, raw, policy_bytes=FabricatedPolicy(denied))
+    assert not [path for path in env.target_root.rglob("*") if path.is_file()]
+
+
 @pytest.fixture
 def environment(tmp_path: Path) -> Iterator[Environment]:
     source_root, target_root = tmp_path / "source", tmp_path / "target"

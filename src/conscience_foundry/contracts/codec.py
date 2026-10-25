@@ -67,7 +67,7 @@ def load_json(data: bytes, limits: ContractLimits) -> dict[str, object]:
     """Decode one object with byte/depth admission before object construction."""
     if not isinstance(limits, ContractLimits):
         raise ContractError("limits_missing")
-    if not isinstance(data, bytes):
+    if type(data) is not bytes:
         raise ContractError("invalid_schema")
     if len(data) > limits.max_json_bytes:
         raise ContractError("limit_exceeded")

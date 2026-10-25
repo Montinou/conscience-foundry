@@ -123,6 +123,30 @@ def test_bad_stream_never_installs_or_returns_unverified_bytes(tmp_path: Path) -
     assert exc.value.code == "artifact_missing"
 
 
+def test_stream_byte_subclass_cannot_hide_installed_size(tmp_path: Path) -> None:
+    class ShortBytes(bytes):
+        def __len__(self) -> int:
+            return 1
+
+    class OversizedStream(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            # This untrusted stream returns more than requested.
+            chunk = super().read()
+            return ShortBytes(chunk) if chunk else b""
+
+    root = tmp_path / "store"
+    root.mkdir()
+    store, registry = configured({"primary": root}, bounds=limits(maxSourceBytes=1))
+    payload = b"oversized"
+    expected = ArtifactRef.model_validate(ref(payload).model_dump() | {"size_bytes": 1})
+    try:
+        with pytest.raises(ContractError, match="invalid_schema"):
+            store.put_verified(OversizedStream(payload), expected, CONTEXT)
+        assert not [path for path in root.rglob("*") if path.is_file()]
+    finally:
+        registry.close()
+
+
 def test_relocation_preserves_descriptor_digest(tmp_path: Path) -> None:
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()
