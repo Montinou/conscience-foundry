@@ -597,6 +597,8 @@ def correlate_enrichment(
                 raise ContractError("invalid_schema")
         elif not context.inference_allowed:
             raise ContractError("forbidden")
+        elif result.semantic_status == "supported":
+            raise ContractError("invalid_schema")
 
 
 def correlate_decision(
