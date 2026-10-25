@@ -41,6 +41,7 @@ from conscience_foundry.ledger._budget_inputs import (
     BudgetEvidenceClaim as BudgetEvidenceClaim,
 )
 from conscience_foundry.ledger._budget_inputs import (
+    DuplicateRiskAuthorization,
     _context,
     _identity,
     _limits,
@@ -101,6 +102,7 @@ def _spending(
     row: tuple[Any, ...],
     context: BudgetContext,
     amount: Decimal,
+    *, allow_unknown: bool = False,
 ) -> None:
     from datetime import datetime
 
@@ -120,7 +122,7 @@ def _spending(
         ).format(tx.table("attempts")),
         (project, run),
     ).fetchone()
-    if unresolved:
+    if unresolved and not allow_unknown:
         raise ContractError("dispatch_unknown")
     actual, outstanding = _totals(tx, project, run)
     if not _remaining(row[1], actual, outstanding, amount):
@@ -392,6 +394,8 @@ def reserve_attempt(
     admission: AdmissionRegistrationEvidence,
     asset_id: Id,
     execution_config_bytes: bytes,
+    attempt_id: Id | None = None,
+    duplicate_risk: DuplicateRiskAuthorization | None = None,
 ) -> StageAttempt:
     """Reserve one separately authorized attempt before any external effect."""
     with tx.connection.transaction():
@@ -443,6 +447,21 @@ def reserve_attempt(
             raise ContractError("forbidden")
         if installed[8] != plan.admission_report_ref.digest:
             raise ContractError("forbidden")
+        duplicate_allowed = False
+        if duplicate_risk is not None:
+            if (type(duplicate_risk) is not DuplicateRiskAuthorization
+                    or duplicate_risk.new_plan_digest != plan_ref.digest
+                    or duplicate_risk.new_authorization_id != auth.authorization_id
+                    or context.duplicate_risk_verifier is None):
+                raise ContractError("forbidden")
+            try:
+                duplicate_allowed = (
+                    context.duplicate_risk_verifier(duplicate_risk, plan, auth) is True
+                )
+            except Exception:
+                raise ContractError("forbidden") from None
+            if not duplicate_allowed:
+                raise ContractError("forbidden")
         _spending(
             tx,
             plan.project_id,
@@ -450,13 +469,25 @@ def reserve_attempt(
             installed,
             context,
             Decimal(plan.budget.max_attempt_cost),
+            allow_unknown=duplicate_allowed,
         )
         source = _admitted(plan, admission, asset_id, tx, context)
         for effect in ("read", "extract", "remoteTransfer"):
             require_permission(context.access, context.current_policy, source, effect)
         if config.remote_destination_id not in context.current_policy.allowed_remote_destinations:
             raise ContractError("forbidden")
-        reservation, attempt_id = str(uuid4()), str(uuid4())
+        reservation = str(uuid4())
+        if attempt_id is None:
+            attempt_id = str(uuid4())
+        else:
+            try:
+                TypeAdapter(Id).validate_python(attempt_id)
+            except ValidationError:
+                raise ContractError("invalid_schema") from None
+            if tx.connection.execute(sql.SQL(
+                "SELECT 1 FROM {} WHERE project_id=%s AND attempt_id=%s"
+            ).format(tx.table("attempts")), (plan.project_id, attempt_id)).fetchone():
+                raise ContractError("dispatch_unknown")
         _proof(
             context,
             "reserve_attempt",
@@ -494,7 +525,7 @@ def reserve_attempt(
             ).format(tx.table("attempts")),
             (plan.project_id, plan.operation_key),
         ).fetchone()
-        if unresolved:
+        if unresolved and not duplicate_allowed:
             raise ContractError("dispatch_unknown")
         if operation[1] >= min(plan.resources.max_attempts_per_operation, MAX_SAFE_INTEGER):
             raise ContractError("limit_exceeded")

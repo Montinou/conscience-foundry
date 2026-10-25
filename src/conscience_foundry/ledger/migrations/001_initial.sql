@@ -165,6 +165,8 @@ CREATE TABLE {schema}.dispatch_claims (
     attempt_id uuid NOT NULL,
     claimed_at timestamptz NOT NULL,
     claim_id uuid NOT NULL,
+    reserved_attempt_ref jsonb NOT NULL,
+    dispatched_attempt_ref jsonb NOT NULL,
     PRIMARY KEY (project_id,attempt_id),
     UNIQUE (project_id,claim_id),
     FOREIGN KEY (project_id,attempt_id) REFERENCES {schema}.attempts
@@ -206,6 +208,7 @@ CREATE TABLE {schema}.operation_results (
     comparison_digest text NOT NULL,
     evidence_ref jsonb NOT NULL,
     recorded_at timestamptz NOT NULL,
+    record_ref jsonb NOT NULL,
     PRIMARY KEY (project_id,event_id),
     UNIQUE (project_id,operation_key,event_id),
     FOREIGN KEY (project_id,operation_key) REFERENCES {schema}.operations,
@@ -229,6 +232,35 @@ CREATE TABLE {schema}.integrity_holds (
     evidence_ref jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     PRIMARY KEY (project_id,hold_id),
+    FOREIGN KEY (project_id,operation_key) REFERENCES {schema}.operations
+);
+CREATE TABLE {schema}.attempt_observations (
+    project_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    observation_id uuid NOT NULL,
+    evidence_digest text NOT NULL,
+    request_digest text NOT NULL,
+    evidence_ref jsonb NOT NULL,
+    record_bytes bytea NOT NULL,
+    attempt_ref jsonb NOT NULL,
+    observed_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id,observation_id),
+    UNIQUE (project_id,attempt_id,evidence_digest),
+    FOREIGN KEY (project_id,attempt_id) REFERENCES {schema}.attempts
+);
+CREATE TABLE {schema}.control_decisions (
+    project_id uuid NOT NULL REFERENCES {schema}.projects,
+    decision_id uuid NOT NULL,
+    run_id uuid,
+    operation_key text,
+    action text NOT NULL CHECK (action IN ('pause','resume','cancel_attempt','reconcile_budget','manual_retry')),
+    evidence_ref jsonb NOT NULL,
+    request_digest text NOT NULL,
+    record_bytes bytea NOT NULL,
+    actor_id uuid NOT NULL,
+    decided_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id,decision_id),
+    FOREIGN KEY (project_id,run_id) REFERENCES {schema}.runs,
     FOREIGN KEY (project_id,operation_key) REFERENCES {schema}.operations
 );
 CREATE TABLE {schema}.reviews (
