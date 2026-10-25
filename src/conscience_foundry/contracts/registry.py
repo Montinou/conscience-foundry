@@ -51,6 +51,16 @@ from conscience_foundry.contracts.execution import (
     RunAuthorization,
     StageAttempt,
 )
+from conscience_foundry.contracts.extensions import (
+    AnnotationSet,
+    DecisionRelease,
+    DecisionRequest,
+    DecisionResult,
+    DecisionTaskSpec,
+    EnrichmentRequest,
+    EnrichmentResult,
+    EnrichmentSpec,
+)
 from conscience_foundry.contracts.project import (
     PolicyArtifact,
     ProfileDescriptor,
@@ -175,6 +185,14 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "kf.publication-authorization.v1": PublicationAuthorization,
         "kf.activation.v1": ActivationRecord,
         "kf.contract-set.v1": ContractSet,
+        "kf.enrichment-spec.v1": EnrichmentSpec,
+        "kf.enrichment-request.v1": EnrichmentRequest,
+        "kf.enrichment-result.v1": EnrichmentResult,
+        "kf.annotation-set.v1": AnnotationSet,
+        "kf.decision-task.v1": DecisionTaskSpec,
+        "kf.decision-release.v1": DecisionRelease,
+        "kf.decision-request.v1": DecisionRequest,
+        "kf.decision-result.v1": DecisionResult,
         SEMANTIC_RULES_ID: SemanticRulesDescriptor,
     }
 )
