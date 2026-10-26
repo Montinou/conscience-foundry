@@ -50,6 +50,14 @@ class TransportGrants:
     output_scope: bytes = field(repr=False)
 
 
+TransportIssuer = Callable[[StageAttempt], TransportGrants]
+"""Mints transient grants for one attempt that is already reserved, funded and claimed.
+
+Asked only after the claim commits, so no write-capable material exists for a dispatch the ledger
+refused (budget, pause, an existing claim).
+"""
+
+
 @dataclass(frozen=True)
 class TransportProof:
     """Bound transient request; adapters interpret opaque provider scope semantics."""

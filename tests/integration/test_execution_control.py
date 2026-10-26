@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -404,8 +405,10 @@ class Case:
                 expected_previous_authorization_id=None,
             )
 
-    def grants(self, *, material: tuple[bytes, ...] | None = None) -> TransportGrants:
-        attempt_id = str(uuid4())
+    def grants(
+        self, *, material: tuple[bytes, ...] | None = None, attempt_id: str | None = None
+    ) -> TransportGrants:
+        attempt_id = attempt_id if attempt_id is not None else str(uuid4())
         material = (
             material if material is not None else (b"synthetic-token-" + attempt_id.encode(),)
         )
@@ -2161,3 +2164,262 @@ def test_active_attempt_reservation_cannot_be_finalized_on_evidence_alone(
         )
     assert error.value.code == "dispatch_unknown"
     assert reservation_row(ledger, attempt.reservation_id) == ("0", "4", "0", False)
+
+
+# --- Phase 4 review round 1 regressions (I3) -------------------------------------------------
+
+
+class PendingModal:
+    """Stub Modal SDK: a call that stays pending until the script says otherwise."""
+
+    def __init__(self) -> None:
+        self.polls: list[Any] = []
+        self.cancelled: list[str] = []
+
+    def spawn(self, function: str, payload: Any) -> str:
+        raise AssertionError("the dispatch is not under test here")
+
+    def poll(self, call_id: str) -> Any:
+        from conscience_foundry.execution.modal_adapter import ModalPoll
+
+        if not self.polls:
+            return ModalPoll("pending")
+        step = self.polls.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    def cancel(self, call_id: str) -> None:
+        self.cancelled.append(call_id)
+
+
+def modal_over(c: Case, sdk: PendingModal) -> Any:
+    """The real ModalExecutor over the case store, with a test authority that echoes its record."""
+    from conscience_foundry.execution.capabilities import CapabilityRecord
+    from conscience_foundry.execution.modal_adapter import (
+        OBSERVATION_SCHEMA,
+        ModalExecutor,
+        ModalPin,
+    )
+
+    def sink(schema: str, data: bytes) -> Ref:
+        ref = reference(data, schema)
+        c.store.put_verified(io.BytesIO(data), ref, c.access)
+        return ref
+
+    def observation(proof: Any) -> ObservationFacts:
+        record = json.loads(proof.evidence_bytes)
+        state = record["observedState"]
+        return ObservationFacts(
+            proof.binding,
+            record["remoteCallId"],
+            state,
+            None,
+            False,
+            state == "cancelled",  # only the provider reporting the call cancelled terminates it
+        )
+
+    c.schemas[OBSERVATION_SCHEMA] = c.bound
+    c.authority.decoders = MappingProxyType(
+        {**c.authority.decoders, OBSERVATION_SCHEMA: lambda raw, _bound: json.loads(raw)}
+    )
+    c.authority.observation = observation  # type: ignore[method-assign]
+    record = CapabilityRecord.model_validate(
+        {
+            "schema_version": "kf.modal-capability-record.v1",
+            "project_id": PROJECT,
+            "execution_config_ref": c.plan.execution_config_ref,
+            "sdk_version": "synthetic-sdk.1",
+            "deployment_version": "synthetic.deployment.v1",
+            "image_digest": "a" * 64,
+            "code_digest": "b" * 64,
+            "cpu_milli": 1,
+            "memory_mib": 1,
+            "gpu_count": 0,
+            "function_retries": 0,
+            "startup_timeout_seconds": 1,
+            "scheduling_timeout_seconds": 1,
+            "execution_timeout_seconds": 1,
+            "platform_restart_bound": "bounded",
+            "max_platform_restarts": 0,
+            "total_bound_seconds": 3,
+            "cancellation": "terminates_containers",
+            "deadline_enforcement": "entry_and_every_bounded_step",
+            "valid_until": c.plan.budget.valid_until,
+            "source_evidence_refs": (reference(b"synthetic evidence", "kf.capability-source.v1"),),
+        }
+    )
+    return ModalExecutor(
+        sdk=sdk,
+        pin=ModalPin(
+            "synthetic-app",
+            "synthetic-worker",
+            "synthetic.deployment.v1",
+            "a" * 64,
+            "b" * 64,
+            "synthetic-sdk.1",
+            c.config.remote_destination_id,
+        ),
+        record=record,
+        execution_config_digest=c.plan.execution_config_ref.digest,
+        store=c.store,
+        access=c.access,
+        limits=c.bound,
+        clock=lambda: TIME,
+        evidence=sink,
+    )
+
+
+def test_reconciling_a_cancel_requested_attempt_with_the_real_modal_adapter(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    from conscience_foundry.execution.control import cancel_attempt
+    from conscience_foundry.execution.modal_adapter import ModalPoll
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    attempt = c.dispatch(ledger, Executor(c))
+    assert attempt.state == "running"
+    sdk = PendingModal()
+    modal = modal_over(c, sdk)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+    requested = cancel_attempt(
+        attempt.attempt_id,
+        ledger,
+        modal,
+        control=c.control,
+        reason=Reason(code="unavailable", message="synthetic cancellation"),
+        evidence_ref=command,
+    )
+    assert requested.state == "cancel_requested" and sdk.cancelled == [requested.remote_call_id]
+
+    # The call is still pending: a cancel is only a request until the provider says cancelled.
+    assert reconcile(attempt.attempt_id, ledger, modal, c.store, control=c.control) is None
+    assert attempts_of(ledger)[0][1] == "cancel_requested"
+    # Uncertain polls must not drop the standing cancel record either.
+    for uncertain in (
+        TimeoutError("synthetic poll timeout"),
+        ModalPoll("timed_out"),
+        ModalPoll("output_expired"),
+    ):
+        sdk.polls.append(uncertain)
+        assert reconcile(attempt.attempt_id, ledger, modal, c.store, control=c.control) is None
+        assert attempts_of(ledger)[0][1] == "cancel_requested", uncertain
+    # Once the provider reports the call cancelled, the same path settles it.
+    sdk.polls.append(ModalPoll("cancelled"))
+    assert reconcile(attempt.attempt_id, ledger, modal, c.store, control=c.control) is None
+    assert attempts_of(ledger)[0][1] == "cancelled"
+
+
+# --- Phase 4 review round 1 regressions (I2) -------------------------------------------------
+
+
+class Issuer:
+    """Grant issuer that records the durable ledger state visible at the moment it is asked."""
+
+    def __init__(self, case: Case, ledger: Ledger, *, fail: bool = False) -> None:
+        self.case, self.ledger, self.fail = case, ledger, fail
+        self.seen: list[tuple[Any, list[tuple[str, str, str | None]], int]] = []
+
+    def __call__(self, attempt: Any) -> TransportGrants:
+        claims = count_of(
+            self.ledger, "dispatch_claims", "attempt_id=%s", (attempt.attempt_id,)
+        )
+        self.seen.append((attempt, attempts_of(self.ledger), claims))
+        if self.fail:
+            raise RuntimeError("synthetic issuer outage")
+        return self.case.grants(attempt_id=attempt.attempt_id)
+
+
+def dispatch_with(c: Case, ledger: Ledger, executor: Any, issuer: Any) -> Any:
+    return dispatch(
+        c.plan,
+        c.auth,
+        c.access,
+        ledger,
+        executor,
+        issuer,
+        control=c.control,
+        plan_ref=c.plan_ref,
+        authorization_ref=c.auth_ref,
+        asset_id=ASSET,
+        evidence_ref=c.estimate,
+    )
+
+
+def test_transport_is_minted_for_the_reserved_and_claimed_attempt(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c)
+    issuer = Issuer(c, ledger)
+    attempt = dispatch_with(c, ledger, executor, issuer)
+    assert attempt.state == "running" and executor.calls == 1
+    ((seen, durable, claims),) = issuer.seen
+    # The issuer is asked about the real, already committed attempt: reserved, funded and claimed.
+    assert seen.state == "dispatching" and seen.attempt_id == attempt.attempt_id
+    assert seen.reservation_id == attempt.reservation_id
+    assert durable == [(seen.attempt_id, "dispatching", None)] and claims == 1
+
+
+def test_refused_dispatch_mints_no_transport(ledger: Ledger, tmp_path: Path) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    c.dispatch(ledger, Executor(c, lost=True))  # an unresolved attempt now owns the operation
+    issuer = Issuer(c, ledger)
+    executor = Executor(c)
+    with pytest.raises(ContractError):
+        dispatch_with(c, ledger, executor, issuer)
+    assert issuer.seen == [] and executor.calls == 0
+    assert len(attempts_of(ledger)) == 1
+
+
+def test_a_failing_issuer_fails_the_claimed_attempt_without_submitting(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c)
+    issuer = Issuer(c, ledger, fail=True)
+    attempt = dispatch_with(c, ledger, executor, issuer)
+    assert attempt.state == "failed" and executor.calls == 0
+    assert [state for _, state, _ in attempts_of(ledger)] == ["failed"]
+
+
+def test_a_noncanonical_stored_plan_is_refused_before_any_reservation(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    run, auth_id = str(uuid4()), str(uuid4())
+    budget = c.plan.budget.model_copy(update={"authorization_id": auth_id})
+    c.plan = c.plan.model_copy(update={"run_id": run, "plan_id": str(uuid4()), "budget": budget})
+    pretty = json.dumps(json.loads(encoded(c.plan)), indent=2, sort_keys=True).encode()
+    c.plan_ref = reference(pretty, "kf.execution-plan.v1")
+    c.store.put_verified(io.BytesIO(pretty), c.plan_ref, c.access)
+    c.auth = c.auth.model_copy(
+        update={
+            "authorization_id": auth_id,
+            "run_id": run,
+            "allowed_plan_digests": (c.plan_ref.digest,),
+        }
+    )
+    c.auth_ref = c.put(c.auth)
+    c.authority.grants[c.auth_ref.digest] = c.auth_ref.digest, None
+    with ledger.transaction() as tx:
+        tx.create_run(PROJECT, run, c.data.report_ref.digest)
+        install_run_authorization(
+            c.auth,
+            c.auth_ref,
+            encoded(c.auth),
+            tx,
+            context=budget_context(c.control, tx=tx),
+            expected_previous_authorization_id=None,
+        )
+    executor = Executor(c)
+    with pytest.raises(ContractError) as refused:
+        dispatch_with(c, ledger, executor, Issuer(c, ledger))
+    assert refused.value.code == "invalid_schema"
+    assert executor.calls == 0 and attempts_of(ledger) == []

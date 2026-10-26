@@ -9,7 +9,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import socket
+import subprocess
+import sys
 import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -513,6 +516,49 @@ def test_config_is_strict_private_and_has_no_defaults(
     assert str(tmp_path) not in missing.getvalue()
 
 
+FIFO_PROBE = """
+import sys
+from conscience_foundry.cli.config import (
+    LedgerSettings,
+    load_config,
+    read_input,
+    read_trusted,
+    resolve_dsn,
+)
+from conscience_foundry.contracts.common import ContractError
+
+path = sys.argv[1]
+codes = []
+for attempt in (
+    lambda: read_input(path, 1024),
+    lambda: read_trusted(path, 1024),
+    lambda: load_config(path),
+    lambda: resolve_dsn(LedgerSettings(schema_name="cf_x", dsn_file=path)),
+):
+    try:
+        attempt()
+    except ContractError as error:
+        codes.append(error.code)
+print(",".join(codes))
+"""
+
+
+def test_a_fifo_is_refused_without_blocking(tmp_path: Path) -> None:
+    """Config, DSN and input paths are opened without waiting for a writer to appear."""
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    # A child process, so a blocked open() cannot hang the suite: it is killed at the timeout.
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", FIFO_PROBE, str(fifo)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    expected = "input_unreadable,config_invalid,config_invalid,credential_unavailable"
+    assert done.stdout.strip() == expected
+
+
 def test_config_inside_a_repository_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -698,10 +744,11 @@ def database_env(
 def case_services(
     case: Case, executor: Executor, minted: list[str] | None = None
 ) -> TrustedServices:
-    def grants(plan: Any, plan_ref: Any) -> Any:
+    def grants(plan: Any, attempt: Any, plan_ref: Any) -> Any:
+        assert attempt.state == "dispatching"  # asked only for the claimed, durable attempt
         if minted is not None:
             minted.append(plan_ref.digest)
-        return case.grants()
+        return case.grants(attempt_id=attempt.attempt_id)
 
     return TrustedServices(
         evidence_authority=case.authority,
@@ -808,6 +855,22 @@ def test_prepare_run_needs_a_registered_admission_report(
 
 
 @pytest.mark.database
+def test_prepare_run_rejects_a_plan_file_that_is_not_in_canonical_form(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = Case(tmp_path)
+    register(case, ledger)
+    env = database_env(tmp_path, monkeypatch, ledger, case)
+    services = case_services(case, Executor(case))
+    pretty = json.dumps(json.loads(encoded(case.plan)), indent=2, sort_keys=True)
+    plan = env.input("plan.json", pretty)
+    result = env.invoke("prepare-run", "--plan", plan, "--execute", services=services)
+    # Digests bind the stored bytes everywhere, so only the canonical serialization is accepted.
+    assert result.exit == 1 and result.code == "invalid_schema"
+    assert count(ledger, "runs") == 0
+
+
+@pytest.mark.database
 def test_prepare_run_rejects_a_plan_that_does_not_match_the_registered_admission(
     ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -903,6 +966,7 @@ def test_unknown_outcome_is_failure_and_blocks_a_second_claim(
     second = run.dispatch()  # the unresolved attempt keeps its reservation and blocks new work
     assert second.exit == 3 and second.code == "dispatch_unknown"
     assert run.executor.calls == 1 and count(ledger, "attempts") == 1
+    assert len(run.minted) == 1  # the refused second dispatch minted nothing
 
 
 @pytest.mark.database

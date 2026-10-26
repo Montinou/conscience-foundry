@@ -38,6 +38,12 @@ _CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _TERMINAL: frozenset[AttemptState] = frozenset({"succeeded", "failed", "cancelled"})
 
 
+class RetryIntent(dg.Config):
+    """Per-run operator intent: a run never pays again after a failed attempt by default."""
+
+    retry_after_failure: bool = False
+
+
 @dataclass(frozen=True)
 class PartitionIdentity:
     """The stable scheduling tuple; never an operation, cache or authority identity."""
@@ -225,7 +231,12 @@ def _observe(
 
 
 def _settle(
-    control: ExecutionControl, partition: PartitionIdentity, stage: str, *, may_dispatch: bool
+    control: ExecutionControl,
+    partition: PartitionIdentity,
+    stage: str,
+    *,
+    may_dispatch: bool,
+    retry_after_failure: bool = False,
 ) -> dict[str, str]:
     view = _view(control, partition, stage)
     # Existing attempts are observed first. A reconcile is never a fresh dispatch, so a rerun or
@@ -247,6 +258,10 @@ def _settle(
             raise _fail(stage, "no_attempt" if not view.attempts else "no_verified_result")
         if view.paused:
             raise _fail(stage, "paused")
+        if not retry_after_failure and any(item.state == "failed" for item in view.attempts):
+            # Includes an attempt this very run just reconciled to failed: paying again after a
+            # proven failure is an operator decision, never a side effect of a rerun or backfill.
+            raise _fail(stage, "retry_requires_intent")
         # The ledger repeats every gate (pause, authorization, reservation, concurrency, duplicate
         # risk) inside this call; the view above is only an early, advisory refusal.
         fresh = _guard(stage, lambda: control.dispatch(partition))
@@ -272,25 +287,43 @@ def build_definitions(control: ExecutionControl, config: ProjectConfig) -> dg.De
     def stage_asset(
         name: str,
         deps: tuple[str, ...],
-        body: Callable[[PartitionIdentity], Mapping[str, str]],
+        body: Callable[[PartitionIdentity, bool], Mapping[str, str]],
         description: str,
     ) -> dg.AssetsDefinition:
-        @dg.asset(
-            name=name,
-            deps=list(deps),
-            partitions_def=partitions,
-            group_name=GROUP_NAME,
-            description=description,
-            retry_policy=no_retry if name in PAID_STAGES else None,
-        )
-        def stage(context: dg.AssetExecutionContext) -> dg.MaterializeResult[None]:
-            return dg.MaterializeResult(
-                metadata=dict(body(_partition(context.partition_key, config, name)))
+        project = config  # the asset below takes Dagster's own `config` parameter
+
+        def asset() -> Callable[..., dg.AssetsDefinition]:
+            return dg.asset(
+                name=name,
+                deps=list(deps),
+                partitions_def=partitions,
+                group_name=GROUP_NAME,
+                description=description,
+                retry_policy=no_retry if name in PAID_STAGES else None,
             )
 
-        return stage
+        if name != PROCESSING:
 
-    def admission(partition: PartitionIdentity) -> Mapping[str, str]:
+            @asset()
+            def stage(context: dg.AssetExecutionContext) -> dg.MaterializeResult[None]:
+                return dg.MaterializeResult(
+                    metadata=dict(body(_partition(context.partition_key, config, name), False))
+                )
+
+            return stage
+
+        @asset()
+        def configurable_stage(
+            context: dg.AssetExecutionContext, config: RetryIntent
+        ) -> dg.MaterializeResult[None]:
+            partition = _partition(context.partition_key, project, name)
+            return dg.MaterializeResult(
+                metadata=dict(body(partition, config.retry_after_failure))
+            )
+
+        return configurable_stage
+
+    def admission(partition: PartitionIdentity, _retry: bool) -> Mapping[str, str]:
         view = _guard(ADMISSION, lambda: control.admission(partition))
         if type(view) is not AdmissionView or view.admitted is not True:
             raise _fail(ADMISSION, "not_admitted")
@@ -300,13 +333,19 @@ def build_definitions(control: ExecutionControl, config: ProjectConfig) -> dg.De
             "kf_admission_report_digest": view.admission_report_digest
         }
 
-    def processing(partition: PartitionIdentity) -> Mapping[str, str]:
-        return _settle(control, partition, PROCESSING, may_dispatch=True)
+    def processing(partition: PartitionIdentity, retry_after_failure: bool) -> Mapping[str, str]:
+        return _settle(
+            control,
+            partition,
+            PROCESSING,
+            may_dispatch=True,
+            retry_after_failure=retry_after_failure,
+        )
 
-    def reconciliation(partition: PartitionIdentity) -> Mapping[str, str]:
+    def reconciliation(partition: PartitionIdentity, _retry: bool) -> Mapping[str, str]:
         return _settle(control, partition, RECONCILIATION, may_dispatch=False)
 
-    def release_candidate(partition: PartitionIdentity) -> Mapping[str, str]:
+    def release_candidate(partition: PartitionIdentity, _retry: bool) -> Mapping[str, str]:
         view = _view(control, partition, RELEASE_CANDIDATE)
         record, attempt = _verified(view, partition, RELEASE_CANDIDATE)
         candidate = _guard(RELEASE_CANDIDATE, lambda: control.release_candidate(partition))

@@ -34,9 +34,11 @@ from conscience_foundry.contracts.common import (
     Id,
     Instant,
     PositiveInteger,
+    Ref,
     ScalarString,
     WireModel,
 )
+from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.contracts.project import EFFECT_NAMES, PolicyArtifact
 from conscience_foundry.execution.ports import (
     ControlContext,
@@ -224,7 +226,7 @@ class TrustedServices:
     evidence_authority: EvidenceAuthority | None = None
     release_authority: ReleaseAuthority | None = None
     executor: Executor | None = None
-    transport_grants: Callable[[Any, Any], TransportGrants] | None = None
+    transport_grants: Callable[[ExecutionPlan, StageAttempt, Ref], TransportGrants] | None = None
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
 
@@ -261,7 +263,8 @@ def _bootstrap(size: int) -> ContractLimits:
 
 def _open_regular(path: str | Path, code: str, link: str) -> tuple[int, os.stat_result]:
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        # O_NONBLOCK: opening a FIFO must not wait for a writer before the type check refuses it.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except OSError as error:
         raise ContractError(link if error.errno == errno.ELOOP else code) from None
     try:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -137,11 +137,18 @@ class Instance:
         self.instance = dg.DagsterInstance.ephemeral()
         self.instance.add_dynamic_partitions(PARTITIONS_NAME, list(keys))
 
-    def run(self, defs: dg.Definitions, key: str, *stages: str) -> dg.ExecuteInProcessResult:
+    def run(
+        self,
+        defs: dg.Definitions,
+        key: str,
+        *stages: str,
+        run_config: Mapping[str, Any] | None = None,
+    ) -> dg.ExecuteInProcessResult:
         return dg.materialize(
             [defs.get_assets_def(stage) for stage in stages],
             partition_key=key,
             instance=self.instance,
+            run_config=run_config,
             raise_on_error=False,
         )
 
@@ -180,6 +187,7 @@ class FakeControl:
     held: bool = False
     verify: bool = True
     status_only: bool = False
+    resolve_failed: bool = False
     candidate: bool = True
     stale_selected: OperationResultRecord | None = None
     explode: BaseException | None = None
@@ -223,6 +231,9 @@ class FakeControl:
         self, partition: PartitionIdentity, attempt_id: Id
     ) -> OperationResultRecord | None:
         self.reconciles.append(attempt_id)
+        if self.resolve_failed:
+            self._set(attempt_id, "failed")  # the provider proved the attempt failed
+            return None
         if self.status_only:
             self._set(attempt_id, "succeeded")  # worker said so; nothing verified or selected
             return None
@@ -420,6 +431,26 @@ def test_unresolved_attempt_is_reconciled_and_never_redispatched() -> None:
     # A selected result is re-recorded from the ledger selection, never dispatched again.
     assert instance.run(defs, key, PROCESSING).success
     assert len(control.dispatches) == 1
+
+
+def test_processing_needs_explicit_retry_intent_after_a_failed_attempt() -> None:
+    control, defs, instance = fake_setup()
+    control.resolve_failed = True
+    key = key_for()
+    unknown = AttemptView(str(uuid4()), str(uuid4()), "unknown_outcome")
+    control.attempts[control.operation_key] = [unknown]
+    # The reconcile inside this run proves the earlier attempt failed; paying again is a decision.
+    for _ in range(2):
+        result = instance.run(defs, key, PROCESSING)
+        assert not result.success and failure_codes(result) == ["retry_requires_intent"]
+    assert control.dispatches == [] and control.reconciles == [unknown.attempt_id]
+    # Explicit run configuration is the retry intent; the ledger still repeats every gate.
+    control.resolve_failed = False
+    intent = {"ops": {PROCESSING: {"config": {"retry_after_failure": True}}}}
+    done = instance.run(defs, key, PROCESSING, run_config=intent)
+    assert done.success and len(control.dispatches) == 1
+    # Intent is per run: a failed attempt never turns a later plain rerun into a retry.
+    assert instance.run(defs, key, PROCESSING).success and len(control.dispatches) == 1
 
 
 def test_reconciliation_asset_never_dispatches() -> None:
