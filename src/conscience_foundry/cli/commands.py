@@ -348,6 +348,10 @@ def _prepare_run(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     data, plan = _document(rt, args.plan, ExecutionPlan, "kf.execution-plan.v1")
     _require_operator(rt, plan.project_id, None)
+    if data != encoded(plan):
+        # Plan digests bind the stored bytes in every grant and adapter, which all digest the
+        # canonical serialization: a pretty-printed or reordered file would be refused at dispatch.
+        raise ContractError("invalid_schema")
     ref = _ref(rt, data, "kf.execution-plan.v1")
     control = rt.control
     _install(rt, data, ref)
@@ -433,8 +437,9 @@ def _dispatch(inv: Invocation) -> Outcome:
     _, plan = read_model(plan_ref, ExecutionPlan, control)
     _, authorization = read_model(authorization_ref, RunAuthorization, control)
     _require_operator(rt, plan.project_id, authorization.actor_id)
-    # Effect boundary: transport scope is minted outside the ledger, so the current policy and
-    # the durable pause barriers are read first. The ledger repeats every gate inside dispatch.
+    # Effect boundary: the current policy and the durable pause barriers are read first as an early
+    # refusal. The ledger repeats every gate inside dispatch and asks for transport scope only
+    # after the attempt is reserved and claimed.
     current_policy(control, plan.project_id)
     with rt.ledger.transaction() as tx:
         tx.lock(plan.project_id, plan.run_id)
@@ -443,16 +448,18 @@ def _dispatch(inv: Invocation) -> Outcome:
             or tx.get_pause("run", plan.project_id, plan.run_id).paused
         ):
             raise ContractError("paused")
-    grants = transport(plan, plan_ref)
-    if type(grants) is not TransportGrants:
-        raise ContractError("forbidden")
+
+    def issue(claimed: StageAttempt) -> TransportGrants:
+        # Asked by the ledger only after the attempt is reserved, funded and claimed.
+        return transport(plan, claimed, plan_ref)
+
     attempt = dispatch(
         plan,
         authorization,
         rt.access,
         rt.ledger,
         executor,
-        grants,
+        issue,
         control=control,
         plan_ref=plan_ref,
         authorization_ref=authorization_ref,

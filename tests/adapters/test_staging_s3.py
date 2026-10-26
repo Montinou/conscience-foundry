@@ -541,7 +541,11 @@ def test_no_credentials_or_unreserved_upload() -> None:
     assert grants.output_scope.decode() not in rendered
     (request,) = issuer.requests
     assert request.write_prefix == f"staging/f1/{PROJECT}/attempts/{ATTEMPT_ID}/"
-    assert request.read_keys == (f"staging/f1/{PROJECT}/sha256/{INPUT.digest[:2]}/{INPUT.digest}",)
+    # exact keys of every object the worker reads: input, extraction spec, report and limits
+    refs = (INPUT, plan.extraction_spec_ref, plan.admission_report_ref, *plan.limits_refs)
+    assert request.read_keys == tuple(
+        f"staging/f1/{PROJECT}/sha256/{ref.digest[:2]}/{ref.digest}" for ref in refs
+    )
     assert request.expires_at == grants.expires_at
     assert (request.bucket, request.region) == (BUCKET, "synthetic-region-1")
     assert request.credential_source == "synthetic-source"

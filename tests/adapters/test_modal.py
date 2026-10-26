@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_staging_s3 import CONTEXT, FakeS3, Issuer, make_store
 
 from conscience_foundry.contracts.admission import AdmissionEntry, AdmissionReport
 from conscience_foundry.contracts.canonical import (
@@ -54,6 +55,7 @@ from conscience_foundry.execution.ports import Submission, TransportGrants
 from conscience_foundry.execution.worker import run_worker
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import VerifiedBytes
+from conscience_foundry.storage.staging_s3 import S3StagingStore
 
 PROJECT = "00000000-0000-0000-0000-000000000001"
 SOURCE = "00000000-0000-0000-0000-000000000002"
@@ -502,6 +504,52 @@ def test_untrusted_envelope_is_refused_before_any_effect(case: str) -> None:
     assert scenario.store.log == []
 
 
+def test_staged_worker_stays_inside_the_scope_its_grant_names() -> None:
+    """Every object key the staging store touches for an attempt is covered by the credential."""
+    scenario = build()
+    client = FakeS3()
+    issuer = Issuer()
+    control = make_store(client, issuer=issuer, max_object_bytes=65536, transfer_chunk_bytes=64)
+    pinned = (
+        (scenario.limits_ref, scenario.limits.model_dump_json(by_alias=True).encode()),
+        (scenario.spec_ref, scenario.store.objects[scenario.spec_ref.digest]),
+        (scenario.report_ref, scenario.store.objects[scenario.report_ref.digest]),
+        (scenario.source_ref, SOURCE_BYTES),
+    )
+    for ref, raw in pinned:  # the control side stages every object the worker will read
+        control.put_verified(io.BytesIO(raw), ref, CONTEXT)
+    grants = control.grant_transport(scenario.plan, scenario.attempt, CONTEXT)
+    (request,) = issuer.requests
+    staged = len(client.calls)
+
+    worker_store = control.scoped_to(scenario.plan, scenario.attempt.attempt_id)
+    manifest_ref = run_worker(
+        scenario.plan_bytes, scenario.attempt_bytes, grants, worker_store, StepClock()
+    )
+
+    touched = client.calls[staged:]
+    assert {operation for operation, _ in touched} == {"get", "head", "put"}
+    readable = set(request.read_keys)
+    assert len(readable) == 4  # source, spec, pinned limits and admission report
+    for operation, key in touched:
+        inside_write_scope = key.startswith(request.write_prefix)
+        assert inside_write_scope or (operation == "get" and key in readable), (operation, key)
+    puts = [key for operation, key in touched if operation == "put"]
+    assert puts and all(key.startswith(request.write_prefix) for key in puts)
+    assert {key for operation, key in touched if operation == "get"} >= readable
+    assert grants.output_scope.endswith(request.write_prefix.encode())
+
+    # The control side finds the outputs where the grant said they would be.
+    reader = control.scoped_to(scenario.plan, scenario.attempt.attempt_id)
+    manifest = ResultManifest.from_wire(
+        reader.read_verified(manifest_ref, CONTEXT, manifest_ref.size_bytes).data, scenario.limits
+    )
+    assert manifest.status == "succeeded" and manifest.attempt_id == ATTEMPT
+    for output in manifest.outputs:
+        assert reader.read_verified(output, CONTEXT, output.size_bytes).digest == output.digest
+    assert isinstance(worker_store, S3StagingStore)
+
+
 def test_output_ceiling_is_enforced_before_any_write() -> None:
     # large enough to read every pinned input, too small for the outputs plus the manifest
     scenario = build(resources={"max_output_bytes": 1024})
@@ -510,6 +558,44 @@ def test_output_ceiling_is_enforced_before_any_write() -> None:
     assert over.value.code == "limit_exceeded"
     assert [operation for operation, _ in scenario.store.log] == ["read"] * 4
     assert scenario.store.writes() == []
+
+
+class LateClock(StepClock):
+    """Entry at the start time, every later reading just inside the wall ceiling."""
+
+    def now(self) -> Instant:
+        self.calls += 1
+        return NOW if self.calls == 1 else instant(599.999)
+
+
+def test_manifest_fits_the_ceiling_when_the_transfer_count_gains_a_digit() -> None:
+    """The projected manifest counts the bytes about to be written, not only those already moved."""
+
+    def run(size: int, **resources: Any) -> tuple[Scenario, ArtifactRef]:
+        scenario = build(source=b"a" * size, resources=resources or None)
+        return scenario, execute(scenario, LateClock())
+
+    low, high = 1, 4000  # smallest source whose whole transfer count reaches five digits
+    while low < high:
+        middle = (low + high) // 2
+        probe, ref = run(middle)
+        if read_manifest(probe, ref).usage.transfer_bytes >= 10000:
+            high = middle
+        else:
+            low = middle + 1
+    probe, ref = run(low)
+    manifest = read_manifest(probe, ref)
+    written = sum(output.size_bytes for output in manifest.outputs)
+    assert manifest.usage.transfer_bytes - written < 10000 <= manifest.usage.transfer_bytes
+    ceiling = written + ref.size_bytes  # outputs plus the final, five-digit manifest
+
+    fits, done = run(low, max_output_bytes=ceiling)
+    assert done == ref
+    assert sum(o.size_bytes for o in read_manifest(fits, done).outputs) + done.size_bytes == ceiling
+
+    with pytest.raises(ContractError) as over:
+        run(low, max_output_bytes=ceiling - 1)
+    assert over.value.code == "limit_exceeded"
 
 
 def test_memory_ceiling_bounds_the_working_set() -> None:
@@ -886,6 +972,27 @@ def test_observe_maps_sdk_outcomes_without_inventing_failure_or_absence() -> Non
         ModalPoll("completed", foreign.model_dump_json(by_alias=True, exclude_none=True).encode()),
     )
     assert executor.observe(attempt).state == "unknown_outcome"
+
+
+def test_observe_keeps_a_standing_cancel_request_unless_the_provider_settles_it() -> None:
+    scenario = build()
+    stored = StageAttempt.model_validate(
+        running(scenario).model_dump(by_alias=True, exclude_none=True)
+        | {"state": "cancel_requested"}
+    )
+    for outcome in (
+        ModalPoll("pending"),
+        ModalPoll("timed_out"),
+        ModalPoll("output_expired"),
+        ModalPoll("completed", b"{broken"),
+        TimeoutError("synthetic poll timeout"),
+    ):
+        executor, _, _ = poll_executor(scenario, outcome)
+        assert executor.observe(stored).state == "cancel_requested", outcome
+    executor, _, _ = poll_executor(scenario, ModalPoll("cancelled"))
+    assert executor.observe(stored).state == "cancelled"
+    executor, _, _ = poll_executor(scenario, ModalPoll("remote_error"))
+    assert executor.observe(stored).state == "failed"
 
 
 def test_observe_without_a_call_id_cannot_query_and_reports_unknown() -> None:

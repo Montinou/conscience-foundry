@@ -292,6 +292,7 @@ def run_worker(
         quality_ref: Ref | None,
         completed_at: Instant,
         wall: str,
+        moved: int,
     ) -> ResultManifest:
         return ResultManifest(
             schema_version="kf.result.v1",
@@ -305,7 +306,7 @@ def run_worker(
             errors=errors,
             usage=ResourceUsage(
                 wall_seconds=wall,
-                transfer_bytes=transferred,
+                transfer_bytes=moved,
                 provider_request_ids=(),
                 cost_status="unknown",
                 tariff_ref=plan.budget.tariff_ref,
@@ -325,10 +326,22 @@ def run_worker(
         quality_ref: Ref | None,
         written: int,
     ) -> None:
-        """Refuse before the first write if outputs plus the manifest cannot fit."""
+        """Refuse before the first write if outputs plus the manifest cannot fit.
+
+        The manifest reports the bytes moved by the time it is written, so it is projected with
+        the bytes about to be written already counted: the count may gain a digit by then.
+        """
         size = len(
             _encode(
-                manifest_for(outputs, errors, revision_ref, quality_ref, started, widest_wall),
+                manifest_for(
+                    outputs,
+                    errors,
+                    revision_ref,
+                    quality_ref,
+                    started,
+                    widest_wall,
+                    transferred + written,
+                ),
                 limits,
             )
         )
@@ -349,6 +362,7 @@ def run_worker(
             quality_ref,
             completed,
             _quantity(_parse(completed) - _parse(started)),
+            transferred,
         )
         raw = _encode(manifest, limits)
         manifest_ref = _ref(plan.project_id, raw, "kf.result.v1", _ARTIFACT_MEDIA)

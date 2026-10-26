@@ -9,6 +9,11 @@ This is a transient transfer area, never permanent storage. Trust model:
   (``storage_reserved``) must confirm the funded ``run_storage`` reservation
   before any request that could create a remote object; the worker has no
   database access.
+* Inputs live at shared content-addressed keys; the minted credential reads exactly those keys
+  (every object the worker reads) and writes only under its one attempt prefix. A store bound to
+  an attempt (``scoped_to``) therefore reads declared inputs from the shared keys and reads and
+  writes every other object under that prefix; an unbound store is the control side's, which
+  stages inputs at the shared keys.
 * Objects are content-addressed and created with a conditional (``If-None-Match``)
   write, so an existing key is never overwritten. A timeout or any ambiguous
   response is an unknown outcome, never a proven failure: it is reconciled by
@@ -31,7 +36,7 @@ import hashlib
 import re
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, BinaryIO, Literal, Protocol, cast
 
@@ -39,6 +44,7 @@ from conscience_foundry.contracts.common import (
     MAX_SAFE_INTEGER,
     ArtifactLocation,
     ContractError,
+    Id,
     Instant,
     Ref,
 )
@@ -74,6 +80,9 @@ class S3Client(Protocol):
 class CredentialRequest:
     """What a runtime credential issuer may mint: exact reads, one attempt prefix, one expiry.
 
+    ``read_keys`` name every object the worker reads; ``write_prefix`` is where the worker creates
+    objects and reads them back to verify, so it is the only place output keys may live.
+
     Carries no secret; the issuer resolves ``credential_source`` out of band.
     """
 
@@ -90,6 +99,21 @@ CredentialIssuer = Callable[[CredentialRequest], tuple[bytes, ...]]
 
 StorageReservationGate = Callable[[Ref, AccessContext], bool]
 """Trusted control-side check that a funded run_storage reservation covers the object."""
+
+
+def _attempt_prefix(prefix: str, project_id: str, attempt_id: str) -> str:
+    return f"{prefix}/{project_id}/attempts/{attempt_id}/"
+
+
+def readable_refs(plan: ExecutionPlan) -> tuple[Ref, ...]:
+    """Every object the worker reads for this plan: inputs, spec, admission report and limits."""
+    refs = (
+        *plan.input_refs,
+        plan.extraction_spec_ref,
+        plan.admission_report_ref,
+        *plan.limits_refs,
+    )
+    return tuple({ref.digest: ref for ref in refs}.values())
 
 
 def _positive(value: object) -> int:
@@ -254,6 +278,8 @@ class S3StagingStore:
     storage_reserved: StorageReservationGate = field(repr=False)
     clock: Callable[[], str] = field(repr=False)
     credential_issuer: CredentialIssuer | None = field(default=None, repr=False)
+    attempt_id: Id | None = None
+    declared_inputs: frozenset[str] = field(default=frozenset(), repr=False)
     _unresolved: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -270,6 +296,33 @@ class S3StagingStore:
     def _key(self, ref: Ref) -> str:
         """Derived only from project and digest; ref.locations are untrusted and ignored."""
         return f"{self.config.prefix}/{ref.project_id}/sha256/{ref.digest[:2]}/{ref.digest}"
+
+    def _attempt_key(self, ref: Ref) -> str:
+        """Where an attempt-bound store keeps its own objects: under the credential's prefix."""
+        return (
+            f"{_attempt_prefix(self.config.prefix, ref.project_id, str(self.attempt_id))}"
+            f"sha256/{ref.digest[:2]}/{ref.digest}"
+        )
+
+    def _write_key(self, ref: Ref) -> str:
+        return self._key(ref) if self.attempt_id is None else self._attempt_key(ref)
+
+    def _read_key(self, ref: Ref) -> str:
+        shared = self._key(ref)
+        if self.attempt_id is None or shared in self.declared_inputs:
+            return shared
+        return self._attempt_key(ref)
+
+    def scoped_to(self, plan: ExecutionPlan, attempt_id: Id) -> S3StagingStore:
+        """Bind a view to one attempt: plan inputs read shared, all else under its prefix."""
+        if type(plan) is not ExecutionPlan:
+            raise ContractError("forbidden")
+        _label(attempt_id, _LABEL)
+        return replace(
+            self,
+            attempt_id=attempt_id,
+            declared_inputs=frozenset(self._key(ref) for ref in readable_refs(plan)),
+        )
 
     def _check(self, ref: Ref, context: AccessContext, effect: str) -> None:
         if type(ref) is not Ref or type(context) is not AccessContext:
@@ -305,9 +358,10 @@ class S3StagingStore:
     ) -> TransportGrants:
         """Mint short-lived material scoped to this attempt: exact input reads, one output prefix.
 
-        Only a reserved or dispatching attempt of this plan qualifies, every input
-        object must be covered by a funded storage reservation, and the expiry is
-        the earliest of the configured ttl, the plan expiry and the budget validity.
+        Only a reserved or dispatching attempt of this plan qualifies, every object the
+        worker reads (inputs, extraction spec, admission report and pinned limits) must be
+        covered by a funded storage reservation and is granted by exact key, and the expiry
+        is the earliest of the configured ttl, the plan expiry and the budget validity.
         The attested scope check stays with the control-side evidence authority.
         """
         if (
@@ -327,15 +381,16 @@ class S3StagingStore:
         if self.credential_issuer is None:
             raise ContractError("unsupported_capability")
         expires_at = self._grant_expiry(plan)
-        for ref in plan.input_refs:
+        readable = readable_refs(plan)
+        for ref in readable:
             self._check(ref, context, "read")
             self._reserved(ref, context)
-        prefix = f"{self.config.prefix}/{plan.project_id}/attempts/{attempt.attempt_id}/"
+        prefix = _attempt_prefix(self.config.prefix, plan.project_id, attempt.attempt_id)
         request = CredentialRequest(
             credential_source=self.config.credential_source,
             region=self.config.region,
             bucket=self.config.bucket,
-            read_keys=tuple(self._key(ref) for ref in plan.input_refs),
+            read_keys=tuple(self._key(ref) for ref in readable),
             write_prefix=prefix,
             expires_at=expires_at,
         )
@@ -391,7 +446,7 @@ class S3StagingStore:
         data = _read_exact(
             stream, expected, self.config.max_object_bytes, self.config.transfer_chunk_bytes
         )
-        key = self._key(expected)
+        key = self._write_key(expected)
         if key in self._unresolved:
             raise ContractError("dispatch_unknown")  # reconcile() before any further write
         return self._create(expected, key, data)
@@ -464,7 +519,7 @@ class S3StagingStore:
         """
         self._check(ref, context, "read")
         self._reserved(ref, context)
-        key = self._key(ref)
+        key = self._write_key(ref)
         state = self._reconcile_key(ref, key)
         if state == "unknown":
             raise ContractError("dispatch_unknown")
@@ -493,7 +548,7 @@ class S3StagingStore:
     def open_verified(self, ref: Ref, context: AccessContext) -> BinaryIO:
         """Return an independent private snapshot; caller owns closing the handle."""
         self._check(ref, context, "read")
-        return self._download(ref, self._key(ref))
+        return self._download(ref, self._read_key(ref))
 
     def read_verified(self, ref: Ref, context: AccessContext, limit: int) -> VerifiedBytes:
         if type(limit) is not int or limit <= 0 or limit > MAX_SAFE_INTEGER:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
 from psycopg import sql
@@ -50,6 +50,7 @@ from conscience_foundry.execution.ports import (
     Submission,
     TransportFacts,
     TransportGrants,
+    TransportIssuer,
     TransportProof,
 )
 from conscience_foundry.ledger._budget_inputs import DuplicateRiskAuthorization
@@ -263,13 +264,24 @@ def _grants(
         raise ContractError("authorization_expired")
 
 
+def _mint(issuer: TransportIssuer, attempt: StageAttempt) -> TransportGrants:
+    """Ask the trusted issuer for this exact claimed attempt; anything else is a refusal."""
+    try:
+        minted = issuer(attempt)
+    except Exception:
+        raise ContractError("forbidden") from None
+    if type(minted) is not TransportGrants or minted.attempt_id != attempt.attempt_id:
+        raise ContractError("forbidden")
+    return minted
+
+
 def dispatch(
     plan: ExecutionPlan,
     authorization: RunAuthorization,
     context: AccessContext,
     ledger: Ledger,
     executor: Executor,
-    grants: TransportGrants,
+    grants: TransportGrants | TransportIssuer,
     *,
     control: ControlContext,
     plan_ref: Ref,
@@ -281,22 +293,37 @@ def dispatch(
     if context != control.access:
         raise ContractError("forbidden")
     authorize(control, "dispatch", context.project_id, plan.run_id)
+    # Prepared grants are checked and bound to their own attempt id up front. An issuer is asked
+    # only after the reservation and claim commit, for the attempt id chosen here.
+    prepared = grants if type(grants) is TransportGrants else None
+    if prepared is None and not callable(grants):
+        raise ContractError("forbidden")
+    attempt_id = prepared.attempt_id if prepared is not None else str(uuid4())
     with ledger.transaction() as tx:
         tx.lock(context.project_id, plan.run_id)
         verified = verified_plan(plan_ref, authorization_ref, tx, control, spending=True)
         if verified.model != plan or verified.authorization != authorization:
             raise ContractError("hash_mismatch")
-        _grants(
-            grants, plan, authorization, plan_ref, verified.config.remote_destination_id, control
-        )
+        if verified.data != encoded(plan):
+            # Every adapter digests the canonical serialization; the stored bytes must be those.
+            raise ContractError("invalid_schema")
+        if prepared is not None:
+            _grants(
+                prepared,
+                plan,
+                authorization,
+                plan_ref,
+                verified.config.remote_destination_id,
+                control,
+            )
         existing = tx.connection.execute(
             sql.SQL("SELECT 1 FROM {} WHERE project_id=%s AND attempt_id=%s").format(
                 tx.table("attempts")
             ),
-            (context.project_id, grants.attempt_id),
+            (context.project_id, attempt_id),
         ).fetchone()
         if existing:
-            old, _, old_plan, old_auth = _load(tx, grants.attempt_id, control)
+            old, _, old_plan, old_auth = _load(tx, attempt_id, control)
             if identity(old_plan) != identity(plan_ref) or identity(old_auth) != identity(
                 authorization_ref
             ):
@@ -325,7 +352,7 @@ def dispatch(
                     authorization,
                     plan_ref,
                     authorization_ref,
-                    grants.attempt_id,
+                    attempt_id,
                 ),
             )
         attempt = reserve_attempt(
@@ -341,15 +368,16 @@ def dispatch(
             admission=admission,
             asset_id=asset_id,
             execution_config_bytes=verified.config_bytes,
-            attempt_id=grants.attempt_id,
+            attempt_id=attempt_id,
             duplicate_risk=risk,
         )
         attempt = claim_attempt(tx, attempt, control)
     # The committed claim/reservation precedes every external effect. No DB lock
     # is retained across submit, and an exception is deliberately uncertain.
     try:
+        minted = prepared if prepared is not None else _mint(cast(TransportIssuer, grants), attempt)
         _grants(
-            grants, plan, authorization, plan_ref, verified.config.remote_destination_id, control
+            minted, plan, authorization, plan_ref, verified.config.remote_destination_id, control
         )
     except ContractError:
         # No executor was invoked: local control can prove no submission effect.
@@ -378,7 +406,7 @@ def dispatch(
             append_observation(tx, current, evidence_ref, request, control)
             return current
     try:
-        submission = executor.submit(plan, attempt, grants)
+        submission = executor.submit(plan, attempt, minted)
     except Exception:
         submission = Submission(None, None)
     identified = (

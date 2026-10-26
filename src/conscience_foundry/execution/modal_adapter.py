@@ -206,7 +206,10 @@ class ModalExecutor:
         self, attempt: StageAttempt, *, action: Literal["observe", "cancel"]
     ) -> Observation:
         call_id = attempt.remote_call_id
-        unresolved: AttemptState = "cancel_requested" if action == "cancel" else "unknown_outcome"
+        # A standing cancel request is only settled by the provider reporting the call cancelled
+        # (or ended): every weaker answer keeps the request on record rather than dropping it.
+        standing = action == "cancel" or attempt.state == "cancel_requested"
+        unresolved: AttemptState = "cancel_requested" if standing else "unknown_outcome"
         if not call_id:
             return self._finish(action, attempt, "no_call_id", "unknown_outcome", None)
         try:
@@ -216,7 +219,7 @@ class ModalExecutor:
         if type(poll) is not ModalPoll:
             return self._finish(action, attempt, "unrecognized", unresolved, None)
         if poll.state == "pending":
-            state: AttemptState = "cancel_requested" if action == "cancel" else "running"
+            state: AttemptState = "cancel_requested" if standing else "running"
             return self._finish(action, attempt, poll.state, state, None)
         if poll.state == "cancelled":
             return self._finish(action, attempt, poll.state, "cancelled", None)
