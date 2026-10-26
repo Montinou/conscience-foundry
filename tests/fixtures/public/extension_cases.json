@@ -1,0 +1,626 @@
+{
+  "schemaVersion": "synthetic.extension-cases.v1",
+  "note": "Synthetic public fixtures for common enrichment mechanisms; no model output, provider payload or corpus text.",
+  "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "text": "The committee did not approve the plan. See appendix. See appendix.",
+  "verdicts": {
+    "The committee did not approve the plan.": "supported",
+    "The committee approved the plan.": "disputed",
+    "See appendix.": "supported"
+  },
+  "baseLimits": {
+    "maxRequests": 4,
+    "maxRepairs": 1,
+    "maxTransportAttempts": 4,
+    "maxTransitions": 1,
+    "maxInputTokens": 100,
+    "maxOutputTokens": 100,
+    "maxContextScalars": 50,
+    "deadline": "2026-10-26T01:00:00.000Z"
+  },
+  "responseCases": [
+    {
+      "name": "malformed_non_json",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "raw": "this is not json"
+      },
+      "expect": {
+        "schemaStatus": "invalid",
+        "anchorStatus": "not_run",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "invalid_schema",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "malformed_schema_invalid",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": 7
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "invalid",
+        "anchorStatus": "not_run",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "invalid_schema",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "no_response",
+      "script": {
+        "kind": "lost"
+      },
+      "expect": {
+        "schemaStatus": "not_run",
+        "anchorStatus": "not_run",
+        "semanticStatus": "pending",
+        "disposition": "needs_review",
+        "reasonCode": "result_incomplete",
+        "outcome": "unknown"
+      }
+    },
+    {
+      "name": "invented_quote",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "The committee approved the plan with praise",
+              "claim": "The committee approved the plan.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 0,
+                "end": 42
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "invalid",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "invalid_span",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "stale_revision",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "The committee did not approve the plan",
+              "claim": "The committee did not approve the plan.",
+              "range": {
+                "revisionId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "start": 0,
+                "end": 38
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "invalid",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "revision_mismatch",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "repeated_quote_without_range",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "See appendix.",
+              "claim": "See appendix."
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "invalid",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "invalid_span",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "repeated_quote_wrong_range",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "See appendix.",
+              "claim": "See appendix.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 41,
+                "end": 54
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "invalid",
+        "semanticStatus": "pending",
+        "disposition": "rejected",
+        "reasonCode": "invalid_span",
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "repeated_quote_first_explicit_range",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "See appendix.",
+              "claim": "See appendix.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 40,
+                "end": 53
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "valid",
+        "semanticStatus": "supported",
+        "disposition": "accepted",
+        "reasonCode": null,
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "repeated_quote_second_explicit_range",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "See appendix.",
+              "claim": "See appendix.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 54,
+                "end": 67
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "valid",
+        "semanticStatus": "supported",
+        "disposition": "accepted",
+        "reasonCode": null,
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "unique_quote_resolves_without_range",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "The committee did not approve the plan",
+              "claim": "The committee did not approve the plan."
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "valid",
+        "semanticStatus": "supported",
+        "disposition": "accepted",
+        "reasonCode": null,
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "correct_anchor_reversed_negation",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "The committee did not approve the plan",
+              "claim": "The committee approved the plan.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 0,
+                "end": 38
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "valid",
+        "semanticStatus": "disputed",
+        "disposition": "needs_review",
+        "reasonCode": null,
+        "outcome": "known"
+      }
+    },
+    {
+      "name": "correct_anchor_unreviewed_claim",
+      "script": {
+        "kind": "response",
+        "providerRequestId": "synthetic-req",
+        "json": {
+          "schemaVersion": "synthetic.candidate-annotations.v1",
+          "annotations": [
+            {
+              "quote": "The committee did not approve the plan",
+              "claim": "The committee deferred the plan.",
+              "range": {
+                "revisionId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "start": 0,
+                "end": 38
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "schemaStatus": "valid",
+        "anchorStatus": "valid",
+        "semanticStatus": "insufficient_context",
+        "disposition": "needs_review",
+        "reasonCode": null,
+        "outcome": "known"
+      }
+    }
+  ],
+  "exhaustionCases": [
+    {
+      "name": "max_requests",
+      "limits": {
+        "maxRequests": 2,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        }
+      ],
+      "failAt": 2,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_repairs",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "repair",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "repair",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        }
+      ],
+      "failAt": 2,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "repairs_disabled",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 0,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "repair",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        }
+      ],
+      "failAt": 1,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_transport_attempts",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 2,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        }
+      ],
+      "failAt": 2,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_transitions",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "transition",
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "context": 0
+        },
+        {
+          "kind": "transition",
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "context": 0
+        }
+      ],
+      "failAt": 1,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "transitions_disabled",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 0,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "transition",
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "context": 0
+        }
+      ],
+      "failAt": 0,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_input_tokens",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 30,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 20,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 20,
+          "outputTokens": 10,
+          "context": 5
+        }
+      ],
+      "failAt": 1,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_output_tokens",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 30,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 20,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 20,
+          "context": 5
+        }
+      ],
+      "failAt": 1,
+      "code": "budget_exhausted"
+    },
+    {
+      "name": "max_context_scalars",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 51
+        }
+      ],
+      "failAt": 0,
+      "code": "limit_exceeded"
+    },
+    {
+      "name": "deadline",
+      "limits": {
+        "maxRequests": 4,
+        "maxRepairs": 1,
+        "maxTransportAttempts": 4,
+        "maxTransitions": 1,
+        "maxInputTokens": 100,
+        "maxOutputTokens": 100,
+        "maxContextScalars": 50,
+        "deadline": "2026-10-26T01:00:00.000Z"
+      },
+      "steps": [
+        {
+          "kind": "request",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5
+        },
+        {
+          "kind": "transport",
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "context": 5,
+          "now": "2026-10-26T01:00:00.000Z"
+        }
+      ],
+      "failAt": 1,
+      "code": "authorization_expired"
+    }
+  ]
+}
