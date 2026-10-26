@@ -286,20 +286,43 @@ CREATE TABLE {schema}.releases (
 );
 CREATE TABLE {schema}.publications (
     project_id uuid NOT NULL,
-    publication_id uuid NOT NULL,
+    event_id uuid NOT NULL,
     release_digest text NOT NULL,
+    previous_event_id uuid,
+    stage text NOT NULL CHECK (stage IN ('candidate','validated','transferred',
+        'local_verified','published','retired')),
     publication_ref jsonb NOT NULL,
     actor_id uuid NOT NULL,
     recorded_at timestamptz NOT NULL,
-    PRIMARY KEY (project_id,publication_id),
-    FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases
+    PRIMARY KEY (project_id,event_id),
+    UNIQUE (project_id,release_digest,event_id),
+    FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases,
+    FOREIGN KEY (project_id,release_digest,previous_event_id)
+        REFERENCES {schema}.publications (project_id,release_digest,event_id),
+    CHECK ((stage = 'candidate') = (previous_event_id IS NULL))
 );
+CREATE UNIQUE INDEX one_candidate_per_release ON {schema}.publications (project_id,release_digest)
+    WHERE previous_event_id IS NULL;
+CREATE UNIQUE INDEX one_next_publication ON {schema}.publications
+    (project_id,release_digest,previous_event_id) WHERE previous_event_id IS NOT NULL;
 CREATE TABLE {schema}.active_releases (
     project_id uuid NOT NULL REFERENCES {schema}.projects,
     pointer_id text NOT NULL,
     release_digest text NOT NULL,
     version bigint NOT NULL CHECK (version > 0),
     PRIMARY KEY (project_id,pointer_id),
+    FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases
+);
+CREATE TABLE {schema}.activation_history (
+    project_id uuid NOT NULL REFERENCES {schema}.projects,
+    pointer_id text NOT NULL,
+    version bigint NOT NULL CHECK (version > 0),
+    expected_previous_release_digest text,
+    release_digest text NOT NULL,
+    activation_ref jsonb NOT NULL,
+    actor_id uuid NOT NULL,
+    activated_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id,pointer_id,version),
     FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases
 );
 CREATE TABLE {schema}.pause_state (
