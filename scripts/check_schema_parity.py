@@ -7,9 +7,9 @@ with the Python RFC 8785 package. The Node side (`tests/js/schema_parity.mjs`) v
 instances against the exported JSON Schema 2020-12 files with Ajv and canonicalizes with an
 independently locked RFC 8785 library; it imports no repository code. Fixture expectations are
 authored literals. Shape verdicts must agree; `semantic_invalid` cases are shape-valid for
-JSON Schema and rejected by the trusted semantic checks, and `python_only` cases pin the known
-array-bound gap of the exported schemas (Python rejects, Ajv accepts). Both splits are asserted,
-not hidden.
+JSON Schema and rejected by the trusted semantic checks. Array length bounds are part of the
+exported schemas (`minItems` / `maxItems`), so an out-of-bound array is `shape_invalid`: Python and
+Ajv both reject it. The split is asserted, not hidden.
 
 A missing Node toolchain or locked dependency raises `NodeToolchainBlocked`; it is never skipped
 and never replaced by a Python-only check.
@@ -51,14 +51,11 @@ LIMITS = ContractLimits(
 
 
 # (python accepts, node accepts) per fixture kind. `semantic_invalid` is rejected by trusted
-# semantic checks only. `python_only` pins a known export gap: Python enforces a bound that the
-# exported JSON Schema does not express; once the export is fixed Ajv rejects it too, this check
-# fails and the pin must be retired.
+# semantic checks only.
 EXPECTED_VERDICTS: dict[str, tuple[bool, bool]] = {
     "valid": (True, True),
     "shape_invalid": (False, False),
     "semantic_invalid": (False, True),
-    "python_only": (False, True),
 }
 
 

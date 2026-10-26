@@ -13,13 +13,16 @@ internally consistent. It never starts anything.
 * a separately recorded ``LiveGrant`` names this exact packet digest, this actor, a live window,
   and exactly the ordered commands in the steps document.
 
-The steps' own arguments are bound to that preflighted packet before anything runs: the plan a step
-prepares or dispatches must be the packet's pinned plan (``planDigest``), the dispatch evidence
-reference must be the packet's reviewed estimate (``estimateRef``), and the authorization must be
-one the pilot itself authorizes for that plan and run, within the packet's cap, actor and expiry
-(the dispatched authorization must be that same file). Any other argument is refused before a
-first step runs. These files are read once, here, from operator-private paths; they are not locked
-against a later edit, so they belong in the operator's private directory.
+Three steps have their documents checked against that preflighted packet before anything runs:
+``prepare-run`` must name the packet's pinned plan (``planDigest``); ``authorize-run`` must name a
+RunAuthorization for that plan and run, within the packet's cap, actor and expiry; ``dispatch``
+must name that same plan, that same authorization (it must have been authorized earlier in this
+pilot) and the packet's reviewed estimate (``estimateRef``) as its evidence reference. The other
+steps' arguments are not inspected here: the asset is bound through the plan's ``operation_key``,
+and ``backup`` and ``reconcile`` take only what their own commands and gates accept. These check
+reads and each command's later read of the same operator-owned step files happen separately, by
+path; the files are not locked or pinned between them, so they belong in the operator's private
+directory and a file edited in between is not detected here.
 
 Each step is then run through the same gated ``run_command`` with ``--execute``, so every library
 gate, config grant and adapter requirement of that command still applies. Manual retry and a second

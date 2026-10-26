@@ -228,6 +228,7 @@ def restore(
         manifest.content_refs,
         manifest.audit_refs,
         manifest.pending_attempt_ids,
+        manifest.excluded_release_digests,
     ):
         raise ContractError("hash_mismatch")
     document = _read_snapshot(manifest, context, source)

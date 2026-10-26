@@ -21,13 +21,16 @@ from psycopg import sql
 from test_cli import ALL_GRANTS, Env, database_env
 from test_execution_control import Executor
 from test_import_publication import Library, b_content_reads, build_library, span_of
-from test_ledger_db import ACTOR, PROJECT, TIME
-from test_release_build import B_SOURCE, deny_b, make_case
+from test_ledger_db import ACTOR, ASSET, BATCH, PROJECT, TIME
+from test_release_build import B_SOURCE, approval_request, deny_b, make_case
 
 from conscience_foundry.cli.config import TrustedServices
-from conscience_foundry.contracts.common import ContractError, Ref
+from conscience_foundry.contracts.common import ContractError, Reason, Ref
+from conscience_foundry.contracts.execution import ResultManifest
 from conscience_foundry.contracts.release import RetentionPolicy
+from conscience_foundry.execution.evidence import limits_for
 from conscience_foundry.ledger.allowance import install_allowance_schema
+from conscience_foundry.ledger.attempts import json_ref
 from conscience_foundry.ledger.db import Ledger
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.recovery.backup import (
@@ -45,10 +48,13 @@ from conscience_foundry.recovery.retention import (
     NO_BACKUP,
     NO_BACKUP_STORE,
     NO_LOCAL,
+    OUTPUT_NO_BACKUP,
+    OUTPUT_NO_LOCAL,
     TOO_YOUNG,
     UNRECONCILED,
     retention_report,
 )
+from conscience_foundry.release.build import record_admission_withdrawal
 from conscience_foundry.release.importer import import_release
 from conscience_foundry.release.read import resolve_span
 from conscience_foundry.storage.local import LocalObjectStore
@@ -432,12 +438,110 @@ def test_backup_authority_is_checked_before_anything_is_written(
     with pytest.raises(ContractError) as same:
         backup(lib.access, lib.ledger, store, store, release=lib.value.release)
     assert same.value.code == "forbidden"
-    # Current policy overrides a historical import: a revoked source stops the copy.
-    revoke_a(lib)
-    with pytest.raises(ContractError) as revoked:
-        take(lib, backup_store)
-    assert revoked.value.code == "forbidden"
     assert object_files(tmp_path / "backup") == empty
+    # Current policy overrides a historical import: a revoked source stops its release from being
+    # copied, but never the ledger and audit recovery point (see the exclusion test below).
+    revoke_a(lib)
+    manifest = take(lib, backup_store)
+    assert manifest.excluded_release_digests == (lib.digest,)
+    assert lib.digest not in ref_digests(manifest.content_refs)
+    assert manifest.content_refs == ()
+    # Without audit metadata authority nothing is recorded at all: that stays fail closed.
+    lib.value.case.policy = lib.value.case.policy.model_copy(
+        update={
+            "sources": tuple(
+                source.model_copy(update={"audit_metadata_read": "deny"})
+                for source in lib.value.case.policy.sources
+            )
+        }
+    )
+    with pytest.raises(ContractError) as unaudited:
+        take(lib, backup_store)
+    assert unaudited.value.code == "forbidden"
+
+
+def withdraw_a(lib: Library, reason: Reason) -> None:
+    """The operator's withdrawal of source A's admission, through the production release code."""
+    value, decision = lib.value, str(uuid4())
+    report_ref = value.case.data.report_ref
+    value.authority.allowed.add(
+        (
+            "withdraw_admission",
+            approval_request(
+                {
+                    "projectId": PROJECT,
+                    "batchId": BATCH,
+                    "assetId": ASSET,
+                    "sourceId": value.case.data.report.entries[0].source_id,
+                    "decisionId": decision,
+                    "actorId": ACTOR,
+                    "reason": reason.model_dump(mode="json", by_alias=True),
+                    "decidedAt": TIME,
+                    "evidenceRef": report_ref.model_dump(mode="json", by_alias=True),
+                }
+            ),
+        )
+    )
+    record_admission_withdrawal(
+        BATCH,
+        ASSET,
+        decision,
+        lib.access,
+        lib.ledger,
+        value.release.store,
+        release=value.release,
+        reason=reason,
+        evidence_ref=report_ref,
+    )
+
+
+def hold_operation(lib: Library) -> None:
+    key = lib.value.case.plan.operation_key
+    with lib.ledger.transaction() as tx:
+        tx.lock(PROJECT)
+        tx.connection.execute(
+            sql.SQL("UPDATE {} SET held=true WHERE operation_key=%s").format(
+                tx.table("operations")
+            ),
+            (key,),
+        )
+        tx.connection.execute(
+            sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s)").format(tx.table("integrity_holds")),
+            (
+                PROJECT,
+                str(uuid4()),
+                key,
+                json_ref(lib.value.case.data.report_ref),
+                TIME,
+            ),
+        )
+
+
+@pytest.mark.parametrize("change", ["withdrawal", "hold", "revocation"])
+def test_backup_survives_a_verified_release_that_is_no_longer_eligible(
+    library: Library,
+    target_ledger: Ledger,
+    backup_store: LocalObjectStore,
+    restore_store: LocalObjectStore,
+    change: str,
+) -> None:
+    """D09: backup follows the closure of retained eligible releases, not a permanent refusal."""
+    lib = library
+    verified(lib)
+    if change == "withdrawal":
+        withdraw_a(lib, Reason(code="forbidden", message="Synthetic withdrawal"))
+    elif change == "hold":
+        hold_operation(lib)
+    else:
+        revoke_a(lib)
+    first = take(lib, backup_store)
+    second = take(lib, backup_store)  # not a one-shot success: the next backup works too
+    for manifest in (first, second):
+        assert manifest.excluded_release_digests == (lib.digest,)
+        assert manifest.content_refs == ()
+        assert lib.value.case.data.report_ref.digest in ref_digests(manifest.audit_refs)
+    report = put_back(lib, first, backup_store, restore_store, target_ledger)
+    assert report.missing_refs == () and report.dispatch_blocked
 
 
 @pytest.mark.parametrize("cap", [{"max_array_items": 14}, {"max_json_bytes": 8000}])
@@ -557,8 +661,26 @@ def retention(
     policy: RetentionPolicy = POLICY,
 ) -> Any:
     return retention_report(
-        lib.access, lib.ledger, lib.value.release.store, policy, now, backup=backup_store
+        lib.access,
+        lib.ledger,
+        lib.value.release.store,
+        policy,
+        now,
+        limits=limits_for(lib.value.release, "kf.result.v1"),
+        backup=backup_store,
     )
+
+
+def result_outputs(lib: Library) -> tuple[Ref, ...]:
+    """The outputs the staged result manifest lists, read the way the retention report reads it."""
+    (entry,) = retention(lib, "2026-10-25T00:10:00.000Z").entries
+    raw = lib.value.release.store.read_verified(entry.ref, lib.access, entry.ref.size_bytes).data
+    manifest = ResultManifest.from_wire(raw, limits_for(lib.value.release, "kf.result.v1"))
+    assert {ref.artifact_schema for ref in manifest.outputs} >= {
+        "kf.document-revision.v1",
+        "kf.quality-report.v1",
+    }
+    return manifest.outputs
 
 
 def test_retention_report_is_eligibility_only_and_never_deletes(
@@ -617,6 +739,37 @@ def test_retention_blocks_on_unreconciled_work_and_missing_local_copy(
     pending_attempt(lib)
     unresolved = retention(lib, ready, backup_store).entries
     assert all(UNRECONCILED in entry.reasons and not entry.eligible for entry in unresolved)
+
+
+@pytest.mark.parametrize("position", range(4))
+@pytest.mark.parametrize("where", ["local", "backup"])
+def test_retention_requires_every_result_output_verified_in_both_stores(
+    library: Library, backup_store: LocalObjectStore, tmp_path: Path, where: str, position: int
+) -> None:
+    lib = library
+    verified(lib)
+    take(lib, backup_store)
+    ready = "2026-10-25T00:10:00.000Z"
+    outputs = result_outputs(lib)
+    assert len(outputs) == 4
+    assert all(entry.eligible for entry in retention(lib, ready, backup_store).entries)
+    root = tmp_path / ("objects" if where == "local" else "backup")
+    object_path(root, outputs[position]).unlink()
+    (entry,) = retention(lib, ready, backup_store).entries
+    assert not entry.eligible
+    assert entry.reasons == (OUTPUT_NO_LOCAL if where == "local" else OUTPUT_NO_BACKUP,)
+
+
+def test_retention_keeps_a_result_ineligible_when_its_outputs_were_never_backed_up(
+    library: Library, backup_store: LocalObjectStore
+) -> None:
+    """A backup of a library that was never verified holds the result manifest, not its outputs."""
+    lib = library
+    verified(lib)
+    withdraw_a(lib, Reason(code="forbidden", message="Synthetic withdrawal"))
+    take(lib, backup_store)  # the release is excluded, so no output is copied
+    (entry,) = retention(lib, "2026-10-25T00:10:00.000Z", backup_store).entries
+    assert not entry.eligible and entry.reasons == (OUTPUT_NO_BACKUP,)
 
 
 def test_independent_media_rejects_a_second_directory_on_the_same_device(tmp_path: Path) -> None:

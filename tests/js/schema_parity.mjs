@@ -38,10 +38,9 @@ const fail = (message) => failures.push(message);
 const fixtures = JSON.parse(readFileSync(options.fixtures, 'utf8'));
 
 // Every exported schema in the bundle must compile; the 2020-12 meta-schema is Ajv's own.
-// strictTypes is relaxed on purpose: Pydantic emits minLength/maxLength on some array-valued
-// properties (fields with a before-validator), which Ajv ignores for arrays. Every other strict
-// check stays on. Trusted semantic validators enforce those array bounds; see docs/guide/f1.md.
-const ajv = new Ajv2020({ strict: true, strictTypes: false, allErrors: false });
+// Fully strict, strictTypes included: a bound keyword on the wrong type (for example minLength on
+// an array) fails compilation instead of being ignored.
+const ajv = new Ajv2020({ strict: true, strictTypes: true, allErrors: false });
 const ids = [];
 for (const file of readdirSync(options.bundle).filter((name) => name.endsWith('.schema.json')).sort()) {
   const schema = JSON.parse(readFileSync(path.join(options.bundle, file), 'utf8'));

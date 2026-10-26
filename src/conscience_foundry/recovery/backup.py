@@ -125,6 +125,9 @@ class RecoveryManifest(WireModel):
     ledger_snapshot_ref: Ref
     recovery_point: Instant
     content_refs: Annotated[tuple[Ref, ...], BeforeValidator(_tuple)]
+    # Verified releases that were not eligible at the recovery point (withdrawn, held or no longer
+    # permitted): their content closure is not copied; their ledger and audit records still are.
+    excluded_release_digests: Annotated[tuple[Digest, ...], BeforeValidator(_tuple)] = ()
     audit_refs: Annotated[tuple[Ref, ...], BeforeValidator(_tuple)]
     pending_attempt_ids: Annotated[tuple[Id, ...], BeforeValidator(_tuple)]
     snapshot_digest: Digest
@@ -140,6 +143,8 @@ class RecoveryManifest(WireModel):
             raise ValueError("duplicate reference")
         if list(self.pending_attempt_ids) != sorted(set(self.pending_attempt_ids)):
             raise ValueError("pending attempts must be sorted and unique")
+        if list(self.excluded_release_digests) != sorted(set(self.excluded_release_digests)):
+            raise ValueError("excluded releases must be sorted and unique")
         return self
 
 
@@ -156,6 +161,7 @@ def binding_digest(
     content_refs: Sequence[Ref],
     audit_refs: Sequence[Ref],
     pending_attempt_ids: Sequence[Id],
+    excluded_release_digests: Sequence[Digest] = (),
 ) -> Digest:
     """Digest over identities only: locations are hints and never part of what was captured."""
 
@@ -170,6 +176,7 @@ def binding_digest(
         "content": [ident(ref) for ref in content_refs],
         "audit": [ident(ref) for ref in audit_refs],
         "pending": list(pending_attempt_ids),
+        "excludedReleases": list(excluded_release_digests),
     }
     raw = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(raw.encode("ascii")).hexdigest()
@@ -253,10 +260,20 @@ def _source_ids(tx: LedgerTxn, project_id: Id) -> tuple[str, ...]:
     return tuple(row[0] for row in rows)
 
 
+# Codes that say a release is no longer eligible (withdrawn, held, or its source no longer
+# permitted); any other failure is infrastructure or corruption and still aborts the backup.
+INELIGIBLE_CODES = frozenset({"forbidden", "permission_unknown", "determinism_conflict"})
+
+
 def _verified_closure(
     tx: LedgerTxn, project_id: Id, release: ReleaseContext
-) -> dict[tuple[object, ...], Ref]:
-    """Release manifests and the closure each verified import recorded; nothing else is content."""
+) -> tuple[dict[tuple[object, ...], Ref], tuple[Digest, ...]]:
+    """Release manifests and the closure each eligible verified import recorded.
+
+    Current authority overrides the historical import: a withdrawn, held or no-longer-permitted
+    source is not an eligible release (D09: backup follows retained eligible releases), so its
+    content is not copied and its digest is recorded instead of aborting the whole recovery point.
+    """
     rows = tx.connection.execute(
         sql.SQL(
             "SELECT release_digest FROM {} WHERE project_id=%s AND local_verified "
@@ -265,11 +282,16 @@ def _verified_closure(
         (project_id,),
     ).fetchall()
     content: dict[tuple[object, ...], Ref] = {}
+    excluded: list[Digest] = []
     for (digest,) in rows:
         loaded = load_release(tx, digest, release)
-        # Current authority overrides the historical import: a revoked, held or withdrawn source
-        # stops its release from being copied, and the backup fails closed.
-        require_current(tx, loaded.model.source_entries, release, ("read",))
+        try:
+            require_current(tx, loaded.model.source_entries, release, ("read",))
+        except ContractError as error:
+            if error.code not in INELIGIBLE_CODES:
+                raise
+            excluded.append(digest)
+            continue
         if loaded.row.import_receipt_ref is None:
             raise ContractError("hash_mismatch")
         _, receipt = read_model(loaded.row.import_receipt_ref, ImportReceipt, release)
@@ -279,7 +301,7 @@ def _verified_closure(
             raise ContractError("hash_mismatch")
         for ref in (loaded.row.release_ref, *receipt.verified_artifacts):
             content.setdefault(identity(ref), ref)
-    return content
+    return content, tuple(sorted(excluded))
 
 
 def _audit_refs(
@@ -338,7 +360,7 @@ def backup(
         require_audit(release, policy, _source_ids(tx, project))
         snapshot = _snapshot_document(tx, project, recovery_point)
         pending = pending_attempts(tx, project)
-        content = _verified_closure(tx, project, release)
+        content, excluded = _verified_closure(tx, project, release)
         audit = _audit_refs(tx, project, content)
     snapshot_ref = Ref(
         schema_version="kf.artifact-ref.v1",
@@ -355,10 +377,11 @@ def backup(
         ledger_snapshot_ref=snapshot_ref,
         recovery_point=recovery_point,
         content_refs=content_refs,
+        excluded_release_digests=excluded,
         audit_refs=audit_refs,
         pending_attempt_ids=pending,
         snapshot_digest=binding_digest(
-            project, snapshot_ref, recovery_point, content_refs, audit_refs, pending
+            project, snapshot_ref, recovery_point, content_refs, audit_refs, pending, excluded
         ),
     )
     # The operator restores this manifest under the kf.library-release.v1 limits (no manifest

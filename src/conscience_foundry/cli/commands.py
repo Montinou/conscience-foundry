@@ -67,6 +67,7 @@ from conscience_foundry.execution.evidence import (
     budget_context,
     current_policy,
     encoded,
+    limits_for,
     read_model,
     source_asset,
 )
@@ -801,6 +802,7 @@ def _retention_report(inv: Invocation) -> Outcome:
         rt.store,
         policy,
         rt.clock(),
+        limits=limits_for(rt.release, "kf.result.v1"),
         backup=rt.backup if rt.config.backup_store is not None else None,
     )
     return _ok(

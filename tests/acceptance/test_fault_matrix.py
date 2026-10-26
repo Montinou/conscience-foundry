@@ -1225,11 +1225,13 @@ def a11(h: Harness) -> None:
             PROJECT, ref.digest, base.import_case.STORE_ID, base.import_case.CONSUMER,
             ("canonical_text",),
         )  # fmt: skip
-        with pytest.raises(ContractError):
+        with pytest.raises(ContractError) as stale_read:
             resolve_span(
                 flow.value.release.access, ref.digest, flow.span(source, 0, 9), target,
                 flow.value.release.store, release=flow.value.release, pin=pin,
             )  # fmt: skip
+        # Local verification was cleared by the restore: only a fresh import makes it readable.
+        assert stale_read.value.code == "unavailable"
         assert recovery.release_rows(target) == [(False, None)]
     h.note(
         backup_pending_attempts=1,

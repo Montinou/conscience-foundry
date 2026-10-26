@@ -849,12 +849,12 @@
         "authorizedAt": "2026-01-01T00:00:00.000Z",
         "expiresAt": "2026-01-02T00:00:00.000Z"
       },
-      "note": "control for the pinned array-bound cases"
+      "note": "valid control for the array-bound cases"
     },
     {
       "caseId": "run-authorization-empty-plan-digests",
       "schemaId": "kf.run-authorization.v1",
-      "kind": "python_only",
+      "kind": "shape_invalid",
       "instance": {
         "schemaVersion": "kf.run-authorization.v1",
         "authorizationId": "00000000-0000-4000-8000-000000000011",
@@ -868,7 +868,7 @@
         "authorizedAt": "2026-01-01T00:00:00.000Z",
         "expiresAt": "2026-01-02T00:00:00.000Z"
       },
-      "note": "PIN: export emits minLength on an array, so Ajv accepts an empty array that Python rejects; retire this pin when the generator emits minItems"
+      "note": "array bound: the export carries minItems, so Ajv rejects the empty array exactly as Python does"
     },
     {
       "caseId": "result-valid",
@@ -911,12 +911,12 @@
         },
         "completedAt": "2026-01-01T00:00:00.000Z"
       },
-      "note": "control for the pinned array-bound cases"
+      "note": "valid control for the array-bound cases"
     },
     {
       "caseId": "result-two-input-digests",
       "schemaId": "kf.result.v1",
-      "kind": "python_only",
+      "kind": "shape_invalid",
       "instance": {
         "schemaVersion": "kf.result.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
@@ -955,12 +955,12 @@
         },
         "completedAt": "2026-01-01T00:00:00.000Z"
       },
-      "note": "PIN: export emits maxLength on an array, so Ajv accepts two digests where exactly one is allowed; retire this pin when the generator emits maxItems"
+      "note": "array bound: the export carries maxItems, so Ajv rejects two digests exactly as Python does"
     },
     {
       "caseId": "result-empty-input-digests",
       "schemaId": "kf.result.v1",
-      "kind": "python_only",
+      "kind": "shape_invalid",
       "instance": {
         "schemaVersion": "kf.result.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
@@ -996,7 +996,7 @@
         },
         "completedAt": "2026-01-01T00:00:00.000Z"
       },
-      "note": "PIN: export emits minLength on an array, so Ajv accepts an empty array that Python rejects; retire this pin when the generator emits minItems"
+      "note": "array bound: the export carries minItems, so Ajv rejects the empty array exactly as Python does"
     }
   ],
   "unicodeCases": [
