@@ -54,6 +54,7 @@ from conscience_foundry.contracts.release import (
     ActivationRecord,
     PublicationRecord,
     ReleaseSource,
+    RetentionPolicy,
 )
 from conscience_foundry.execution.control import (
     cancel_attempt,
@@ -77,6 +78,14 @@ from conscience_foundry.ledger.db import (
     PauseState,
     register_admission,
 )
+from conscience_foundry.recovery.backup import (
+    RecoveryManifest,
+    backup,
+    independent_media,
+    manifest_wire,
+)
+from conscience_foundry.recovery.restore import restore
+from conscience_foundry.recovery.retention import retention_report
 from conscience_foundry.release.build import build_release, record_review
 from conscience_foundry.release.importer import import_release
 from conscience_foundry.release.publication import activate, append_publication
@@ -708,6 +717,106 @@ def _read_span(inv: Invocation) -> Outcome:
     )
 
 
+# --- backup / restore / retention report -----------------------------------------------------
+
+
+def _private_output(path: str) -> int:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        return os.open(path, flags, 0o600)
+    except OSError:
+        raise ContractError("unavailable") from None
+
+
+def _backup_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--manifest-output", required=True, help="new private file for the recovery manifest"
+    )
+
+
+def _backup(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    descriptor = _private_output(args.manifest_output)
+    try:
+        manifest = backup(rt.access, rt.ledger, rt.store, rt.backup, release=rt.release)
+        data = manifest_wire(manifest)
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1
+            handle.write(data)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        # Only the empty file this command just created; an existing path was refused above.
+        try:
+            os.unlink(args.manifest_output)
+        except OSError:
+            pass
+        raise
+    settings, destination = rt.config.object_store, rt.config.backup_store
+    assert destination is not None
+    return _ok(
+        manifestDigest=hashlib.sha256(data).hexdigest(),
+        recoveryPoint=manifest.recovery_point,
+        contentRefs=len(manifest.content_refs),
+        auditRefs=len(manifest.audit_refs),
+        pendingAttempts=len(manifest.pending_attempt_ids),
+        # Mechanics only: a different device is necessary for independence, never sufficient.
+        independentMedia=independent_media(Path(settings.root_path), Path(destination.root_path)),
+        independentlyVerified=False,
+    )
+
+
+def _manifest_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", required=True, help="recovery manifest from a backup")
+
+
+def _restore(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    _, manifest = _document(rt, args.manifest, RecoveryManifest, "kf.library-release.v1")
+    report = restore(manifest, rt.access, rt.ledger, rt.backup, rt.store)
+    data = {
+        "verifiedRefs": len(report.verified_refs),
+        "missingRefs": [ref.digest for ref in report.missing_refs],
+        "dispatchBlocked": report.dispatch_blocked,
+        "accessBlocked": report.access_blocked,
+        "reasons": [{"code": reason.code, "message": reason.message} for reason in report.reasons],
+        "independentlyVerified": False,
+    }
+    if report.missing_refs:
+        # The ledger is restored and fenced, but an incomplete recovery is never success.
+        return Outcome("failed", "artifact_missing", data)
+    return Outcome("ok", None, data)
+
+
+def _retention_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--policy", required=True, help="retention policy document")
+
+
+def _retention_report(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    _, policy = _document(rt, args.policy, RetentionPolicy, "kf.retention.v1")
+    report = retention_report(
+        rt.access,
+        rt.ledger,
+        rt.store,
+        policy,
+        rt.clock(),
+        backup=rt.backup if rt.config.backup_store is not None else None,
+    )
+    return _ok(
+        checkedAt=report.checked_at,
+        entries=[
+            {
+                "digest": entry.ref.digest,
+                "eligible": entry.eligible,
+                "reasons": [{"code": r.code, "message": r.message} for r in entry.reasons],
+            }
+            for entry in report.entries
+        ],
+        deleted=0,
+    )
+
+
 # --- registry and dispatch --------------------------------------------------------------------
 
 DATABASE = "database"
@@ -715,6 +824,7 @@ EVIDENCE = "evidence_authority"
 RELEASE_AUTHORITY = "release_authority"
 EXECUTOR = "executor"
 TRANSPORT = "transport_grants"
+BACKUP_STORE = "backup_store"
 
 COMMANDS: tuple[Command, ...] = (
     Command(
@@ -814,6 +924,28 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE,),
         effect=False,
     ),
+    Command(
+        "backup",
+        "copy one consistent recovery point to the configured backup store",
+        _backup_arguments,
+        _backup,
+        (DATABASE, BACKUP_STORE),
+    ),
+    Command(
+        "restore",
+        "recover a backup into an empty project and keep dispatch fenced",
+        _manifest_argument,
+        _restore,
+        (DATABASE, BACKUP_STORE),
+    ),
+    Command(
+        "retention-report",
+        "report cleanup eligibility of staged results; never deletes",
+        _retention_arguments,
+        _retention_report,
+        (DATABASE,),
+        effect=False,
+    ),
 )
 BY_NAME: Mapping[str, Command] = {command.name: command for command in COMMANDS}
 
@@ -830,6 +962,9 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
                 resolve_dsn(runtime.config.ledger)
             except ContractError as error:
                 blockers.append(("database_credential", error.code))
+        elif need == BACKUP_STORE:
+            if runtime.config.backup_store is None:
+                blockers.append((BACKUP_STORE, "config_required"))
         elif getattr(runtime.services, need) is None:
             blockers.append((need, "adapter_unavailable"))
     return blockers
