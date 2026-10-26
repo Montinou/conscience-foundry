@@ -218,3 +218,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Public boundary: imported historical documents and private handoff material are never stageable.
+# Only the owned guide under docs/guide/ is part of the public tree.
+/docs/specs/
+/docs/references/
+/docs/requirements/
+/HANDOFF.md
+/CLAUDE.md
+.DS_Store
+
+# Locked Node tooling is installed from tests/js/package-lock.json, never committed.
+node_modules/
