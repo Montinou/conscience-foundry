@@ -68,6 +68,7 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "activation": frozenset({"activate"}),
         "read": frozenset({"read-span"}),
         "recovery": frozenset({"backup", "restore", "retention-report"}),
+        "pilot": frozenset({"preflight", "run-pilot"}),
     }
 )
 """Each effect class has its own grant list; one never implies another."""
@@ -168,6 +169,7 @@ class Grants(WireModel):
     activation: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
     read: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
     recovery: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
+    pilot: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
 
     @model_validator(mode="after")
     def commands_in_their_own_category(self) -> Self:
@@ -234,6 +236,7 @@ class TrustedServices:
     transport_grants: Callable[[ExecutionPlan, StageAttempt, Ref], TransportGrants] | None = None
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
+    pilot_gates_closed: frozenset[str] = frozenset()
 
 
 class _Refusing:
