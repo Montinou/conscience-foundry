@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "f1.acceptance-cases.v1",
+  "note": "Synthetic, public, offline. Every value below is invented for tests; nothing here is a default, a grant or a live claim.",
+  "denominators": {
+    "specRefs": [
+      "A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08", "A09", "A10", "A11", "A12",
+      "A16", "D05", "D07", "D08", "D09"
+    ],
+    "faultKinds": [
+      "disconnect_after_submit",
+      "lost_database",
+      "late_conflict",
+      "billing_correction",
+      "content_audit_revocation",
+      "partial_transfer",
+      "disk_full",
+      "cancellation_expiry",
+      "shifted_current_permission"
+    ],
+    "deniedOrUnknown": [
+      {"caseId": "D09-audit-metadata-denied", "permission": "deny"},
+      {"caseId": "D09-audit-metadata-unknown", "permission": "unknown"},
+      {"caseId": "D09-partial-release-revoked-source", "permission": "deny"},
+      {"caseId": "A12-pinned-release-and-revocation", "permission": "unknown"},
+      {"caseId": "FAULT-shifted-current-permission", "permission": "unknown"}
+    ],
+    "requiredEvidence": {
+      "D09-audit-metadata-denied": ["coverage_rows_retained=2", "b_content_reads=0"],
+      "D09-audit-metadata-unknown": ["coverage_rows_retained=2", "b_content_reads=0"],
+      "D09-partial-release-revoked-source": [
+        "coverage_rows_retained=2", "b_content_reads=0", "backup_b_content_refs=0"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "caseId": "A01-batch-identity",
+      "specRefs": ["A01"],
+      "faults": [],
+      "summary": "Same batch id with a changed manifest conflicts; the same bytes under two source ids keep two identities"
+    },
+    {
+      "caseId": "A02-hostile-input",
+      "specRefs": ["A02"],
+      "faults": [],
+      "summary": "Symlink, traversal, oversized and mutated sources are blocked without losing an admission row"
+    },
+    {
+      "caseId": "A03-unicode-coordinates",
+      "specRefs": ["A03"],
+      "faults": [],
+      "summary": "CRLF, an astral scalar and a combining mark keep exact bytes; coordinates differ only as specified"
+    },
+    {
+      "caseId": "A04-decode-gates",
+      "specRefs": ["A04", "D09"],
+      "faults": [],
+      "summary": "BOM, invalid UTF-8, NUL and empty are rejected; whitespace-only needs review and never releases"
+    },
+    {
+      "caseId": "A05-explicit-anchors",
+      "specRefs": ["A05"],
+      "faults": [],
+      "summary": "A repeated quote needs an explicit range; stale revisions and out-of-bounds spans are rejected"
+    },
+    {
+      "caseId": "A06-last-allowance-race",
+      "specRefs": ["A06"],
+      "faults": [],
+      "summary": "Concurrent claimants for the last allowance: at most one is admitted and nothing goes negative"
+    },
+    {
+      "caseId": "A07-disconnect-after-submit",
+      "specRefs": ["A07"],
+      "faults": ["disconnect_after_submit"],
+      "summary": "A lost submit response is unknown_outcome, keeps its reservation and is never replayed"
+    },
+    {
+      "caseId": "A08-duplicate-and-conflicting-results",
+      "specRefs": ["A08"],
+      "faults": ["late_conflict"],
+      "summary": "A duplicate result selects once; a conflicting deterministic result blocks acceptance"
+    },
+    {
+      "caseId": "A09-cancellation-and-expiry",
+      "specRefs": ["A09"],
+      "faults": ["cancellation_expiry"],
+      "summary": "Pause and expiry stop new dispatch; cancellation is not assumed free or immediate"
+    },
+    {
+      "caseId": "A10-partial-transfer-and-disk-full",
+      "specRefs": ["A10"],
+      "faults": ["partial_transfer", "disk_full"],
+      "summary": "Partial, full-disk or wrong-hash returns never yield local_verified or move the active generation"
+    },
+    {
+      "caseId": "A11-lost-store-and-ledger",
+      "specRefs": ["A11"],
+      "faults": [],
+      "summary": "A restored backup blocks redispatch until reconciled; cleanup eligibility is report-only"
+    },
+    {
+      "caseId": "A12-pinned-release-and-revocation",
+      "specRefs": ["A12"],
+      "faults": ["content_audit_revocation"],
+      "summary": "A pinned release stays readable while authorized; revocation or unknown permission blocks"
+    },
+    {
+      "caseId": "A16-generic-independence",
+      "specRefs": ["A16"],
+      "faults": [],
+      "summary": "The technical profile works with no consumer or model package; an unknown profile or bridge is refused"
+    },
+    {
+      "caseId": "D05-billing-correction",
+      "specRefs": ["D05"],
+      "faults": ["billing_correction"],
+      "summary": "A corrected bill replaces the effective actual once, by compare-and-swap, without reopening funds"
+    },
+    {
+      "caseId": "D07-late-integrity-hold",
+      "specRefs": ["D07", "A08"],
+      "faults": ["late_conflict"],
+      "summary": "A late conflicting result holds eligibility without rewriting the earlier selected bytes"
+    },
+    {
+      "caseId": "D08-substring-trust-boundary",
+      "specRefs": ["D08"],
+      "faults": [],
+      "summary": "A slice alone is never independent proof; authorized full bytes detect a tampered slice"
+    },
+    {
+      "caseId": "D09-partial-release-revoked-source",
+      "specRefs": ["D09"],
+      "faults": ["content_audit_revocation"],
+      "summary": "A accepted and B revoked: both coverage rows stay and no B content is read by any traversal"
+    },
+    {
+      "caseId": "D09-audit-metadata-denied",
+      "specRefs": ["D09"],
+      "faults": ["content_audit_revocation"],
+      "summary": "Denied audit metadata withholds the release instead of dropping the B row"
+    },
+    {
+      "caseId": "D09-audit-metadata-unknown",
+      "specRefs": ["D09"],
+      "faults": ["content_audit_revocation"],
+      "summary": "Unknown audit metadata fails closed instead of dropping the B row"
+    },
+    {
+      "caseId": "FAULT-database-unavailable",
+      "specRefs": ["D03"],
+      "faults": ["lost_database"],
+      "summary": "A lost ledger connection stops dispatch before any remote call and leaves no stale claim"
+    },
+    {
+      "caseId": "FAULT-shifted-current-permission",
+      "specRefs": ["A12", "D03"],
+      "faults": ["shifted_current_permission"],
+      "summary": "A permission that shifts after authorization is read again before any transport scope is minted"
+    }
+  ],
+  "notRun": [
+    {
+      "caseId": "GATE-f2-bridge",
+      "specRefs": ["A03", "A16"],
+      "reason": "Consumer bridge coordinate conversion and export parity belong to F2"
+    },
+    {
+      "caseId": "GATE-f4-enrichment",
+      "specRefs": ["A05", "A13", "A14"],
+      "reason": "Enrichment anchoring, semantic review and replay belong to F4"
+    },
+    {
+      "caseId": "GATE-line-l",
+      "specRefs": ["A15"],
+      "reason": "Laya baseline and holdout leakage belong to line L"
+    },
+    {
+      "caseId": "GATE-live",
+      "specRefs": ["F1-live"],
+      "reason": "A paid provider round trip and an independent-medium restore need their own authorization"
+    }
+  ],
+  "inputs": {
+    "A03-unicode-coordinates": {
+      "text": "A😀é\r\nB",
+      "scalarLength": 7,
+      "byteLength": 11,
+      "utf16Length": 8,
+      "spans": [
+        {"label": "astral", "start": 1, "end": 2, "bytes": [1, 5], "utf16": [1, 3]},
+        {"label": "combining", "start": 2, "end": 4, "bytes": [5, 8], "utf16": [3, 5]},
+        {"label": "whole", "start": 0, "end": 7, "bytes": [0, 11], "utf16": [0, 8]}
+      ]
+    },
+    "A04-decode-gates": {
+      "rejected": [
+        {"label": "bom", "hex": "efbbbf4142", "code": "bom_rejected"},
+        {"label": "invalid_utf8", "hex": "41c328", "code": "invalid_encoding"},
+        {"label": "nul", "hex": "410042", "code": "nul_rejected"},
+        {"label": "empty", "hex": "", "code": "empty_text"}
+      ],
+      "needsReview": {"label": "whitespace_only", "hex": "20090a0ac2a0e28083"}
+    },
+    "A05-explicit-anchors": {
+      "text": "alpha beta alpha",
+      "quote": "alpha",
+      "ranges": [
+        {"start": 0, "end": 5, "valid": true},
+        {"start": 11, "end": 16, "valid": true},
+        {"start": 6, "end": 11, "valid": false},
+        {"start": 0, "end": 99, "valid": false}
+      ]
+    }
+  }
+}
