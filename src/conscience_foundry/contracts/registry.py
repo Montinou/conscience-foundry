@@ -216,9 +216,34 @@ def _json_bytes(value: object) -> bytes:
     )
 
 
+_ARRAY_BOUNDS = {"minLength": "minItems", "maxLength": "maxItems"}
+
+
+def _array_bounds(node: object) -> None:
+    """Express array length bounds as `minItems`/`maxItems`, in place, anywhere in the schema.
+
+    Pydantic puts a field's `min_length`/`max_length` on an array whose type is wrapped by a
+    before-validator as `minLength`/`maxLength`, which JSON Schema applies to strings only, so an
+    independent validator would not enforce the bound the Python contract does.
+    """
+    if isinstance(node, dict):
+        if node.get("type") == "array":
+            for wrong, right in _ARRAY_BOUNDS.items():
+                if wrong in node:
+                    if right in node:
+                        raise ContractError("invalid_schema")
+                    node[right] = node.pop(wrong)
+        for child in node.values():
+            _array_bounds(child)
+    elif isinstance(node, list):
+        for child in node:
+            _array_bounds(child)
+
+
 def _schema_bytes(schema_id: str) -> bytes:
     if schema_id in SCHEMA_MODELS:
         schema = SCHEMA_MODELS[schema_id].model_json_schema(by_alias=True)
+        _array_bounds(schema)
     elif schema_id in RAW_SCHEMA_IDS:
         schema = {"$schema": JSON_SCHEMA_URI, "not": {}}
     elif schema_id == JSON_SCHEMA_ID:

@@ -291,7 +291,7 @@ def test_cross_language_schema_and_unicode_fixtures() -> None:
     python = parity.python_report(fixtures)
     node = parity.node_report(BUNDLE, FIXTURES)
     kinds = {case["kind"] for case in fixtures["shapeCases"]}
-    assert kinds == {"valid", "shape_invalid", "semantic_invalid", "python_only"}
+    assert kinds == {"valid", "shape_invalid", "semantic_invalid"}
     # The independent validator compiled every exported schema in the bundle.
     assert node["compiledSchemas"] == sorted(registered_schema_ids())
     for case in fixtures["shapeCases"]:
@@ -301,7 +301,7 @@ def test_cross_language_schema_and_unicode_fixtures() -> None:
             assert (py, js) == (True, True), cid
         elif case["kind"] == "shape_invalid":
             assert (py, js) == (False, False), cid
-        else:  # semantic checks and pinned export gaps stay separate from JSON Schema shape
+        else:  # semantic checks stay separate from JSON Schema shape
             assert (py, js) == (False, True), cid
     for case in fixtures["unicodeCases"]:
         cid = case["caseId"]
@@ -476,59 +476,65 @@ def test_public_guide_and_readme_are_agnostic() -> None:
     assert "No product implementation" not in readme
 
 
-def exported_array_bound_keywords(schema_id: str) -> set[str]:
-    """Bound keywords the export attaches to array-typed properties, anywhere in the schema."""
+def array_nodes(schema_id: str) -> list[tuple[str, dict[str, Any]]]:
+    """Every array-typed node of one exported schema, with its JSON pointer."""
     schema = json.loads((BUNDLE / f"{schema_id}.schema.json").read_text(encoding="utf-8"))
-    found: set[str] = set()
+    found: list[tuple[str, dict[str, Any]]] = []
 
-    def walk(node: Any) -> None:
+    def walk(node: Any, path: str) -> None:
         if isinstance(node, dict):
             if node.get("type") == "array":
-                found.update(key for key in node if key in {"minLength", "maxLength"})
-                found.update(key for key in node if key in {"minItems", "maxItems"})
-            for value in node.values():
-                walk(value)
+                found.append((path, node))
+            for key, value in node.items():
+                walk(value, f"{path}/{key}")
         elif isinstance(node, list):
-            for value in node:
-                walk(value)
+            for index, value in enumerate(node):
+                walk(value, f"{path}/{index}")
 
-    walk(schema)
+    walk(schema, "")
     return found
 
 
-def test_array_bound_divergence_is_pinned_and_asserted() -> None:
+def test_exported_schemas_express_array_bounds_as_items_keywords() -> None:
+    """The Pydantic source is the contract: its array bounds reach every non-Python consumer."""
+    for schema_id in registered_schema_ids():
+        for path, node in array_nodes(schema_id):
+            assert not node.keys() & {"minLength", "maxLength"}, f"{schema_id}{path}"
+    plan = dict(array_nodes("kf.run-authorization.v1"))["/properties/allowedPlanDigests"]
+    assert plan["minItems"] == 1
+    result = dict(array_nodes("kf.result.v1"))["/properties/inputDigests"]
+    assert (result["minItems"], result["maxItems"]) == (1, 1)
+    # The array-bound cases are plain shape failures now: the independent validator rejects them.
     parity = load_script("check_schema_parity")
     fixtures = fixture_data()
-    pinned = [case for case in fixtures["shapeCases"] if case["kind"] == "python_only"]
-    # Empty and over-length arrays on schemas that carry the known export gap.
-    assert {case["caseId"] for case in pinned} >= {
+    node_report = parity.node_report(BUNDLE, FIXTURES)
+    cases = {
         "run-authorization-empty-plan-digests",
         "result-empty-input-digests",
         "result-two-input-digests",
     }
-    python = parity.python_report(fixtures)
-    node = parity.node_report(BUNDLE, FIXTURES)
-    for case in pinned:
-        cid = case["caseId"]
-        # Python enforces the bound; Ajv, given only the exported schema, does not.
-        assert (python["shape"][cid], node["shape"][cid]) == (False, True), cid
-        keywords = exported_array_bound_keywords(case["schemaId"])
-        assert keywords & {"minLength", "maxLength"}, f"{cid}: divergence pin is stale"
-        assert not keywords & {"minItems", "maxItems"}, f"{cid}: retire the pin"
-    # Each pin has a valid control on the same schema, so the divergence is the array bound alone.
-    for case in pinned:
-        assert any(
-            other["kind"] == "valid" and other["schemaId"] == case["schemaId"]
-            for other in fixtures["shapeCases"]
-        ), case["caseId"]
-    guide = (ROOT / "docs" / "guide" / "f1.md").read_text(encoding="utf-8")
-    assert "python_only" in guide
+    by_id = {case["caseId"]: case for case in fixtures["shapeCases"]}
+    for cid in cases:
+        assert by_id[cid]["kind"] == "shape_invalid", cid
+        assert node_report["shape"][cid] is False, cid
 
 
-def test_parity_checker_flags_a_retired_or_unknown_pin(tmp_path: Path) -> None:
+def test_generator_emits_items_bounds_for_before_validated_arrays() -> None:
+    from conscience_foundry.contracts.registry import _array_bounds
+
+    schema: dict[str, Any] = {
+        "properties": {"a": {"type": "array", "minLength": 1, "maxLength": 2, "items": {}}},
+        "$defs": {"B": {"properties": {"s": {"type": "string", "minLength": 3}}}},
+    }
+    _array_bounds(schema)
+    assert schema["properties"]["a"] == {"type": "array", "minItems": 1, "maxItems": 2, "items": {}}
+    assert schema["$defs"]["B"]["properties"]["s"]["minLength"] == 3  # strings keep theirs
+
+
+def test_parity_checker_flags_a_retired_or_unknown_kind(tmp_path: Path) -> None:
     parity = load_script("check_schema_parity")
     fixtures = fixture_data()
-    # A python_only case that Python accepts is a stale pin, not a pass.
+    # The retired python_only kind is no longer a known verdict pair, whatever the instance does.
     stale = json.loads(json.dumps(fixtures))
     control = next(c for c in stale["shapeCases"] if c["caseId"] == "run-authorization-valid")
     control["kind"] = "python_only"
