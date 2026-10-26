@@ -1,0 +1,17 @@
+{
+  "name": "conscience-foundry-schema-parity",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Independent JSON Schema 2020-12 and RFC 8785 parity checks for exported contracts",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "parity": "node schema_parity.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "canonicalize": "5.1.0"
+  }
+}

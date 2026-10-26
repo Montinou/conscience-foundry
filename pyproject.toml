@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "conscience-foundry"
 version = "0.1.0"
 description = "Independent contracts and processing for verified text artifacts"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "psycopg[binary]>=3,<4",
@@ -21,6 +24,10 @@ orchestration = ["dagster>=1.13,<1.14"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2", "dagster>=1.13,<1.14"]
+
+[tool.setuptools]
+# Ship only the listed package data; no VCS or manifest-driven extras enter a distribution.
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]

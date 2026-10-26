@@ -1,0 +1,1231 @@
+{
+  "schemaVersion": "f1.schema-parity.v1",
+  "note": "Synthetic, public and offline. Expected canonical text and digests are authored literals, not produced by either canonicalizer.",
+  "shapeCases": [
+    {
+      "caseId": "span-valid",
+      "schemaId": "kf.document-span.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 0,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "minimal valid span"
+    },
+    {
+      "caseId": "span-unknown-field",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 0,
+        "end": 5,
+        "offsetUnit": "unicode_scalar",
+        "extra": 1
+      },
+      "note": "additionalProperties false"
+    },
+    {
+      "caseId": "span-string-integer",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 0,
+        "end": "5",
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "no string-to-integer coercion"
+    },
+    {
+      "caseId": "span-null-required",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": null,
+        "start": 0,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "required fields reject null"
+    },
+    {
+      "caseId": "span-integer-above-safe",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 9007199254740992,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "2^53 is outside 0..2^53-1"
+    },
+    {
+      "caseId": "span-negative-integer",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": -1,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "negative offset"
+    },
+    {
+      "caseId": "span-fractional-number",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 1.5,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "floating numbers are not wire integers"
+    },
+    {
+      "caseId": "span-missing-required",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 0,
+        "end": 5
+      },
+      "note": "missing required field"
+    },
+    {
+      "caseId": "span-wrong-const",
+      "schemaId": "kf.document-span.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v2",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 0,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "schema version const"
+    },
+    {
+      "caseId": "span-max-safe-integer",
+      "schemaId": "kf.document-span.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 9007199254740990,
+        "end": 9007199254740991,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "upper safe bound accepted"
+    },
+    {
+      "caseId": "span-empty-range",
+      "schemaId": "kf.document-span.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "body",
+        "start": 3,
+        "end": 3,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "nonempty span is a model validator, not JSON Schema"
+    },
+    {
+      "caseId": "span-lone-surrogate-section",
+      "schemaId": "kf.document-span.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-span.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sectionId": "\ud800",
+        "start": 0,
+        "end": 5,
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "scalar-only strings are a trusted-code check"
+    },
+    {
+      "caseId": "quality-valid",
+      "schemaId": "kf.quality-report.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.quality-report.v1",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "checks": [
+          {
+            "checkId": "hash",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "encoding",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "nonempty",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "no_NUL",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "no_BOM",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "bounds",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "identity_mapping",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "non_whitespace",
+            "outcome": "pass"
+          }
+        ],
+        "disposition": "valid"
+      },
+      "note": "all mandatory checks pass"
+    },
+    {
+      "caseId": "quality-valid-with-failed-check",
+      "schemaId": "kf.quality-report.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.quality-report.v1",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "checks": [
+          {
+            "checkId": "hash",
+            "outcome": "fail"
+          },
+          {
+            "checkId": "encoding",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "nonempty",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "no_NUL",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "no_BOM",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "bounds",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "identity_mapping",
+            "outcome": "pass"
+          },
+          {
+            "checkId": "non_whitespace",
+            "outcome": "pass"
+          }
+        ],
+        "disposition": "valid"
+      },
+      "note": "cross-field disposition rule"
+    },
+    {
+      "caseId": "origin-map-valid",
+      "schemaId": "kf.origin-map.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.origin-map.v1",
+        "kind": "identity_utf8",
+        "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "textDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "identity mapping"
+    },
+    {
+      "caseId": "origin-map-unequal-digests",
+      "schemaId": "kf.origin-map.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.origin-map.v1",
+        "kind": "identity_utf8",
+        "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "textDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "identity needs equal digests"
+    },
+    {
+      "caseId": "origin-map-short-digest",
+      "schemaId": "kf.origin-map.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.origin-map.v1",
+        "kind": "identity_utf8",
+        "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "textDigest": "abc",
+        "offsetUnit": "unicode_scalar"
+      },
+      "note": "digest pattern"
+    },
+    {
+      "caseId": "money-valid",
+      "schemaId": "kf.billing-adjustment.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.billing-adjustment.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000003",
+        "reservationId": "00000000-0000-4000-8000-000000000004",
+        "adjustmentId": "00000000-0000-4000-8000-000000000005",
+        "settlementEventId": "00000000-0000-4000-8000-000000000006",
+        "expectedPriorActualUsd": "1.00",
+        "revisedActualUsd": "1.250000000",
+        "evidenceRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.result.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "decimal strings with up to nine fractional digits"
+    },
+    {
+      "caseId": "money-ten-fraction-digits",
+      "schemaId": "kf.billing-adjustment.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.billing-adjustment.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000003",
+        "reservationId": "00000000-0000-4000-8000-000000000004",
+        "adjustmentId": "00000000-0000-4000-8000-000000000005",
+        "settlementEventId": "00000000-0000-4000-8000-000000000006",
+        "expectedPriorActualUsd": "1.00",
+        "revisedActualUsd": "0.1234567890",
+        "evidenceRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.result.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "more than nine fractional digits"
+    },
+    {
+      "caseId": "money-negative",
+      "schemaId": "kf.billing-adjustment.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.billing-adjustment.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000003",
+        "reservationId": "00000000-0000-4000-8000-000000000004",
+        "adjustmentId": "00000000-0000-4000-8000-000000000005",
+        "settlementEventId": "00000000-0000-4000-8000-000000000006",
+        "expectedPriorActualUsd": "1.00",
+        "revisedActualUsd": "-1.00",
+        "evidenceRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.result.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "money is nonnegative"
+    },
+    {
+      "caseId": "money-json-number",
+      "schemaId": "kf.billing-adjustment.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.billing-adjustment.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000003",
+        "reservationId": "00000000-0000-4000-8000-000000000004",
+        "adjustmentId": "00000000-0000-4000-8000-000000000005",
+        "settlementEventId": "00000000-0000-4000-8000-000000000006",
+        "expectedPriorActualUsd": "1.00",
+        "revisedActualUsd": 1,
+        "evidenceRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.result.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "money is a string, never a number"
+    },
+    {
+      "caseId": "money-cross-project-evidence",
+      "schemaId": "kf.billing-adjustment.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.billing-adjustment.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000003",
+        "reservationId": "00000000-0000-4000-8000-000000000004",
+        "adjustmentId": "00000000-0000-4000-8000-000000000005",
+        "settlementEventId": "00000000-0000-4000-8000-000000000006",
+        "expectedPriorActualUsd": "1.00",
+        "revisedActualUsd": "1.250000000",
+        "evidenceRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-0000000000ff",
+          "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.result.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "project binding is semantic"
+    },
+    {
+      "caseId": "limits-valid-max-safe",
+      "schemaId": "kf.contract-limits.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.contract-limits.v1",
+        "version": "synthetic.v1",
+        "maxJsonBytes": 9007199254740991,
+        "maxStringScalars": 1000,
+        "maxArrayItems": 1000,
+        "maxDepth": 16,
+        "maxManifestItems": 100,
+        "maxSourceBytes": 1000000,
+        "maxOutputBytes": 1000000,
+        "maxErrorMessageScalars": 200
+      },
+      "note": "finite pinned limits at the safe bound"
+    },
+    {
+      "caseId": "limits-zero",
+      "schemaId": "kf.contract-limits.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.contract-limits.v1",
+        "version": "synthetic.v1",
+        "maxJsonBytes": 9007199254740991,
+        "maxStringScalars": 1000,
+        "maxArrayItems": 1000,
+        "maxDepth": 0,
+        "maxManifestItems": 100,
+        "maxSourceBytes": 1000000,
+        "maxOutputBytes": 1000000,
+        "maxErrorMessageScalars": 200
+      },
+      "note": "limits are positive"
+    },
+    {
+      "caseId": "artifact-ref-valid",
+      "schemaId": "kf.artifact-ref.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.artifact-ref.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "sizeBytes": 12,
+        "mediaType": "application/json",
+        "artifactSchema": "kf.result.v1",
+        "locations": [
+          {
+            "storeId": "synthetic-store",
+            "objectKey": "sha256/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        ]
+      },
+      "note": "reference without grants"
+    },
+    {
+      "caseId": "artifact-ref-empty-locations-key",
+      "schemaId": "kf.artifact-ref.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.artifact-ref.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "sizeBytes": 12,
+        "mediaType": "application/json",
+        "artifactSchema": "kf.result.v1",
+        "locations": [
+          {
+            "storeId": "s"
+          }
+        ]
+      },
+      "note": "location requires objectKey"
+    },
+    {
+      "caseId": "revision-valid",
+      "schemaId": "kf.document-revision.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.document-revision.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "assetId": "00000000-0000-4000-8000-000000000003",
+        "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "originalRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.raw-original.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "textRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.canonical-text.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "extractionSpecRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.extraction-spec.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ]
+        },
+        "textEncoding": "utf-8",
+        "offsetUnit": "unicode_scalar",
+        "sections": [
+          {
+            "sectionId": "body",
+            "start": 0,
+            "end": 5
+          }
+        ],
+        "originMapRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.origin-map.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/3333333333333333333333333333333333333333333333333333333333333333"
+            }
+          ]
+        },
+        "qualityReportRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.quality-report.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/4444444444444444444444444444444444444444444444444444444444444444"
+            }
+          ]
+        }
+      },
+      "note": "single body section"
+    },
+    {
+      "caseId": "revision-null-optional",
+      "schemaId": "kf.document-revision.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-revision.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "assetId": "00000000-0000-4000-8000-000000000003",
+        "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "originalRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.raw-original.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "textRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.canonical-text.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "extractionSpecRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.extraction-spec.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ]
+        },
+        "textEncoding": "utf-8",
+        "offsetUnit": "unicode_scalar",
+        "sections": [
+          {
+            "sectionId": "body",
+            "start": 0,
+            "end": 5,
+            "heading": null
+          }
+        ],
+        "originMapRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.origin-map.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/3333333333333333333333333333333333333333333333333333333333333333"
+            }
+          ]
+        },
+        "qualityReportRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.quality-report.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/4444444444444444444444444444444444444444444444444444444444444444"
+            }
+          ]
+        }
+      },
+      "note": "optional values are omitted, not null"
+    },
+    {
+      "caseId": "revision-reversed-section",
+      "schemaId": "kf.document-revision.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "kf.document-revision.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "assetId": "00000000-0000-4000-8000-000000000003",
+        "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "originalRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.raw-original.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "textRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "sizeBytes": 12,
+          "mediaType": "text/plain",
+          "artifactSchema": "kf.canonical-text.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ]
+        },
+        "extractionSpecRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.extraction-spec.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ]
+        },
+        "textEncoding": "utf-8",
+        "offsetUnit": "unicode_scalar",
+        "sections": [
+          {
+            "sectionId": "body",
+            "start": 5,
+            "end": 0
+          }
+        ],
+        "originMapRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.origin-map.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/3333333333333333333333333333333333333333333333333333333333333333"
+            }
+          ]
+        },
+        "qualityReportRef": {
+          "schemaVersion": "kf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+          "sizeBytes": 12,
+          "mediaType": "application/json",
+          "artifactSchema": "kf.quality-report.v1",
+          "locations": [
+            {
+              "storeId": "synthetic-store",
+              "objectKey": "sha256/4444444444444444444444444444444444444444444444444444444444444444"
+            }
+          ]
+        }
+      },
+      "note": "ordering is a model validator"
+    },
+    {
+      "caseId": "run-authorization-valid",
+      "schemaId": "kf.run-authorization.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.run-authorization.v1",
+        "authorizationId": "00000000-0000-4000-8000-000000000011",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000012",
+        "admissionReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "allowedPlanDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "maxRunCost": "1.5",
+        "maxConcurrentAttempts": 1,
+        "actorId": "00000000-0000-4000-8000-000000000013",
+        "authorizedAt": "2026-01-01T00:00:00.000Z",
+        "expiresAt": "2026-01-02T00:00:00.000Z"
+      },
+      "note": "control for the pinned array-bound cases"
+    },
+    {
+      "caseId": "run-authorization-empty-plan-digests",
+      "schemaId": "kf.run-authorization.v1",
+      "kind": "python_only",
+      "instance": {
+        "schemaVersion": "kf.run-authorization.v1",
+        "authorizationId": "00000000-0000-4000-8000-000000000011",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "runId": "00000000-0000-4000-8000-000000000012",
+        "admissionReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "allowedPlanDigests": [],
+        "maxRunCost": "1.5",
+        "maxConcurrentAttempts": 1,
+        "actorId": "00000000-0000-4000-8000-000000000013",
+        "authorizedAt": "2026-01-01T00:00:00.000Z",
+        "expiresAt": "2026-01-02T00:00:00.000Z"
+      },
+      "note": "PIN: export emits minLength on an array, so Ajv accepts an empty array that Python rejects; retire this pin when the generator emits minItems"
+    },
+    {
+      "caseId": "result-valid",
+      "schemaId": "kf.result.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "kf.result.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "planId": "00000000-0000-4000-8000-000000000014",
+        "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "attemptId": "00000000-0000-4000-8000-000000000015",
+        "inputDigests": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "status": "failed",
+        "outputs": [],
+        "errors": [
+          {
+            "code": "remote_failed",
+            "message": "synthetic failure"
+          }
+        ],
+        "usage": {
+          "providerRequestIds": [],
+          "costStatus": "unknown",
+          "tariffRef": {
+            "schemaVersion": "kf.artifact-ref.v1",
+            "projectId": "00000000-0000-4000-8000-000000000001",
+            "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "sizeBytes": 12,
+            "mediaType": "application/json",
+            "artifactSchema": "kf.result.v1",
+            "locations": [
+              {
+                "storeId": "synthetic-store",
+                "objectKey": "sha256/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              }
+            ]
+          }
+        },
+        "completedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "control for the pinned array-bound cases"
+    },
+    {
+      "caseId": "result-two-input-digests",
+      "schemaId": "kf.result.v1",
+      "kind": "python_only",
+      "instance": {
+        "schemaVersion": "kf.result.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "planId": "00000000-0000-4000-8000-000000000014",
+        "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "attemptId": "00000000-0000-4000-8000-000000000015",
+        "inputDigests": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "status": "failed",
+        "outputs": [],
+        "errors": [
+          {
+            "code": "remote_failed",
+            "message": "synthetic failure"
+          }
+        ],
+        "usage": {
+          "providerRequestIds": [],
+          "costStatus": "unknown",
+          "tariffRef": {
+            "schemaVersion": "kf.artifact-ref.v1",
+            "projectId": "00000000-0000-4000-8000-000000000001",
+            "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "sizeBytes": 12,
+            "mediaType": "application/json",
+            "artifactSchema": "kf.result.v1",
+            "locations": [
+              {
+                "storeId": "synthetic-store",
+                "objectKey": "sha256/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              }
+            ]
+          }
+        },
+        "completedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "PIN: export emits maxLength on an array, so Ajv accepts two digests where exactly one is allowed; retire this pin when the generator emits maxItems"
+    },
+    {
+      "caseId": "result-empty-input-digests",
+      "schemaId": "kf.result.v1",
+      "kind": "python_only",
+      "instance": {
+        "schemaVersion": "kf.result.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "planId": "00000000-0000-4000-8000-000000000014",
+        "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "attemptId": "00000000-0000-4000-8000-000000000015",
+        "inputDigests": [],
+        "status": "failed",
+        "outputs": [],
+        "errors": [
+          {
+            "code": "remote_failed",
+            "message": "synthetic failure"
+          }
+        ],
+        "usage": {
+          "providerRequestIds": [],
+          "costStatus": "unknown",
+          "tariffRef": {
+            "schemaVersion": "kf.artifact-ref.v1",
+            "projectId": "00000000-0000-4000-8000-000000000001",
+            "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "sizeBytes": 12,
+            "mediaType": "application/json",
+            "artifactSchema": "kf.result.v1",
+            "locations": [
+              {
+                "storeId": "synthetic-store",
+                "objectKey": "sha256/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              }
+            ]
+          }
+        },
+        "completedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "note": "PIN: export emits minLength on an array, so Ajv accepts an empty array that Python rejects; retire this pin when the generator emits minItems"
+    }
+  ],
+  "unicodeCases": [
+    {
+      "caseId": "astral-scalar",
+      "text": "A\ud800\udc00B",
+      "wellFormed": true,
+      "scalarLength": 3,
+      "utf16Length": 4,
+      "utf8Hex": "41f090808042"
+    },
+    {
+      "caseId": "private-use",
+      "text": "\ue000",
+      "wellFormed": true,
+      "scalarLength": 1,
+      "utf16Length": 1,
+      "utf8Hex": "ee8080"
+    },
+    {
+      "caseId": "crlf-preserved",
+      "text": "a\r\nb",
+      "wellFormed": true,
+      "scalarLength": 4,
+      "utf16Length": 4,
+      "utf8Hex": "610d0a62"
+    },
+    {
+      "caseId": "composed",
+      "text": "\u00e9",
+      "wellFormed": true,
+      "scalarLength": 1,
+      "utf16Length": 1,
+      "utf8Hex": "c3a9"
+    },
+    {
+      "caseId": "decomposed",
+      "text": "e\u0301",
+      "wellFormed": true,
+      "scalarLength": 2,
+      "utf16Length": 2,
+      "utf8Hex": "65cc81"
+    },
+    {
+      "caseId": "emoji-pair",
+      "text": "\ud83d\ude00",
+      "wellFormed": true,
+      "scalarLength": 1,
+      "utf16Length": 2,
+      "utf8Hex": "f09f9880"
+    },
+    {
+      "caseId": "lone-high-surrogate",
+      "text": "\ud800",
+      "wellFormed": false,
+      "scalarLength": null,
+      "utf16Length": 1,
+      "utf8Hex": null
+    },
+    {
+      "caseId": "lone-low-surrogate",
+      "text": "\udc00",
+      "wellFormed": false,
+      "scalarLength": null,
+      "utf16Length": 1,
+      "utf8Hex": null
+    }
+  ],
+  "jcsVectors": [
+    {
+      "caseId": "key-order-utf16",
+      "value": {
+        "\ue000": "private-use",
+        "\ud800\udc00": "astral",
+        "a": 1,
+        "B": 2,
+        "": 0
+      },
+      "canonical": "{\"\":0,\"B\":2,\"a\":1,\"\ud800\udc00\":\"astral\",\"\ue000\":\"private-use\"}",
+      "canonicalUtf8Hex": "7b22223a302c2242223a322c2261223a312c22f0908080223a2261737472616c222c22ee8080223a22707269766174652d757365227d",
+      "note": "UTF-16 code unit order: U+10000 (D800 DC00) sorts before U+E000; codepoint order would not"
+    },
+    {
+      "caseId": "safe-integer-limits",
+      "value": {
+        "zero": 0,
+        "max": 9007199254740991,
+        "min": 0
+      },
+      "canonical": "{\"max\":9007199254740991,\"min\":0,\"zero\":0}",
+      "canonicalUtf8Hex": "7b226d6178223a393030373139393235343734303939312c226d696e223a302c227a65726f223a307d",
+      "note": "integer limits"
+    },
+    {
+      "caseId": "ordered-arrays",
+      "value": {
+        "items": [
+          "b",
+          "a",
+          [
+            "z",
+            1
+          ],
+          {
+            "k": []
+          }
+        ],
+        "empty": {}
+      },
+      "canonical": "{\"empty\":{},\"items\":[\"b\",\"a\",[\"z\",1],{\"k\":[]}]}",
+      "canonicalUtf8Hex": "7b22656d707479223a7b7d2c226974656d73223a5b2262222c2261222c5b227a222c315d2c7b226b223a5b5d7d5d7d",
+      "note": "array order is preserved"
+    },
+    {
+      "caseId": "escaped-strings",
+      "value": {
+        "s": "quote\" back\\ slash/ nl\n tab\t cr\r bs\b ff\f nul\u0000 us\u001f del\u007f ls\u2028 \u00e9"
+      },
+      "canonical": "{\"s\":\"quote\\\" back\\\\ slash/ nl\\n tab\\t cr\\r bs\\b ff\\f nul\\u0000 us\\u001f del\u007f ls\u2028 \u00e9\"}",
+      "canonicalUtf8Hex": "7b2273223a2271756f74655c22206261636b5c5c20736c6173682f206e6c5c6e207461625c742063725c722062735c622066665c66206e756c5c75303030302075735c75303031662064656c7f206c73e280a820c3a9227d",
+      "note": "RFC 8785 string escaping"
+    },
+    {
+      "caseId": "decimal-strings",
+      "value": {
+        "amounts": [
+          "1.00",
+          "0.000000001",
+          "10",
+          "007"
+        ],
+        "n": 1
+      },
+      "canonical": "{\"amounts\":[\"1.00\",\"0.000000001\",\"10\",\"007\"],\"n\":1}",
+      "canonicalUtf8Hex": "7b22616d6f756e7473223a5b22312e3030222c22302e303030303030303031222c223130222c22303037225d2c226e223a317d",
+      "note": "decimal strings are never normalized"
+    },
+    {
+      "caseId": "composed-string",
+      "value": {
+        "t": "\u00e9"
+      },
+      "canonical": "{\"t\":\"\u00e9\"}",
+      "canonicalUtf8Hex": "7b2274223a22c3a9227d",
+      "note": "composed stays composed"
+    },
+    {
+      "caseId": "decomposed-string",
+      "value": {
+        "t": "e\u0301"
+      },
+      "canonical": "{\"t\":\"e\u0301\"}",
+      "canonicalUtf8Hex": "7b2274223a2265cc81227d",
+      "note": "decomposed stays decomposed"
+    },
+    {
+      "caseId": "revision-projection",
+      "value": {
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "originalDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "textDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "extractionSpecDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "structureDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "originMapDigest": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "canonical": "{\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"originMapDigest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"originalDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\",\"structureDigest\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"textDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\"}",
+      "canonicalUtf8Hex": "7b2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f726967696e4d6170446967657374223a2234343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434222c226f726967696e616c446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032222c22737472756374757265446967657374223a2233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333222c2274657874446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d",
+      "note": "originMapDigest sorts before originalDigest (M < a)",
+      "domain": "kf.revision.v1",
+      "digest": "4e05fdbbf1d6b0127925de2056d5827da1982de6284fc4486aa263e275feed57"
+    },
+    {
+      "caseId": "operation-projection",
+      "value": {
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "assetId": "00000000-0000-4000-8000-000000000003",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "inputDigests": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ],
+        "extractionSpecDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "profileId": "synthetic.profile",
+        "profileVersion": "1",
+        "policyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+        "contractSetDigest": "6666666666666666666666666666666666666666666666666666666666666666",
+        "limitsDigests": [
+          "7777777777777777777777777777777777777777777777777777777777777777",
+          "8888888888888888888888888888888888888888888888888888888888888888"
+        ]
+      },
+      "canonical": "{\"assetId\":\"00000000-0000-4000-8000-000000000003\",\"contractSetDigest\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"inputDigests\":[\"1111111111111111111111111111111111111111111111111111111111111111\"],\"limitsDigests\":[\"7777777777777777777777777777777777777777777777777777777777777777\",\"8888888888888888888888888888888888888888888888888888888888888888\"],\"policyDigest\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"profileId\":\"synthetic.profile\",\"profileVersion\":\"1\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\"}",
+      "canonicalUtf8Hex": "7b2261737365744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303033222c22636f6e7472616374536574446967657374223a2236363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636222c2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c22696e70757444696765737473223a5b2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131225d2c226c696d69747344696765737473223a5b2237373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737222c2238383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838225d2c22706f6c696379446967657374223a2235353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535222c2270726f66696c654964223a2273796e7468657469632e70726f66696c65222c2270726f66696c6556657273696f6e223a2231222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032227d",
+      "note": "operation identity projection",
+      "domain": "kf.operation.v1",
+      "digest": "5cd8f5e41f771abf9080d55c502084641a21c7152f7b5b4b255bdc5d484a0c3c"
+    },
+    {
+      "caseId": "comparison-projection",
+      "value": {
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "assetId": "00000000-0000-4000-8000-000000000003",
+        "sourceId": "00000000-0000-4000-8000-000000000002",
+        "operationKey": "9999999999999999999999999999999999999999999999999999999999999999",
+        "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "originalDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "textDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "extractionSpecDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "structureDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "originMapDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "qualityProjectionDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "canonical": "{\"assetId\":\"00000000-0000-4000-8000-000000000003\",\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"operationKey\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"originMapDigest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"originalDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"qualityProjectionDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"revisionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\",\"structureDigest\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"textDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\"}",
+      "canonicalUtf8Hex": "7b2261737365744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303033222c2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f7065726174696f6e4b6579223a2239393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939222c226f726967696e4d6170446967657374223a2234343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434222c226f726967696e616c446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c227175616c69747950726f6a656374696f6e446967657374223a2262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227265766973696f6e4964223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032222c22737472756374757265446967657374223a2233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333222c2274657874446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d",
+      "note": "comparison identity projection",
+      "domain": "kf.f1-comparison.v1",
+      "digest": "b41e5f1d07e3a7dd21d76342c7c7bb95acbfaecce92a14cb238c3281a5f8bd41"
+    },
+    {
+      "caseId": "domain-key-order-digest",
+      "value": {
+        "\ue000": "x",
+        "\ud800\udc00": "y"
+      },
+      "canonical": "{\"\ud800\udc00\":\"y\",\"\ue000\":\"x\"}",
+      "canonicalUtf8Hex": "7b22f0908080223a2279222c22ee8080223a2278227d",
+      "note": "digest depends on UTF-16 key order",
+      "domain": "kf.revision.v1",
+      "digest": "41076d97716890ebe29884fce83a510d8ef6fd50fcc78584820b7e5fcf9239b2"
+    }
+  ]
+}
