@@ -13,6 +13,9 @@ dependencies = [
     "rfc8785>=0.1.4,<0.2",
 ]
 
+[project.scripts]
+cfoundry = "conscience_foundry.cli.main:run"
+
 [project.optional-dependencies]
 orchestration = ["dagster>=1.13,<1.14"]
 
