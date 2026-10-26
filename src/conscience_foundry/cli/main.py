@@ -13,9 +13,12 @@ import sys
 from collections.abc import Sequence
 from typing import Any, NoReturn, TextIO
 
-from conscience_foundry.cli.commands import BY_NAME, COMMANDS, Outcome, run_command
+from conscience_foundry.cli.commands import COMMANDS, Outcome, run_command
 from conscience_foundry.cli.config import TrustedServices
+from conscience_foundry.cli.preflight import PILOT_COMMANDS
 
+ALL_COMMANDS = (*COMMANDS, *PILOT_COMMANDS)
+ALL_BY_NAME = {command.name: command for command in ALL_COMMANDS}
 EXIT = {"ok": 0, "dry_run": 0, "failed": 1, "blocked": 3}
 USAGE_EXIT = 2
 
@@ -38,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", help="private operator configuration (mandatory for state)")
     commands = parser.add_subparsers(dest="command", parser_class=_Parser)
-    for command in COMMANDS:
+    for command in ALL_COMMANDS:
         child = commands.add_parser(command.name, help=command.summary, allow_abbrev=False)
         command.arguments(child)
         if command.effect:
@@ -80,7 +83,7 @@ def main(
     return _emit(
         stream,
         args.command,
-        run_command(BY_NAME[args.command], args, services or TrustedServices()),
+        run_command(ALL_BY_NAME[args.command], args, services or TrustedServices()),
     )
 
 
