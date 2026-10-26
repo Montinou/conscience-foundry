@@ -518,17 +518,21 @@ def reserve_attempt(
         assert operation is not None
         if operation[0] != asset_id or operation[2]:
             raise ContractError("forbidden")
+        # Hard resource limits first: they hold even under a duplicate-risk override.
+        if operation[1] >= min(plan.resources.max_attempts_per_operation, MAX_SAFE_INTEGER):
+            raise ContractError("limit_exceeded")
+        # Operation-wide, across runs: every non-terminal attempt is unresolved work. A crash
+        # can strand `dispatching` after provider acceptance, so only reconciliation or the
+        # explicit duplicate-risk path may continue; a new runId never conceals it.
         unresolved = tx.connection.execute(
             sql.SQL(
                 "SELECT 1 FROM {} WHERE project_id=%s AND operation_key=%s "
-                "AND state IN ('unknown_outcome','cancel_requested') LIMIT 1"
+                "AND state NOT IN ('succeeded','failed','cancelled') LIMIT 1"
             ).format(tx.table("attempts")),
             (plan.project_id, plan.operation_key),
         ).fetchone()
         if unresolved and not duplicate_allowed:
             raise ContractError("dispatch_unknown")
-        if operation[1] >= min(plan.resources.max_attempts_per_operation, MAX_SAFE_INTEGER):
-            raise ContractError("limit_exceeded")
         live = tx.connection.execute(
             sql.SQL(
                 "SELECT count(*) FROM {} WHERE project_id=%s AND run_id=%s "
@@ -762,16 +766,18 @@ def apply_budget_event(
         row = _reservation_row(tx, event.project_id, event.run_id, event.reservation_id)
         if row[0] != event.scope:
             raise ContractError("forbidden")
+        attempt_state: str | None = None
         if event.scope == "attempt":
             bound = tx.connection.execute(
                 sql.SQL(
-                    "SELECT attempt_id::text FROM {} WHERE project_id=%s AND run_id=%s AND "
+                    "SELECT attempt_id::text,state FROM {} WHERE project_id=%s AND run_id=%s AND "
                     "reservation_id=%s"
                 ).format(tx.table("attempts")),
                 (event.project_id, event.run_id, event.reservation_id),
             ).fetchone()
-            if bound != (event.attempt_id,):
+            if bound is None or bound[0] != event.attempt_id:
                 raise ContractError("forbidden")
+            attempt_state = bound[1]
         replay = _event_replay(tx, event, event_bytes)
         if event.created_at > context.now:
             raise ContractError("invalid_schema")
@@ -804,6 +810,17 @@ def apply_budget_event(
         if replay:
             return
         amount = Decimal(event.amount_usd) if event.amount_usd is not None else None
+        # Second guard besides the evidence authority: funds of an attempt that may still be
+        # executing remotely are never finalized. Only never-dispatched or terminal attempts.
+        first_final = event.event_type == "settle" or (
+            event.event_type == "release_unspent" and not row[5]
+        )
+        if (
+            first_final
+            and event.scope == "attempt"
+            and attempt_state not in {"planned", "reserved", "succeeded", "failed", "cancelled"}
+        ):
+            raise ContractError("dispatch_unknown")
         if event.event_type == "settle":
             if row[5] or amount is None:
                 raise ContractError("determinism_conflict")
@@ -859,6 +876,10 @@ def apply_budget_event(
                         event.reservation_id,
                     ),
                 )
+        elif event.event_type == "record_usage" and row[5]:
+            # Observation only: a final-billed reservation is never reopened or re-released;
+            # a corrected bill is a BillingAdjustment, not a late usage reading.
+            pass
         elif row[5]:
             raise ContractError("determinism_conflict")
         elif event.event_type == "record_usage" and event.cost_status == "actual":

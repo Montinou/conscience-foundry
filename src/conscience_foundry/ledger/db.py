@@ -64,6 +64,7 @@ TABLES = frozenset(
         "publications",
         "active_releases",
         "activation_history",
+        "release_incidents",
         "pause_state",
         "pause_history",
     }

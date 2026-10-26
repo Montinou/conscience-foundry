@@ -109,6 +109,13 @@ def _load(
     return attempt, run, plan, auth
 
 
+def _amended(attempt: StageAttempt, **changes: object) -> StageAttempt:
+    """Same state, newly learned facts (remote id, result ref); never a state change."""
+    value = attempt.model_dump(by_alias=True, exclude_none=True)
+    value.update(changes)
+    return StageAttempt.model_validate(value)
+
+
 def _grants(
     grants: TransportGrants,
     plan: ExecutionPlan,
@@ -387,7 +394,28 @@ def dispatch(
         tx.lock(current.project_id, run, current.operation_key)
         current, _, _, _ = _load(tx, attempt.attempt_id, control)
         if current.state != "dispatching":
-            return current  # A concurrent reconciler owns a later evidenced state.
+            # A concurrent reconciler or cancellation owns the state, but the provider's
+            # answer is still evidence: keep the state, learn the remote id, record it.
+            if identified and current.remote_call_id is None and current.state not in TERMINAL:
+                learned = _amended(current, remoteCallId=submission.remote_call_id)
+                save_attempt(tx, learned, control)
+                append_observation(
+                    tx,
+                    learned,
+                    evidence_ref,
+                    bounded_request(
+                        {
+                            "action": "submission",
+                            "attemptId": learned.attempt_id,
+                            "state": learned.state,
+                            "remoteCallId": learned.remote_call_id,
+                        },
+                        control,
+                    ),
+                    control,
+                )
+                return learned
+            return current
         result = transition(
             current,
             "running" if usable else "unknown_outcome",
@@ -433,7 +461,8 @@ def _observation(
             "attemptId": attempt.attempt_id,
             "planDigest": plan_ref.digest,
             "state": observation.state,
-            **({"remoteCallId": attempt.remote_call_id} if attempt.remote_call_id else {}),
+            # Only fields invariant for this observation: the stored remote id changes with
+            # the first reconcile, and it is enforced separately against the attested facts.
             **(
                 {"resultRef": observation.result_ref.model_dump(by_alias=True)}
                 if observation.result_ref
@@ -578,7 +607,7 @@ def _reconcile_observation(
         if observation.result_ref is not None:
             changes["resultManifestRef"] = observation.result_ref
         if observation.state == attempt.state:
-            updated = attempt
+            updated = _amended(attempt, **changes)
         else:
             # Direct succeeded reconciliation from dispatching is accepted only
             # through the explicitly verified intermediate running state.
@@ -763,6 +792,56 @@ def cancel_attempt(
         return _load(tx, attempt_id, control)[0]
 
 
+def mark_unknown_outcome(
+    attempt_id: Id,
+    ledger: Ledger,
+    *,
+    control: ControlContext,
+    reason: Reason,
+    evidence_ref: Ref,
+) -> StageAttempt:
+    """Evidenced resolution of a stale claim: dispatching/running -> unknown_outcome.
+
+    A crash after provider acceptance strands `dispatching` with no remote id. This is the
+    only way out besides reconciliation; it asserts uncertainty, never absence of effect,
+    so the reservation keeps its funds and the manual-retry gate still applies.
+    """
+    reason = checked_reason(reason, control)
+    with ledger.transaction() as tx:
+        attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
+        tx.lock(attempt.project_id, run, attempt.operation_key)
+        attempt, _, _, _ = _load(tx, attempt_id, control)
+        # State-independent request so an identical replay stays bound to its evidence.
+        request = bounded_request(
+            {
+                "action": "mark_unknown_outcome",
+                "projectId": attempt.project_id,
+                "attemptId": attempt_id,
+                "reason": reason.model_dump(by_alias=True),
+            },
+            control,
+        )
+        control_facts(
+            control,
+            "mark_unknown_outcome",
+            run,
+            evidence_ref,
+            request,
+            reservation=attempt.reservation_id,
+            attempt=attempt_id,
+            authorization_ref=auth_ref,
+            plan_ref=plan_ref,
+        )
+        if attempt.state == "unknown_outcome":
+            return attempt
+        if attempt.state not in {"dispatching", "running"}:
+            raise ContractError("forbidden")
+        attempt = transition(attempt, "unknown_outcome", control)
+        save_attempt(tx, attempt, control)
+        append_observation(tx, attempt, evidence_ref, request, control)
+        return attempt
+
+
 def _audit_run(tx: LedgerTxn, project: Id, run: Id, control: ControlContext) -> None:
     row = tx.connection.execute(
         sql.SQL(
@@ -812,8 +891,9 @@ def _manual_retry(
     bound = limits_for(control, "kf.stage-attempt.v1")
     count = tx.connection.execute(
         sql.SQL(
-            "SELECT count(*) FROM {} WHERE project_id=%s AND (run_id=%s OR operation_key=%s) "
-            "AND state IN ('unknown_outcome','cancel_requested')"
+            "SELECT count(*) FROM {} WHERE project_id=%s AND ((run_id=%s AND state IN "
+            "('unknown_outcome','cancel_requested')) OR (operation_key=%s AND state NOT IN "
+            "('succeeded','failed','cancelled')))"
         ).format(tx.table("attempts")),
         (plan.project_id, plan.run_id, plan.operation_key),
     ).fetchone()
@@ -824,8 +904,8 @@ def _manual_retry(
             "SELECT a.attempt_id::text,a.state,p.plan_digest,p.authorization_id::text "
             "FROM {} a JOIN {} p "
             "ON (a.project_id,a.plan_id)=(p.project_id,p.plan_id) WHERE a.project_id=%s "
-            "AND (a.run_id=%s OR a.operation_key=%s) "
-            "AND a.state IN ('unknown_outcome','cancel_requested') "
+            "AND ((a.run_id=%s AND a.state IN ('unknown_outcome','cancel_requested')) "
+            "OR (a.operation_key=%s AND a.state NOT IN ('succeeded','failed','cancelled'))) "
             "ORDER BY a.attempt_id LIMIT %s"
         ).format(tx.table("attempts"), tx.table("plans")),
         (plan.project_id, plan.run_id, plan.operation_key, bound.max_array_items + 1),

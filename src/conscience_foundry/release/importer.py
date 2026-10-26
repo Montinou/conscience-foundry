@@ -10,7 +10,7 @@ from __future__ import annotations
 import errno
 import hashlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, get_args
 from uuid import uuid4
 
 from psycopg import sql
@@ -18,7 +18,9 @@ from psycopg import sql
 from conscience_foundry.contracts.canonical import DocumentRevision, QualityReport, RevisionReview
 from conscience_foundry.contracts.common import (
     ContractError,
+    ErrorCode,
     Id,
+    Reason,
     Ref,
     WireModel,
 )
@@ -39,7 +41,7 @@ from conscience_foundry.execution.evidence import (
     read_model,
 )
 from conscience_foundry.ledger.db import Ledger, LedgerTxn
-from conscience_foundry.ledger.publication import ReleaseRow, mark_local_verified
+from conscience_foundry.ledger.publication import ReleaseRow, insert_incident, mark_local_verified
 from conscience_foundry.ledger.publication import load_release as load_release_row
 from conscience_foundry.policy.access import AccessContext, require_permission
 from conscience_foundry.release.context import (
@@ -88,6 +90,61 @@ def load_release(tx: LedgerTxn, release_digest: str, release: ReleaseContext) ->
     ):
         raise ContractError("hash_mismatch")
     return LoadedRelease(row, model)
+
+
+def record_failure(
+    ledger: Ledger,
+    release: ReleaseContext,
+    release_digest: str,
+    kind: str,
+    error: ContractError,
+    stage: str | None = None,
+) -> None:
+    """Durably record a failed transition in its own transaction, after the failed one rolled back.
+
+    C07/D08: the stage stays at the last confirmed one and `local_verified` is never touched.
+    Only the stable error code is stored (plus a failed ImportReceipt carrying that code and
+    a fixed message), so no raw text, private path or credential can reach the record. This
+    is best effort: if it cannot be written, the caller still sees the original failure.
+    """
+    project = release.access.project_id
+    code: ErrorCode = error.code if error.code in get_args(ErrorCode) else "unavailable"  # type: ignore[assignment]
+    try:
+        with ledger.transaction() as tx:
+            tx.lock(project)
+            row = load_release_row(tx, project, release_digest)
+            if row is None:
+                return
+            receipt_ref: Ref | None = None
+            if kind == "import":
+                failed = ImportReceipt(
+                    schema_version="kf.import-receipt.v1",
+                    project_id=project,
+                    import_id=str(uuid4()),
+                    release_ref=row.release_ref,
+                    verified_artifacts=(),
+                    status="failed",
+                    checked_at=clock(release),
+                    reasons=(Reason(code=code, message="Import verification failed"),),
+                )
+                try:
+                    receipt_ref = store_record(failed, release)
+                except ContractError:
+                    receipt_ref = None  # e.g. disk full: the incident row still lands
+            insert_incident(
+                tx,
+                project,
+                release_digest,
+                kind,
+                stage,
+                code,
+                receipt_ref,
+                release.access.actor_id,
+                clock(release),
+                str(uuid4()),
+            )
+    except Exception:
+        return
 
 
 def check_capabilities(model: LibraryRelease, pin: TrustedReleasePin) -> None:
@@ -262,7 +319,8 @@ def import_release(
 ) -> ImportReceipt:
     """Verify the pinned selected-content closure, then atomically record a receipt.
 
-    Failure raises and persists nothing; a verified import is never reverted here.
+    A failure rolls the verification back and raises; a failed ImportReceipt/incident is then
+    recorded separately. A verified import is never reverted here.
     """
     checked_context(context, store, release)
     if type(release_ref) is not Ref:
@@ -272,6 +330,20 @@ def import_release(
     project = context.project_id
     if release_ref.project_id != project or release_ref.artifact_schema != "kf.library-release.v1":
         raise ContractError("forbidden")
+    try:
+        return _import_verified(release_ref, ledger, release, pin, project)
+    except ContractError as error:
+        record_failure(ledger, release, release_ref.digest, "import", error)
+        raise
+
+
+def _import_verified(
+    release_ref: Ref,
+    ledger: Ledger,
+    release: ReleaseContext,
+    pin: TrustedReleasePin,
+    project: Id,
+) -> ImportReceipt:
     with ledger.transaction() as tx:
         tx.lock(project)
         loaded = load_release(tx, release_ref.digest, release)
