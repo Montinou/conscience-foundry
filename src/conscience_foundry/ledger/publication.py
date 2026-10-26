@@ -62,6 +62,38 @@ def mark_local_verified(tx: LedgerTxn, project_id: Id, release_digest: str, rece
         raise ContractError("determinism_conflict")
 
 
+def insert_incident(
+    tx: LedgerTxn,
+    project_id: Id,
+    release_digest: str,
+    kind: str,
+    stage: str | None,
+    error_code: str,
+    receipt: Ref | None,
+    actor_id: Id,
+    recorded_at: str,
+    incident_id: str,
+) -> None:
+    """Record a failed transition. It never touches `releases` or the publication chain."""
+    tx.connection.execute(
+        sql.SQL(
+            "INSERT INTO {} (project_id,incident_id,release_digest,kind,stage,error_code,"
+            "receipt_ref,actor_id,recorded_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+        ).format(tx.table("release_incidents")),
+        (
+            project_id,
+            incident_id,
+            release_digest,
+            kind,
+            stage,
+            error_code,
+            _json(receipt) if receipt is not None else None,
+            actor_id,
+            recorded_at,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class PublicationEvent:
     event_id: str

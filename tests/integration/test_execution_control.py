@@ -964,22 +964,23 @@ def test_transport_fingerprint_frames_material_and_stays_transient(
         (b"synthetic-sensitive-a", b"bsynthetic-sensitive-c"),
     ):
         grants = c.grants(material=material)
-        assert (
-            dispatch(
-                c.plan,
-                c.auth,
-                c.access,
-                ledger,
-                executor,
-                grants,
-                control=c.control,
-                plan_ref=c.plan_ref,
-                authorization_ref=c.auth_ref,
-                asset_id=ASSET,
-                evidence_ref=c.estimate,
-            ).state
-            == "running"
+        attempt = dispatch(
+            c.plan,
+            c.auth,
+            c.access,
+            ledger,
+            executor,
+            grants,
+            control=c.control,
+            plan_ref=c.plan_ref,
+            authorization_ref=c.auth_ref,
+            asset_id=ASSET,
+            evidence_ref=c.estimate,
         )
+        assert attempt.state == "running"
+        # An operation's next attempt needs the previous one resolved (operation-wide guard).
+        executor.success(attempt)
+        reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control)
     assert len(fingerprints) == 4 and fingerprints[0] != fingerprints[2]
 
 
@@ -987,11 +988,13 @@ def test_late_conflict_holds_descendants(ledger: Ledger, tmp_path: Path) -> None
     c = Case(tmp_path)
     c.setup(ledger)
     executor = Executor(c)
-    first, second = c.dispatch(ledger, executor), c.dispatch(ledger, executor)
+    first = c.dispatch(ledger, executor)
     first_ref = executor.success(first)
     before = c.store.read_verified(first_ref, c.access, 65536).data
     selected = reconcile(first.attempt_id, ledger, executor, c.store, control=c.control)
     assert selected is not None and selected.outcome == "selected"
+    # The second attempt may only start after the first is resolved (operation-wide guard).
+    second = c.dispatch(ledger, executor)
     executor.success(second, extra_check=True)
     conflict = reconcile(second.attempt_id, ledger, executor, c.store, control=c.control)
     assert conflict is not None and conflict.outcome == "conflict"
@@ -1355,7 +1358,11 @@ def test_final_bill_actual_and_release_residual_are_distinct(
 ) -> None:
     c = Case(tmp_path)
     c.setup(ledger)
-    attempt = c.dispatch(ledger, Executor(c))
+    executor = Executor(c)
+    attempt = c.dispatch(ledger, executor)
+    # Final billing needs a resolved attempt, not a possibly-running one.
+    executor.success(attempt)
+    reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control)
     receipt = c.proof()
     c.authority.billings[receipt.digest] = ("actual", "3", True, True, False)
     settlement = BudgetEvent(
@@ -1526,7 +1533,9 @@ def test_manual_retry_requires_exact_snapshot_and_cannot_bypass_cap(
         True,
         False,
     )
-    with pytest.raises(ContractError) as exhausted:
+    # The running replacement is unresolved work too: acknowledging only the lost original
+    # cannot hide it, and a live attempt is not a duplicate-risk acknowledgement target.
+    with pytest.raises(ContractError) as hidden:
         dispatch(
             c.plan,
             c.auth,
@@ -1540,6 +1549,39 @@ def test_manual_retry_requires_exact_snapshot_and_cannot_bypass_cap(
             asset_id=ASSET,
             evidence_ref=c.estimate,
             manual_retry=ManualRetry(fresh_proof, fresh, (original.attempt_id,)),
+        )
+    assert hidden.value.code == "forbidden" and executor.calls == 2
+    from conscience_foundry.execution.control import mark_unknown_outcome
+
+    mark = c.proof()
+    c.authority.controls[mark.digest] = ("mark_unknown_outcome", None, (), False, False)
+    mark_unknown_outcome(
+        replacement.attempt_id,
+        ledger,
+        control=c.control,
+        reason=Reason(code="unavailable", message="synthetic stale claim"),
+        evidence_ref=mark,
+    )
+    both = tuple(sorted((original.attempt_id, replacement.attempt_id)))
+    fresh = control_snapshot(
+        PROJECT, RUN, ledger, control=c.control, operation_key=c.plan.operation_key
+    )
+    both_proof = c.proof()
+    c.authority.controls[both_proof.digest] = ("manual_retry", fresh, both, True, False)
+    with pytest.raises(ContractError) as exhausted:
+        dispatch(
+            c.plan,
+            c.auth,
+            c.access,
+            ledger,
+            executor,
+            c.grants(),
+            control=c.control,
+            plan_ref=c.plan_ref,
+            authorization_ref=c.auth_ref,
+            asset_id=ASSET,
+            evidence_ref=c.estimate,
+            manual_retry=ManualRetry(both_proof, fresh, both),
         )
     assert exhausted.value.code == "budget_exhausted" and executor.calls == 2
 
@@ -1709,3 +1751,413 @@ def test_resume_requires_current_grant_even_with_operator_evidence(
             reason=reason,
             evidence_ref=resume,
         )
+
+
+# --- Phase 3 review round 1 regressions (C1, I1, I2, I3, M1, M2) -----------------------------
+
+
+class Crash(BaseException):
+    """Process-death stand-in; deliberately not an Exception so no handler may absorb it."""
+
+
+def attempts_of(ledger: Ledger) -> list[tuple[str, str, str | None]]:
+    with ledger.transaction() as tx:
+        return [
+            (str(row[0]), row[1], row[2])
+            for row in tx.connection.execute(
+                sql.SQL(
+                    "SELECT attempt_id,state,remote_call_id FROM {} ORDER BY attempt_number"
+                ).format(tx.table("attempts"))
+            ).fetchall()
+        ]
+
+
+def count_of(ledger: Ledger, table: str, where: str = "true", args: tuple[Any, ...] = ()) -> int:
+    with ledger.transaction() as tx:
+        row = tx.connection.execute(
+            sql.SQL("SELECT count(*) FROM {} WHERE " + where).format(tx.table(table)), args
+        ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def reservation_row(ledger: Ledger, reservation: str) -> tuple[Any, ...]:
+    with ledger.transaction() as tx:
+        row = tx.connection.execute(
+            sql.SQL(
+                "SELECT settled_usd,outstanding_usd,released_usd,final_billing FROM {} "
+                "WHERE reservation_id=%s"
+            ).format(tx.table("reservations")),
+            (reservation,),
+        ).fetchone()
+    assert row is not None
+    return (str(row[0]), str(row[1]), str(row[2]), row[3])
+
+
+def crashing(executor: Executor) -> Executor:
+    def submit(plan: Any, attempt: Any, grants: Any) -> Submission:
+        executor.calls += 1
+        raise Crash
+
+    executor.submit = submit
+    return executor
+
+
+def other_run(c: Case, ledger: Ledger) -> None:
+    """Move the case to a fresh runId for the same operation (new authorization and plan)."""
+    run, auth_id = str(uuid4()), str(uuid4())
+    budget = c.plan.budget.model_copy(update={"authorization_id": auth_id})
+    c.plan = c.plan.model_copy(update={"run_id": run, "plan_id": str(uuid4()), "budget": budget})
+    c.plan_ref = c.put(c.plan)
+    c.auth = c.auth.model_copy(
+        update={
+            "authorization_id": auth_id,
+            "run_id": run,
+            "allowed_plan_digests": (c.plan_ref.digest,),
+        }
+    )
+    c.auth_ref = c.put(c.auth)
+    c.authority.grants[c.auth_ref.digest] = c.auth_ref.digest, None
+    with ledger.transaction() as tx:
+        tx.create_run(PROJECT, run, c.data.report_ref.digest)
+        install_run_authorization(
+            c.auth,
+            c.auth_ref,
+            encoded(c.auth),
+            tx,
+            context=budget_context(c.control, tx=tx),
+            expected_previous_authorization_id=None,
+        )
+
+
+@pytest.mark.parametrize("scope", ["same_run", "new_run"])
+def test_crash_after_acceptance_blocks_redispatch_for_the_operation(
+    ledger: Ledger, tmp_path: Path, scope: str
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    crashed = crashing(Executor(c))
+    with pytest.raises(Crash):
+        c.dispatch(ledger, crashed)
+    before = attempts_of(ledger)
+    assert [row[1:] for row in before] == [("dispatching", None)]
+    if scope == "new_run":
+        other_run(c, ledger)
+    retry = Executor(c)
+    with pytest.raises(ContractError) as error:
+        c.dispatch(ledger, retry)
+    assert error.value.code == "dispatch_unknown" and retry.calls == 0
+    assert attempts_of(ledger) == before
+    assert count_of(ledger, "reservations") == 1
+
+
+@pytest.mark.parametrize("scope", ["same_run", "new_run"])
+def test_running_attempt_blocks_a_second_attempt_for_the_operation(
+    ledger: Ledger, tmp_path: Path, scope: str
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    first = c.dispatch(ledger, Executor(c))
+    assert first.state == "running"
+    if scope == "new_run":
+        other_run(c, ledger)
+    retry = Executor(c)
+    with pytest.raises(ContractError) as error:
+        c.dispatch(ledger, retry)
+    assert error.value.code == "dispatch_unknown" and retry.calls == 0
+    assert count_of(ledger, "attempts") == 1
+
+
+def test_stranded_dispatching_resolves_only_through_evidenced_unknown_outcome(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    from conscience_foundry.execution.control import mark_unknown_outcome
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    with pytest.raises(Crash):
+        c.dispatch(ledger, crashing(Executor(c)))
+    attempt_id, state, _ = attempts_of(ledger)[0]
+    assert state == "dispatching"
+    reason = Reason(code="unavailable", message="synthetic stale claim")
+    unregistered = c.proof()
+    with pytest.raises(ContractError):
+        mark_unknown_outcome(
+            attempt_id, ledger, control=c.control, reason=reason, evidence_ref=unregistered
+        )
+    assert attempts_of(ledger)[0][1] == "dispatching"
+    command = c.proof()
+    c.authority.controls[command.digest] = ("mark_unknown_outcome", None, (), False, False)
+    marked = mark_unknown_outcome(
+        attempt_id, ledger, control=c.control, reason=reason, evidence_ref=command
+    )
+    assert marked.state == "unknown_outcome" and marked.finished_at is None
+    assert marked.remote_call_id is None
+    # Idempotent replay changes nothing and records no second observation.
+    assert (
+        mark_unknown_outcome(
+            attempt_id, ledger, control=c.control, reason=reason, evidence_ref=command
+        )
+        == marked
+    )
+    assert count_of(ledger, "attempt_observations", "evidence_digest=%s", (command.digest,)) == 1
+    # The reservation keeps its funds; a new attempt is still blocked.
+    assert reservation_row(ledger, marked.reservation_id) == ("0", "4", "0", False)
+    retry = Executor(c)
+    with pytest.raises(ContractError) as error:
+        c.dispatch(ledger, retry)
+    assert error.value.code == "dispatch_unknown" and retry.calls == 0
+    # Reconciliation with confirmed termination resolves it; only then may work continue.
+    proof = c.proof()
+    resolver = Executor(c)
+    resolver.next = Observation("failed", None, None, proof)
+    c.authority.observations[proof.digest] = (None, "failed", None, True, True)
+    reconcile(attempt_id, ledger, resolver, c.store, control=c.control)
+    assert attempts_of(ledger)[0][1] == "failed"
+    assert c.dispatch(ledger, retry).state == "running" and retry.calls == 1
+
+
+def test_mark_unknown_outcome_rejects_terminal_and_unclaimed_attempts(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    from conscience_foundry.execution.control import mark_unknown_outcome
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    attempt = c.dispatch(ledger, Executor(c))
+    Executor(c).success(attempt)
+    executor = Executor(c)
+    executor.success(attempt)
+    reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("mark_unknown_outcome", None, (), False, False)
+    with pytest.raises(ContractError):
+        mark_unknown_outcome(
+            attempt.attempt_id,
+            ledger,
+            control=c.control,
+            reason=Reason(code="unavailable", message="synthetic"),
+            evidence_ref=command,
+        )
+    assert attempts_of(ledger)[0][1] == "succeeded"
+
+
+def finished(c: Case, ledger: Ledger, executor: Executor) -> Any:
+    """A succeeded attempt with its selected result."""
+    attempt = c.dispatch(ledger, executor)
+    executor.success(attempt)
+    assert reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control)
+    return attempt
+
+
+def settle_final(c: Case, ledger: Ledger, attempt: Any, amount: str = "4") -> None:
+    receipt = c.proof()
+    c.authority.billings[receipt.digest] = ("actual", amount, True, True, False)
+    settlement = BudgetEvent(
+        schema_version="kf.budget-event.v1",
+        project_id=PROJECT,
+        run_id=RUN,
+        reservation_id=attempt.reservation_id,
+        attempt_id=attempt.attempt_id,
+        scope="attempt",
+        event_id=str(uuid4()),
+        event_type="settle",
+        amount_usd=amount,
+        cost_status="actual",
+        evidence_ref=receipt,
+        created_at=TIME,
+    )
+    with ledger.transaction() as tx:
+        apply_budget_event(
+            settlement,
+            tx,
+            event_bytes=encoded(settlement),
+            context=budget_context(c.control, tx=tx),
+        )
+
+
+def usage_observation(
+    c: Case,
+    executor: Executor,
+    attempt: Any,
+    state: str,
+    result: Ref | None,
+    *,
+    terminated: bool = True,
+) -> None:
+    proof = c.proof()
+    executor.next = Observation(
+        state,  # type: ignore[arg-type]
+        result,
+        ResourceUsage(
+            cost_status="unknown", tariff_ref=c.config.tariff_ref, provider_request_ids=()
+        ),
+        proof,
+    )
+    c.authority.observations[proof.digest] = (
+        attempt.remote_call_id,
+        state,
+        result.digest if result else None,
+        False,
+        terminated,
+    )
+    c.authority.billings[proof.digest] = ("unknown", None, False, False, False)
+
+
+def test_usage_on_a_final_billed_reservation_does_not_block_result_selection(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c)
+    attempt = finished(c, ledger, executor)
+    settle_final(c, ledger, attempt)
+    frozen = reservation_row(ledger, attempt.reservation_id)
+    assert frozen == ("4", "0", "0", True)
+    settlements = count_of(ledger, "budget_events", "record_bytes::text LIKE %s", ("%settle%",))
+    result = c.result(attempt)
+    usage_observation(c, executor, attempt, "succeeded", result)
+    # A replayed, result-bearing success carrying usage must still select, not raise.
+    assert reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control) is not None
+    assert reservation_row(ledger, attempt.reservation_id) == frozen
+    assert (
+        count_of(ledger, "budget_events", "record_bytes::text LIKE %s", ("%settle%",))
+        == settlements
+    )
+    assert count_of(ledger, "attempt_observations") == 3
+
+
+def test_contradictory_late_observation_holds_even_after_final_billing(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c)
+    attempt = finished(c, ledger, executor)
+    settle_final(c, ledger, attempt)
+    frozen = reservation_row(ledger, attempt.reservation_id)
+    usage_observation(c, executor, attempt, "failed", None)
+    reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control)
+    assert count_of(ledger, "operations", "held") == 1
+    assert count_of(ledger, "integrity_holds") == 1
+    assert attempts_of(ledger)[0][1] == "succeeded"
+    # No funds are released twice and the settled reservation is not reopened.
+    assert reservation_row(ledger, attempt.reservation_id) == frozen
+    with pytest.raises(ContractError):
+        c.dispatch(ledger, Executor(c))
+
+
+def test_accepted_submission_is_persisted_when_cancel_wins_the_race(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    from conscience_foundry.execution.control import cancel_attempt
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c)
+    started, release = Event(), Event()
+
+    def slow_submit(plan: Any, attempt: Any, grants: Any) -> Submission:
+        started.set()
+        assert release.wait(5)
+        return Submission("synthetic-call-" + attempt.attempt_id, True)
+
+    executor.submit = slow_submit
+
+    def unreachable(attempt: Any) -> Observation:
+        raise TimeoutError
+
+    executor.cancel = unreachable
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        future = workers.submit(c.dispatch, ledger, executor)
+        try:
+            assert started.wait(5)
+            attempt_id = attempts_of(ledger)[0][0]
+            command = c.proof()
+            c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+            requested = cancel_attempt(
+                attempt_id,
+                ledger,
+                executor,
+                control=c.control,
+                reason=Reason(code="unavailable", message="synthetic cancellation"),
+                evidence_ref=command,
+            )
+            assert requested.state == "cancel_requested" and requested.remote_call_id is None
+        finally:
+            release.set()
+        returned = future.result()
+    expected = "synthetic-call-" + attempt_id
+    assert attempts_of(ledger) == [(attempt_id, "cancel_requested", expected)]
+    assert returned.state == "cancel_requested" and returned.remote_call_id == expected
+    assert count_of(ledger, "attempt_observations", "attempt_id=%s", (attempt_id,)) == 1
+
+
+def test_identical_reconcile_replay_is_idempotent_after_the_remote_id_is_learned(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c, lost=True)
+    lost = c.dispatch(ledger, executor)
+    assert lost.state == "unknown_outcome" and lost.remote_call_id is None
+    proof = c.proof()
+    executor.next = Observation("running", None, None, proof)
+    c.authority.observations[proof.digest] = ("rc-1", "running", None, False, False)
+    assert reconcile(lost.attempt_id, ledger, executor, c.store, control=c.control) is None
+    assert attempts_of(ledger) == [(lost.attempt_id, "running", "rc-1")]
+    observations = count_of(ledger, "attempt_observations")
+    assert reconcile(lost.attempt_id, ledger, executor, c.store, control=c.control) is None
+    assert attempts_of(ledger) == [(lost.attempt_id, "running", "rc-1")]
+    assert count_of(ledger, "attempt_observations") == observations
+
+
+def test_same_state_observation_keeps_a_newly_learned_remote_id(
+    ledger: Ledger, tmp_path: Path
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Executor(c, lost=True)
+    lost = c.dispatch(ledger, executor)
+    proof = c.proof()
+    executor.next = Observation("unknown_outcome", None, None, proof)
+    c.authority.observations[proof.digest] = ("rc-2", "unknown_outcome", None, False, False)
+    reconcile(lost.attempt_id, ledger, executor, c.store, control=c.control)
+    assert attempts_of(ledger) == [(lost.attempt_id, "unknown_outcome", "rc-2")]
+
+
+@pytest.mark.parametrize("path", ["settle", "release"])
+def test_active_attempt_reservation_cannot_be_finalized_on_evidence_alone(
+    ledger: Ledger, tmp_path: Path, path: str
+) -> None:
+    c = Case(tmp_path)
+    c.setup(ledger)
+    attempt = c.dispatch(ledger, Executor(c))
+    assert attempt.state == "running" and attempt.remote_call_id
+    receipt = c.proof()
+    if path == "settle":
+        c.authority.billings[receipt.digest] = ("actual", "3", True, True, False)
+        kind, amount = "settle", "3"
+    else:
+        c.authority.billings[receipt.digest] = ("actual", "0", True, True, True)
+        kind, amount = "release_unspent", "4"
+    event = BudgetEvent(
+        schema_version="kf.budget-event.v1",
+        project_id=PROJECT,
+        run_id=RUN,
+        reservation_id=attempt.reservation_id,
+        attempt_id=attempt.attempt_id,
+        scope="attempt",
+        event_id=str(uuid4()),
+        event_type=kind,  # type: ignore[arg-type]
+        amount_usd=amount,
+        cost_status="actual",
+        evidence_ref=receipt,
+        created_at=TIME,
+    )
+    with ledger.transaction() as tx, pytest.raises(ContractError) as error:
+        apply_budget_event(
+            event, tx, event_bytes=encoded(event), context=budget_context(c.control, tx=tx)
+        )
+    assert error.value.code == "dispatch_unknown"
+    assert reservation_row(ledger, attempt.reservation_id) == ("0", "4", "0", False)

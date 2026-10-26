@@ -325,6 +325,24 @@ CREATE TABLE {schema}.activation_history (
     PRIMARY KEY (project_id,pointer_id,version),
     FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases
 );
+-- Failed import or publication transition: only the stable error code and, for imports, a
+-- failed ImportReceipt ref. Never raw text, paths or credentials; never advances a stage.
+CREATE TABLE {schema}.release_incidents (
+    project_id uuid NOT NULL,
+    incident_id uuid NOT NULL,
+    release_digest text NOT NULL,
+    kind text NOT NULL CHECK (kind IN ('import','publication')),
+    stage text CHECK (stage IN ('candidate','validated','transferred',
+        'local_verified','published','retired')),
+    error_code text NOT NULL,
+    receipt_ref jsonb,
+    actor_id uuid NOT NULL,
+    recorded_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id,incident_id),
+    FOREIGN KEY (project_id,release_digest) REFERENCES {schema}.releases,
+    CHECK ((kind = 'publication') = (stage IS NOT NULL)),
+    CHECK (receipt_ref IS NULL OR kind = 'import')
+);
 CREATE TABLE {schema}.pause_state (
     project_id uuid NOT NULL REFERENCES {schema}.projects,
     scope text NOT NULL CHECK (scope IN ('project','run')),

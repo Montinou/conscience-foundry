@@ -53,6 +53,7 @@ from conscience_foundry.release.importer import (
     LoadedRelease,
     check_capabilities,
     load_release,
+    record_failure,
     require_current,
     store_record,
 )
@@ -183,6 +184,23 @@ def append_publication(
         or record.recorded_at > clock(release)
     ):
         raise ContractError("forbidden")
+    try:
+        _append(record, context, ledger, release, pin, raw)
+    except ContractError as error:
+        # D08: a transition that cannot complete records an incident and the confirmed
+        # stage does not advance (the failed transaction has already rolled back).
+        record_failure(ledger, release, record.release_digest, "publication", error, record.stage)
+        raise
+
+
+def _append(
+    record: PublicationRecord,
+    context: AccessContext,
+    ledger: Ledger,
+    release: ReleaseContext,
+    pin: TrustedReleasePin | None,
+    raw: bytes,
+) -> None:
     with ledger.transaction() as tx:
         tx.lock(context.project_id)
         prior = publication_event(tx, context.project_id, record.event_id)

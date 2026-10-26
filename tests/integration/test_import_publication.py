@@ -1289,3 +1289,101 @@ def test_pin_hold_and_activation_cas(library: Library) -> None:
     assert held_source_unavailable(lib)
     assert b_content_reads(lib) == 0
     assert revision_of_digest(lib) not in lib.value.reads
+
+
+# --- Phase 3 review round 1 regression (I4): failures are durable, never advancing ----------
+
+
+def incidents(lib: Library) -> list[tuple[str, str | None, str, Any]]:
+    with lib.ledger.transaction() as tx:
+        rows = tx.connection.execute(
+            sql.SQL(
+                "SELECT kind,stage,error_code,receipt_ref FROM {} WHERE release_digest=%s "
+                "ORDER BY incident_id"
+            ).format(tx.table("release_incidents")),
+            (lib.digest,),
+        ).fetchall()
+    return sorted(((row[0], row[1], row[2], row[3]) for row in rows), key=repr)
+
+
+def tamper_text(lib: Library) -> tuple[Path, bytes]:
+    revision = json.loads(lib.value.read(lib.source.revision_ref, lib.access, 65536).data)
+    digest = revision["textRef"]["digest"]
+    blob = lib.root / "sha256" / digest[:2] / digest
+    good = blob.read_bytes()
+    blob.write_bytes(b"Synthetic tex!")
+    return blob, good
+
+
+def test_failed_import_durably_records_a_failed_receipt_and_incident(library: Library) -> None:
+    lib = library
+    seed_active(lib, lib.old_digest)
+    lib.allow_import()
+    # Rejected before the release is trusted: no incident for a mismatched pin.
+    with pytest.raises(ContractError):
+        lib.import_(pin=replace(lib.pin, store_id="elsewhere"))
+    assert incidents(lib) == []
+    blob, good = tamper_text(lib)
+    with pytest.raises(ContractError) as error:
+        lib.import_()
+    assert code(error) == "hash_mismatch"
+    ((kind, stage, reason, stored),) = incidents(lib)
+    assert (kind, stage, reason) == ("import", None, "hash_mismatch")
+    raw = lib.value.read(Ref.model_validate(stored), lib.access, 65536).data
+    failed = ImportReceipt.from_wire(raw, lib.value.case.bound)
+    assert failed.status == "failed" and failed.verified_artifacts == ()
+    assert failed.release_ref == lib.ref
+    assert [reason.code for reason in failed.reasons] == ["hash_mismatch"]
+    # Nothing but the stable error code: no source text, no private path.
+    assert b"Synthetic" not in raw and str(lib.root).encode() not in raw
+    # The stage did not advance and the active pointer was untouched.
+    failed_import_not_verified(lib)
+    assert active_digest(lib) == lib.old_digest
+    # A later good import still succeeds and the failure record stays.
+    blob.write_bytes(good)
+    assert lib.import_().status == "local_verified"
+    assert len(incidents(lib)) == 1 and lib.row()[0] is True
+
+
+def test_failed_import_during_disk_full_still_records_an_incident(library: Library) -> None:
+    lib = library
+    lib.allow_import()
+    lib.disk.full = True
+    with pytest.raises(ContractError) as error:
+        lib.import_()
+    assert code(error) == "storage_full"
+    assert incidents(lib) == [("import", None, "storage_full", None)]
+    failed_import_not_verified(lib)
+
+
+def test_failed_reimport_records_an_incident_and_keeps_local_verification(
+    library: Library,
+) -> None:
+    lib = library
+    imported(lib)
+    verified, stored = lib.row()
+    set_held(lib, True)
+    with pytest.raises(ContractError) as error:
+        lib.import_()
+    assert code(error) == "determinism_conflict"
+    assert [(row[0], row[2]) for row in incidents(lib)] == [("import", "determinism_conflict")]
+    assert lib.row() == (verified, stored) == (True, stored)
+
+
+def test_failed_publication_transition_records_an_incident_at_the_confirmed_stage(
+    library: Library,
+) -> None:
+    lib = library
+    first = publication(lib, "candidate", None)
+    append(lib, first)
+    validated = publication(lib, "validated", first.event_id)
+    with pytest.raises(ContractError) as error:
+        append(lib, validated)
+    assert code(error) == "unavailable"
+    assert incidents(lib) == [("publication", "validated", "unavailable", None)]
+    # The confirmed stage is unchanged and nothing was marked verified.
+    assert [event[1] for event in events(lib)] == ["candidate"]
+    failed_import_not_verified(lib)
+    # An exact replay of an already recorded event fails nothing and records nothing.
+    append(lib, first)
+    assert len(incidents(lib)) == 1
