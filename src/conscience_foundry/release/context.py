@@ -7,6 +7,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+from pydantic import TypeAdapter, ValidationError
+
 from conscience_foundry.contracts.common import (
     ContractError,
     ContractLimits,
@@ -21,7 +23,14 @@ from conscience_foundry.execution.evidence import bounded_request, clock, curren
 from conscience_foundry.policy.access import AccessContext, require_permission
 from conscience_foundry.storage.local import ObjectStore
 
-Action = Literal["record_review", "build_release", "withdraw_admission"]
+Action = Literal[
+    "record_review",
+    "build_release",
+    "withdraw_admission",
+    "import_release",
+    "append_publication",
+    "activate_release",
+]
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,20 @@ class ReleaseAuthority(Protocol):
 
 
 @dataclass(frozen=True)
+class TrustedReleasePin:
+    """Operator-configured expectation; never read from a release or caller document.
+
+    A matching digest proves only that bytes equal the pin, not current permission.
+    """
+
+    project_id: Id
+    release_digest: Digest
+    store_id: str
+    consumer_contract: str
+    capabilities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ReleaseContext:
     access: AccessContext
     store: ObjectStore = field(repr=False)
@@ -76,6 +99,29 @@ def checked_context(
     clock(release)
     if type(release.output_store_id) is not str or not release.output_store_id:
         raise ContractError("invalid_schema")
+
+
+def check_pin(pin: TrustedReleasePin, release_digest: str, release: ReleaseContext) -> None:
+    """Bind a requested digest to operator configuration; this never grants access."""
+    if type(pin) is not TrustedReleasePin:
+        raise ContractError("forbidden")
+    try:
+        TypeAdapter(Id).validate_python(pin.project_id)
+        TypeAdapter(Digest).validate_python(pin.release_digest)
+        TypeAdapter(Digest).validate_python(release_digest)
+    except ValidationError:
+        raise ContractError("forbidden") from None
+    if type(pin.capabilities) is not tuple or any(
+        type(label) is not str or not label
+        for label in (pin.store_id, pin.consumer_contract, *pin.capabilities)
+    ):
+        raise ContractError("forbidden")
+    if (pin.project_id, pin.store_id, pin.release_digest) != (
+        release.access.project_id,
+        release.output_store_id,
+        release_digest,
+    ):
+        raise ContractError("forbidden")
 
 
 def require_audit(
