@@ -67,6 +67,7 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "publication": frozenset({"publish"}),
         "activation": frozenset({"activate"}),
         "read": frozenset({"read-span"}),
+        "recovery": frozenset({"backup", "restore", "retention-report"}),
     }
 )
 """Each effect class has its own grant list; one never implies another."""
@@ -166,6 +167,7 @@ class Grants(WireModel):
     publication: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
     activation: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
     read: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
+    recovery: Annotated[tuple[Name, ...], BeforeValidator(_array)] = ()
 
     @model_validator(mode="after")
     def commands_in_their_own_category(self) -> Self:
@@ -207,6 +209,9 @@ class RuntimeConfig(WireModel):
     operator: OperatorSettings
     ledger: LedgerSettings
     object_store: StoreSettings
+    backup_store: StoreSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     limits_path: AbsolutePath
     policy_path: AbsolutePath
     transport_limits: ContractLimits
@@ -375,6 +380,7 @@ class Runtime:
         self._stack = ExitStack()
         self._limits: dict[str, ContractLimits] | None = None
         self._store: LocalObjectStore | None = None
+        self._backup: LocalObjectStore | None = None
         self._ledger: Ledger | None = None
         self.access = AccessContext(
             config.project_id, config.operator.actor_id, frozenset(config.operator.scopes)
@@ -405,22 +411,34 @@ class Runtime:
         """Re-read on every call so each effect boundary sees the policy as it is now."""
         return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("kf.policy.v1"))
 
+    def _local_store(self, settings: StoreSettings) -> LocalObjectStore:
+        project, access = self.config.project_id, self.access
+
+        def authority(ref: Any, context: AccessContext, effect: str) -> None:
+            if ref.project_id != project or context != access:
+                raise ContractError("forbidden")
+
+        registry = LocationRegistry(
+            {settings.store_id: Path(settings.root_path)}, settings.limits, authority
+        )
+        self._stack.callback(registry.close)
+        return LocalObjectStore(settings.store_id, registry)
+
     @property
     def store(self) -> LocalObjectStore:
         if self._store is None:
-            settings = self.config.object_store
-            project, access = self.config.project_id, self.access
-
-            def authority(ref: Any, context: AccessContext, effect: str) -> None:
-                if ref.project_id != project or context != access:
-                    raise ContractError("forbidden")
-
-            registry = LocationRegistry(
-                {settings.store_id: Path(settings.root_path)}, settings.limits, authority
-            )
-            self._stack.callback(registry.close)
-            self._store = LocalObjectStore(settings.store_id, registry)
+            self._store = self._local_store(self.config.object_store)
         return self._store
+
+    @property
+    def backup(self) -> LocalObjectStore:
+        """The separately configured backup store; commands that need it are gated on it."""
+        settings = self.config.backup_store
+        if settings is None:
+            raise ContractError("config_required")
+        if self._backup is None:
+            self._backup = self._local_store(settings)
+        return self._backup
 
     @property
     def ledger(self) -> Ledger:
