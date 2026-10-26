@@ -13,8 +13,11 @@ dependencies = [
     "rfc8785>=0.1.4,<0.2",
 ]
 
+[project.optional-dependencies]
+orchestration = ["dagster>=1.13,<1.14"]
+
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2"]
+dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2", "dagster>=1.13,<1.14"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
