@@ -42,13 +42,22 @@ const fixtures = JSON.parse(readFileSync(options.fixtures, 'utf8'));
 // an array) fails compilation instead of being ignored.
 const ajv = new Ajv2020({ strict: true, strictTypes: true, allErrors: false });
 const ids = [];
+// Raw byte roles (kf.raw-original.v1, kf.canonical-text.v1) are exported as {"not": {}}: they
+// compile, but no JSON instance validates, so they sit outside JSON-instance parity by design.
+const outsideInstanceParity = [];
 for (const file of readdirSync(options.bundle).filter((name) => name.endsWith('.schema.json')).sort()) {
   const schema = JSON.parse(readFileSync(path.join(options.bundle, file), 'utf8'));
   if (`${schema.$id}.schema.json` !== file) fail(`schema id does not match file name: ${file}`);
   ajv.addSchema(schema);
   ids.push(schema.$id);
+  const keys = Object.keys(schema).filter((key) => !key.startsWith('$'));
+  const barred = schema.not;
+  if (keys.length === 1 && keys[0] === 'not' && barred !== null && typeof barred === 'object' && Object.keys(barred).length === 0) {
+    outsideInstanceParity.push(schema.$id);
+  }
 }
 ids.sort();
+outsideInstanceParity.sort();
 for (const id of ids) {
   try {
     ajv.getSchema(id);
@@ -57,7 +66,9 @@ for (const id of ids) {
   }
 }
 
-const report = { compiledSchemas: ids, shape: {}, unicode: {}, jcs: {} };
+// compiledSchemas lists every schema that compiled; outsideInstanceParity is the subset of those
+// that no JSON instance can satisfy (raw byte roles), which the shape fixtures cannot exercise.
+const report = { compiledSchemas: ids, outsideInstanceParity, shape: {}, unicode: {}, jcs: {} };
 
 for (const item of fixtures.shapeCases) {
   const validate = ajv.getSchema(item.schemaId);

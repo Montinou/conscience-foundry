@@ -135,14 +135,22 @@ class ReleaseCase:
     def __init__(self, case: Case, ledger: Ledger) -> None:
         self.case, self.ledger = case, ledger
         self.authority = Authority()
+        # Every digest the store is asked for, by a bounded read or by a verified open (the
+        # backup, restore and retention copies), so a test can see content that was touched.
         self.reads: list[str] = []
         self.read = case.store.read_verified
+        self.open = case.store.open_verified
 
         def record(ref: Ref, access: Any, limit: int) -> Any:
             self.reads.append(ref.digest)
             return self.read(ref, access, limit)
 
+        def record_open(ref: Ref, access: Any) -> Any:
+            self.reads.append(ref.digest)
+            return self.open(ref, access)
+
         case.store.read_verified = record  # type: ignore[method-assign]
+        case.store.open_verified = record_open  # type: ignore[method-assign]
         self.release = ReleaseContext(
             case.access,
             case.store,

@@ -294,6 +294,9 @@ def test_cross_language_schema_and_unicode_fixtures() -> None:
     assert kinds == {"valid", "shape_invalid", "semantic_invalid"}
     # The independent validator compiled every exported schema in the bundle.
     assert node["compiledSchemas"] == sorted(registered_schema_ids())
+    # The two raw byte roles compile as {"not": {}} but are outside JSON-instance parity.
+    assert node["outsideInstanceParity"] == ["kf.canonical-text.v1", "kf.raw-original.v1"]
+    assert set(node["outsideInstanceParity"]) <= set(node["compiledSchemas"])
     for case in fixtures["shapeCases"]:
         cid = case["caseId"]
         py, js = python["shape"][cid], node["shape"][cid]

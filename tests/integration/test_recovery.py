@@ -22,7 +22,7 @@ from test_cli import ALL_GRANTS, Env, database_env
 from test_execution_control import Executor
 from test_import_publication import Library, b_content_reads, build_library, span_of
 from test_ledger_db import ACTOR, ASSET, BATCH, PROJECT, TIME
-from test_release_build import B_SOURCE, approval_request, deny_b, make_case
+from test_release_build import B_ASSET, B_SOURCE, approval_request, deny_b, make_case
 
 from conscience_foundry.cli.config import TrustedServices
 from conscience_foundry.contracts.common import ContractError, Reason, Ref
@@ -50,6 +50,7 @@ from conscience_foundry.recovery.retention import (
     NO_LOCAL,
     OUTPUT_NO_BACKUP,
     OUTPUT_NO_LOCAL,
+    SOURCE_NOT_READABLE,
     TOO_YOUNG,
     UNRECONCILED,
     retention_report,
@@ -666,7 +667,7 @@ def retention(
         lib.value.release.store,
         policy,
         now,
-        limits=limits_for(lib.value.release, "kf.result.v1"),
+        release=lib.value.release,
         backup=backup_store,
     )
 
@@ -772,6 +773,83 @@ def test_retention_keeps_a_result_ineligible_when_its_outputs_were_never_backed_
     assert not entry.eligible and entry.reasons == (OUTPUT_NO_BACKUP,)
 
 
+def deny_audit(lib: Library, only: str | None = None) -> None:
+    case = lib.value.case
+    sources = tuple(
+        source.model_copy(update={"audit_metadata_read": "deny"})
+        if only is None or source.source_id == only
+        else source
+        for source in case.policy.sources
+    )
+    case.policy = case.policy.model_copy(update={"sources": sources})
+
+
+def test_retention_does_not_open_outputs_of_a_source_without_current_read(
+    library: Library, backup_store: LocalObjectStore
+) -> None:
+    """Current policy overrides history: a revoked source's outputs are not opened."""
+    lib = library
+    verified(lib)
+    take(lib, backup_store)
+    outputs = {ref.digest for ref in result_outputs(lib)}
+    assert len(outputs) == 4
+    revoke_a(lib)  # read and extract denied; audit metadata still allowed
+    lib.value.reads.clear()
+    (entry,) = retention(lib, READY, backup_store).entries
+    assert not entry.eligible and entry.reasons == (SOURCE_NOT_READABLE,)
+    assert not outputs & set(lib.value.reads)
+
+
+def test_retention_does_not_read_the_outputs_of_a_result_derived_from_a_denied_source(
+    library: Library, backup_store: LocalObjectStore
+) -> None:
+    """A result of source B (read denied, audit allowed) is reported but its bytes stay unread."""
+    lib = library
+    verified(lib)
+    take(lib, backup_store)
+    with lib.ledger.transaction() as tx:  # the staged result now belongs to B's asset
+        tx.connection.execute(
+            sql.SQL("UPDATE {} SET asset_id=%s WHERE project_id=%s").format(tx.table("operations")),
+            (B_ASSET, PROJECT),
+        )
+    deny_b(lib.value)
+    lib.value.reads.clear()
+    (entry,) = retention(lib, READY, backup_store).entries
+    assert not entry.eligible and entry.reasons == (SOURCE_NOT_READABLE,)
+    assert b_content_reads(lib) == 0
+
+
+@pytest.mark.parametrize("only", [None, "a"])
+def test_retention_requires_audit_metadata_read_for_the_implicated_sources(
+    library: Library, backup_store: LocalObjectStore, only: str | None
+) -> None:
+    lib = library
+    verified(lib)
+    take(lib, backup_store)
+    outputs = {ref.digest for ref in result_outputs(lib)}
+    source = lib.value.case.data.report.entries[0].source_id if only else None
+    deny_audit(lib, source)
+    with pytest.raises(ContractError) as backed_up:
+        take(lib, backup_store)
+    assert backed_up.value.code == "forbidden"
+    lib.value.reads.clear()
+    with pytest.raises(ContractError) as refused:
+        retention(lib, READY, backup_store)
+    assert refused.value.code == "forbidden"
+    assert not outputs & set(lib.value.reads)
+
+
+def test_retention_ignores_a_denied_source_that_has_no_staged_result(
+    library: Library, backup_store: LocalObjectStore
+) -> None:
+    """Only the sources a result implicates are checked; B (no result) may be fully denied."""
+    lib = library
+    verified(lib)
+    take(lib, backup_store)
+    deny_b(lib.value, audit="deny")
+    assert all(entry.eligible for entry in retention(lib, READY, backup_store).entries)
+
+
 def test_independent_media_rejects_a_second_directory_on_the_same_device(tmp_path: Path) -> None:
     first, second = tmp_path / "a", tmp_path / "b"
     first.mkdir()
@@ -864,6 +942,7 @@ def test_cli_backup_restore_and_report_round_trip(
     )
     assert done.exit == 0, done.raw
     assert done.payload["contentRefs"] > 0 and done.payload["pendingAttempts"] == 0
+    assert done.payload["excludedReleases"] == []
     # A second directory on the same device is mechanics only, never an independent copy.
     assert done.payload["independentMedia"] is False
     assert done.payload["independentlyVerified"] is False
@@ -889,6 +968,34 @@ def test_cli_backup_restore_and_report_round_trip(
     )
     assert restored.exit == 0, restored.raw
     assert restored.payload["dispatchBlocked"] is True and restored.payload["accessBlocked"] is True
-    assert restored.payload["missingRefs"] == []
+    assert restored.payload["missingRefs"] == [] and restored.payload["excludedReleases"] == []
     assert pause_rows(target_ledger) == [(True, 1, BARRIER_REASON)]
     target.assert_redacted(restored)
+
+
+def test_cli_backup_and_restore_report_the_excluded_releases(
+    library: Library,
+    ledger: Ledger,
+    target_ledger: Ledger,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator must see that a release was left out of the recovery point."""
+    lib = library
+    verified(lib)
+    revoke_a(lib)  # current policy no longer permits the release's source
+    backup_root = tmp_path / "cli-backup"
+    source = cli_env(tmp_path, monkeypatch, lib, ledger, backup_root)
+    services = TrustedServices(clock=lambda: READY)
+    manifest_path = tmp_path / "recovery.json"
+    done = source.invoke(
+        "backup", "--manifest-output", str(manifest_path), "--execute", services=services
+    )
+    assert done.exit == 0, done.raw
+    assert done.payload["excludedReleases"] == [lib.digest]
+    target = cli_env(tmp_path / "target", monkeypatch, lib, target_ledger, backup_root)
+    restored = target.invoke(
+        "restore", "--manifest", str(manifest_path), "--execute", services=services
+    )
+    assert restored.exit == 0, restored.raw
+    assert restored.payload["excludedReleases"] == [lib.digest]

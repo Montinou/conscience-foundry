@@ -1,10 +1,14 @@
 """Retention report: cleanup eligibility only. It reads state and never deletes anything.
 
 A staged result may be cleaned up only when every condition holds together: no attempt in the
-project is unresolved, the result manifest and every output it lists are verified in the local
-store, the same objects are verified in the independent backup when the policy requires one, and
-the minimum staging age has passed. A backup copies a result manifest as audit metadata only, so an
-output that no verified release selected is not in the backup and keeps its result ineligible.
+project is unresolved, the source the result came from is still readable under current policy,
+the result manifest and every output it lists are verified in the local store, the same objects
+are verified in the independent backup when the policy requires one, and the minimum staging age
+has passed. Outputs carry source-derived content, so they are opened only for a source with current
+read permission; otherwise the result is reported ineligible and its outputs stay unread.
+`auditMetadataRead` is required for every source a staged result implicates, and a denial fails
+the report closed, as it does a backup. A backup copies a result manifest as audit metadata only,
+so an output that no verified release selected is not in the backup and keeps its result ineligible.
 Age alone never qualifies an object. Passing the funded horizon never qualifies it either: an
 object that is not yet safe to clean past its horizon is reported as an unresolved storage-cost
 liability and stays exactly where it is, because expiry is not permission to delete the only copy.
@@ -22,11 +26,13 @@ from psycopg import sql
 
 from conscience_foundry.contracts.common import ContractError, ContractLimits, Instant, Reason, Ref
 from conscience_foundry.contracts.execution import ResultManifest
+from conscience_foundry.contracts.project import PolicyArtifact
 from conscience_foundry.contracts.release import RetentionPolicy
-from conscience_foundry.execution.evidence import identity
+from conscience_foundry.execution.evidence import current_policy, identity, limits_for
 from conscience_foundry.ledger.db import Ledger
-from conscience_foundry.policy.access import AccessContext
+from conscience_foundry.policy.access import AccessContext, require_permission
 from conscience_foundry.recovery.backup import TERMINAL_STATES, require_recovery_scopes
+from conscience_foundry.release.context import ReleaseContext, checked_context, require_audit
 from conscience_foundry.storage.local import ObjectStore
 
 UNRECONCILED = Reason(
@@ -45,11 +51,16 @@ OUTPUT_NO_LOCAL = Reason(
 OUTPUT_NO_BACKUP = Reason(
     code="artifact_missing", message="a result output has no verified independent backup"
 )
+SOURCE_NOT_READABLE = Reason(
+    code="forbidden", message="current policy does not permit reading this result's source"
+)
 ESCALATION_DUE = Reason(code="unavailable", message="operator action due before funded horizon")
 HORIZON_PASSED = Reason(
     code="storage_full", message="unresolved storage liability beyond the funded horizon"
 )
 ABSENT = frozenset({"artifact_missing", "hash_mismatch"})
+# Current policy says the source is not readable (denied or unknown): a verdict, not a failure.
+UNREADABLE = frozenset({"forbidden", "permission_unknown"})
 
 
 @dataclass(frozen=True)
@@ -95,6 +106,20 @@ def _outputs(
     return manifest.outputs
 
 
+def _readable(policy: PolicyArtifact, context: AccessContext, sources: frozenset[str]) -> bool:
+    """True when current policy allows reading every source; no source at all is not readable."""
+    if not sources:
+        return False
+    try:
+        for source in sources:
+            require_permission(context, policy, source, "read")
+    except ContractError as error:
+        if error.code in UNREADABLE:
+            return False
+        raise
+    return True
+
+
 def retention_report(
     context: AccessContext,
     ledger: Ledger,
@@ -102,45 +127,59 @@ def retention_report(
     policy: RetentionPolicy,
     now: Instant,
     *,
-    limits: ContractLimits,
+    release: ReleaseContext,
     backup: ObjectStore | None = None,
 ) -> RetentionReport:
     """Report, per staged result, whether its staging copy could be cleaned up.
 
-    `store` holds the local copy to verify; `backup` is the independent backup store, required to
-    verify a copy when the policy demands one. `limits` bound the read of each result manifest
-    (the trusted `kf.result.v1` limits); an output list that cannot be read within them is reported,
-    never assumed present.
+    `store` holds the local copy to verify and must be the store `release` was built with;
+    `backup` is the independent backup store, required to verify a copy when the policy demands
+    one. `release` supplies current source permission and the trusted `kf.result.v1` limits that
+    bound the read of each result manifest (an output list that cannot be read within them is
+    reported, never assumed present).
     """
+    checked_context(context, store, release)
     require_recovery_scopes(context)
     if type(policy) is not RetentionPolicy:
         raise ContractError("invalid_schema")
+    limits = limits_for(release, "kf.result.v1")
     at = _moment(now)
     project = context.project_id
     with ledger.transaction() as tx:
         tx.lock(project)
+        current = current_policy(release, project)
         unreconciled = tx.connection.execute(
             sql.SQL("SELECT 1 FROM {} WHERE project_id=%s AND NOT state=ANY(%s) LIMIT 1").format(
                 tx.table("attempts")
             ),
             (project, list(TERMINAL_STATES)),
         ).fetchone()
+        # Result to attempt to operation to asset to source: whose content each result carries.
         rows = tx.connection.execute(
             sql.SQL(
-                "SELECT result_ref, min(created_at) FROM {} "
-                "WHERE project_id=%s AND result_ref IS NOT NULL GROUP BY result_ref"
-            ).format(tx.table("attempts")),
+                "SELECT t.result_ref, t.created_at, a.source_id::text FROM {} t "
+                "JOIN {} o ON (t.project_id,t.operation_key)=(o.project_id,o.operation_key) "
+                "JOIN {} a ON (o.project_id,o.asset_id)=(a.project_id,a.asset_id) "
+                "WHERE t.project_id=%s AND t.result_ref IS NOT NULL"
+            ).format(tx.table("attempts"), tx.table("operations"), tx.table("assets")),
             (project,),
         ).fetchall()
-    staged: dict[tuple[object, ...], tuple[Ref, datetime]] = {}
-    for stored, first in rows:
+    staged: dict[tuple[object, ...], tuple[Ref, datetime, set[str]]] = {}
+    for stored, first, source in rows:
         ref = Ref.model_validate(stored)
         key = identity(ref)
         moment = first.astimezone(UTC)
-        if key not in staged or moment < staged[key][1]:
-            staged[key] = (ref, moment)
+        if key not in staged:
+            staged[key] = (ref, moment, {source})
+            continue
+        known, earliest, sources = staged[key]
+        sources.add(source)
+        staged[key] = (known, min(earliest, moment), sources)
+    # Result metadata is audit metadata of every source it implicates; a denial fails closed.
+    implicated = {source for _, _, found in staged.values() for source in found}
+    require_audit(release, current, tuple(sorted(implicated)))
     entries: list[RetentionEntry] = []
-    for ref, started in sorted(staged.values(), key=lambda item: item[0].digest):
+    for ref, started, sources in sorted(staged.values(), key=lambda item: item[0].digest):
         reasons: list[Reason] = []
         if unreconciled is not None:
             reasons.append(UNRECONCILED)
@@ -158,6 +197,10 @@ def retention_report(
                 reasons.append(NO_LOCAL)
             else:
                 outputs = listed
+        # Outputs are source-derived content: without current read permission they stay unopened.
+        if outputs and not _readable(current, context, frozenset(sources)):
+            reasons.append(SOURCE_NOT_READABLE)
+            outputs = ()
         if any(not _verified(output, context, store) for output in outputs):
             reasons.append(OUTPUT_NO_LOCAL)
         if policy.backup_required:

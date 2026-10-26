@@ -30,6 +30,7 @@ from test_release_build import (
 
 from conscience_foundry.contracts.canonical import DocumentRevision, DocumentSpan
 from conscience_foundry.contracts.common import ContractError, Ref
+from conscience_foundry.contracts.execution import ResultManifest
 from conscience_foundry.contracts.release import (
     ActivationRecord,
     ImportReceipt,
@@ -202,10 +203,32 @@ def failed_import_not_verified(lib: Library, digest: str | None = None) -> None:
     assert verified is False and receipt is None
 
 
-def b_content_reads(lib: Library) -> int:
+def b_derived_digests(lib: Library) -> set[str]:
+    """B's admission snapshot and every output of a result an operation on B produced."""
     excluded = lib.value.case.data.report.entries[1].snapshot_ref
     assert excluded is not None
-    return lib.value.reads.count(excluded.digest)
+    digests = {excluded.digest}
+    with lib.ledger.transaction() as tx:
+        rows = tx.connection.execute(
+            sql.SQL(
+                "SELECT t.result_ref FROM {} t JOIN {} o ON (t.project_id,t.operation_key)="
+                "(o.project_id,o.operation_key) JOIN {} a ON (o.project_id,o.asset_id)="
+                "(a.project_id,a.asset_id) WHERE t.project_id=%s AND a.source_id=%s "
+                "AND t.result_ref IS NOT NULL"
+            ).format(tx.table("attempts"), tx.table("operations"), tx.table("assets")),
+            (PROJECT, B_SOURCE),
+        ).fetchall()
+    for (stored,) in rows:
+        raw = lib.value.read(Ref.model_validate(stored), lib.access, 65536).data
+        manifest = ResultManifest.from_wire(raw, lib.value.case.bound)
+        digests.update(output.digest for output in manifest.outputs)
+    return digests
+
+
+def b_content_reads(lib: Library) -> int:
+    """Reads, by bounded read or verified open, of B content or of anything derived from B."""
+    derived = b_derived_digests(lib)
+    return sum(1 for digest in lib.value.reads if digest in derived)
 
 
 def test_import_verifies_selected_closure_and_records_receipt(library: Library) -> None:
