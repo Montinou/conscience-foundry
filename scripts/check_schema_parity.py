@@ -58,6 +58,10 @@ EXPECTED_VERDICTS: dict[str, tuple[bool, bool]] = {
     "semantic_invalid": (False, True),
 }
 
+# Raw byte roles are exported as `{"not": {}}`: they compile but no JSON instance validates, so
+# they are outside JSON-instance parity and are reported separately from the compiled set.
+RAW_BYTE_ROLES = frozenset({"kf.raw-original.v1", "kf.canonical-text.v1"})
+
 
 class SchemaParityError(Exception):
     """Python and Node disagree, or a fixture expectation does not hold."""
@@ -133,6 +137,8 @@ def check_schema_parity(bundle: Path, fixtures: Path) -> None:
     problems: list[str] = []
     if node["compiledSchemas"] != sorted(registered_schema_ids()):
         problems.append("bundle schema set differs from the registered schemas")
+    if node["outsideInstanceParity"] != sorted(RAW_BYTE_ROLES):
+        problems.append("schemas outside JSON-instance parity differ from the raw byte roles")
     for case in data["shapeCases"]:
         cid, kind = case["caseId"], case["kind"]
         py, js = python["shape"][cid], node["shape"][cid]

@@ -67,7 +67,6 @@ from conscience_foundry.execution.evidence import (
     budget_context,
     current_policy,
     encoded,
-    limits_for,
     read_model,
     source_asset,
 )
@@ -761,6 +760,7 @@ def _backup(inv: Invocation) -> Outcome:
         contentRefs=len(manifest.content_refs),
         auditRefs=len(manifest.audit_refs),
         pendingAttempts=len(manifest.pending_attempt_ids),
+        excludedReleases=list(manifest.excluded_release_digests),
         # Mechanics only: a different device is necessary for independence, never sufficient.
         independentMedia=independent_media(Path(settings.root_path), Path(destination.root_path)),
         independentlyVerified=False,
@@ -778,6 +778,7 @@ def _restore(inv: Invocation) -> Outcome:
     data = {
         "verifiedRefs": len(report.verified_refs),
         "missingRefs": [ref.digest for ref in report.missing_refs],
+        "excludedReleases": list(manifest.excluded_release_digests),
         "dispatchBlocked": report.dispatch_blocked,
         "accessBlocked": report.access_blocked,
         "reasons": [{"code": reason.code, "message": reason.message} for reason in report.reasons],
@@ -802,7 +803,7 @@ def _retention_report(inv: Invocation) -> Outcome:
         rt.store,
         policy,
         rt.clock(),
-        limits=limits_for(rt.release, "kf.result.v1"),
+        release=rt.release,
         backup=rt.backup if rt.config.backup_store is not None else None,
     )
     return _ok(
