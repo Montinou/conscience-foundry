@@ -455,9 +455,12 @@ def test_public_guide_and_readme_are_agnostic() -> None:
         "scoped executor",
         "restart",
         "single-use",
+        "live",
+        "restore-drill",
+        "record-billing",
     ):
         assert required in guide, required
-    for label in ("synthetic_offline", "local_isolated_postgres", "not_run", "blocked"):
+    for label in ("live", "synthetic_offline", "local_isolated_postgres", "not_run", "blocked"):
         assert label in guide, label
     for text in (guide, readme):
         for private in (

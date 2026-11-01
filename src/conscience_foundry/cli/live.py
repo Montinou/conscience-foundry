@@ -50,10 +50,13 @@ from psycopg import sql
 from pydantic import StringConstraints
 
 from conscience_foundry.cli.authorities import (
+    EVIDENCE_LABELS,
+    EvidenceLabel,
     LocalEvidenceAuthority,
     LocalReleaseAuthority,
     PlanPin,
     checked_billing,
+    evidence_label,
 )
 from conscience_foundry.cli.config import (
     LiveSettings,
@@ -130,6 +133,7 @@ __all__ = [
     "open_session",
     "pilot",
     "require_bound_issuer",
+    "stamp_label",
 ]
 
 LIVE_REQUIRES_PILOT = "live_requires_pilot"
@@ -152,10 +156,37 @@ _PROBE_ATTEMPT = "00000000-0000-0000-0000-00000000c002"
 
 # -- evidence decoders ----------------------------------------------------------------------------
 
+LABEL_KEY = "evidenceLabel"
+"""The key a control-side record carries its evidence label under; only trusted code writes it."""
 _OBSERVATION_KEYS = frozenset(
-    {"action", "attemptId", "observedState", "remoteCallId", "schemaVersion", "sdkState"}
+    {
+        "action",
+        "attemptId",
+        LABEL_KEY,
+        "observedState",
+        "remoteCallId",
+        "schemaVersion",
+        "sdkState",
+    }
 )
-_STOP_KEYS = frozenset({"attemptId", "recordedAt", "remoteCallId", "schemaVersion", "trigger"})
+_STOP_KEYS = frozenset(
+    {"attemptId", LABEL_KEY, "recordedAt", "remoteCallId", "schemaVersion", "trigger"}
+)
+
+
+def stamp_label(data: bytes, label: EvidenceLabel) -> bytes:
+    """A control-side record with its evidence label added by this process.
+
+    The label is never taken from the record: one that already names a label is refused, so
+    nothing the record's producer put in it can be mistaken for the session's own word.
+    """
+    try:
+        value = json.loads(data)
+    except Exception:
+        raise ContractError("invalid_schema") from None
+    if type(value) is not dict or LABEL_KEY in value or label not in EVIDENCE_LABELS:
+        raise ContractError("invalid_schema")
+    return json.dumps({**value, LABEL_KEY: label}, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _record_decoder(
@@ -174,6 +205,7 @@ def _record_decoder(
             type(value) is not dict
             or set(value) != keys
             or value.get("schemaVersion") != schema
+            or value.get(LABEL_KEY) not in EVIDENCE_LABELS
             or not all(
                 item is None or (type(item) is str and len(item) <= limits.max_string_scalars)
                 for item in value.values()
@@ -630,10 +662,16 @@ class LivePilot:
         )
 
 
-def _sink(runtime: Runtime) -> Callable[[str, bytes], Ref]:
-    """Stores an executor evidence record in the local store and returns its reference."""
+def _sink(runtime: Runtime, authority: LocalEvidenceAuthority) -> Callable[[str, bytes], Ref]:
+    """Stores an executor evidence record in the local store and returns its reference.
+
+    The observation record is stamped with the evidence label the authority holds at this
+    moment (``live`` while its session is open), never one the executor or a worker supplied.
+    """
 
     def store(schema: str, data: bytes) -> Ref:
+        if schema == OBSERVATION_SCHEMA:
+            data = stamp_label(data, authority.evidence_label())
         ref = _local_ref(runtime, schema, data)
         return runtime.store.put_verified(io.BytesIO(data), ref, runtime.access)
 
@@ -711,6 +749,17 @@ def pilot(
         _Clock(wiring.clock),
         modal=wiring.modal_module,
     )
+    authority = LocalEvidenceAuthority(
+        _decoders(config),
+        session,
+        wiring.issuer,
+        packet.estimate_ref,
+        None,
+        "live",
+        plans=(PlanPin(plan_ref, plan, config),),
+        limits_by_schema=runtime.limits,
+        approved_grant_digest=approved_grant_digest,
+    )
     executor = ModalExecutor(
         sdk=session,
         pin=ModalPin(
@@ -728,19 +777,8 @@ def pilot(
         access=runtime.access,
         limits=runtime.limit("cf.result.v1"),
         clock=wiring.clock,
-        evidence=_sink(runtime),
+        evidence=_sink(runtime, authority),
         payload_extras=live_payload_extras(settings),
-    )
-    authority = LocalEvidenceAuthority(
-        _decoders(config),
-        session,
-        wiring.issuer,
-        packet.estimate_ref,
-        None,
-        "live",
-        plans=(PlanPin(plan_ref, plan, config),),
-        limits_by_schema=runtime.limits,
-        approved_grant_digest=approved_grant_digest,
     )
     base = replace(runtime.services, executor=executor, evidence_authority=authority)
     return LivePilot(session, base, wiring)
@@ -755,11 +793,16 @@ def open_session(services: TrustedServices) -> LiveModalSession | None:
 
 
 def _stop_record(
-    runtime: Runtime, attempt_id: Id, call_id: str | None, trigger: Literal["deadline", "interrupt"]
+    runtime: Runtime,
+    session: LiveModalSession,
+    attempt_id: Id,
+    call_id: str | None,
+    trigger: Literal["deadline", "interrupt"],
 ) -> Ref:
     data = json.dumps(
         {
             "attemptId": attempt_id,
+            LABEL_KEY: evidence_label(session),
             "recordedAt": runtime.clock(),
             "remoteCallId": call_id,
             "schemaVersion": STOP_SCHEMA,
@@ -800,7 +843,7 @@ def _stop(
         call_id = _current(runtime, attempt_id).remote_call_id
     except Exception:
         call_id = None  # the record still names the attempt; the call id is only context
-    evidence = _stop_record(runtime, attempt_id, call_id, trigger)
+    evidence = _stop_record(runtime, session, attempt_id, call_id, trigger)
     state: str | None = None
     try:
         state = cancel_attempt(

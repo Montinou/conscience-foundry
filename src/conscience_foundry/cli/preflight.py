@@ -36,6 +36,12 @@ steps is handled by the step itself while the session is open (the attempt is ca
 the ledger, or marked ``unknown_outcome``); ``run-pilot`` then only exits the app and reports
 ``interrupted`` (exit 130). Every report states the residual risks (``residual_risks``).
 
+Every step entry carries ``evidenceLabel``: ``live`` when the step ran with the live session
+open, otherwise ``synthetic_offline``. The label is read from the evidence authority and its
+session (``LocalEvidenceAuthority.evidence_label``) before the step runs; nothing in a file, a step
+or a step's output can set it. The report's own ``evidenceLabel`` is ``live`` when any step ran
+live, otherwise ``synthetic_offline``.
+
 Each step is then run through the same gated ``run_command`` with ``--execute``, so every library
 gate, config grant and adapter requirement of that command still applies. Manual retry and a second
 dispatch are refused here. The first step that is not ``ok`` halts the pilot. Completing the steps
@@ -65,6 +71,7 @@ from typing import Annotated, Any, Literal, NoReturn
 from pydantic import BeforeValidator, Field
 
 from conscience_foundry.cli import live
+from conscience_foundry.cli.authorities import EvidenceLabel, LocalEvidenceAuthority
 from conscience_foundry.cli.commands import (
     BY_NAME,
     Command,
@@ -521,9 +528,27 @@ def _consume_grant(config: str | None, grant: LiveGrant, packet: PreflightPacket
         raise ContractError("unavailable") from None
 
 
-def _report(status: Status, code: str | None, data: dict[str, Any] | None = None) -> Outcome:
-    """Every run-pilot report states what this runtime cannot recover or settle by itself."""
-    return Outcome(status, code, {**(data or {}), "residual_risks": list(RESIDUAL_RISKS)})
+def _report(
+    status: Status,
+    code: str | None,
+    data: dict[str, Any] | None = None,
+    label: EvidenceLabel = "synthetic_offline",
+) -> Outcome:
+    """Every run-pilot report states what this runtime cannot recover or settle by itself, and
+    the evidence label of what it reports (``live`` only if a step ran under a live session)."""
+    return Outcome(
+        status,
+        code,
+        {**(data or {}), "evidenceLabel": label, "residual_risks": list(RESIDUAL_RISKS)},
+    )
+
+
+def _step_label(services: TrustedServices) -> EvidenceLabel:
+    """The label of a step about to run with these services: the authority's, from its session."""
+    authority = services.evidence_authority
+    if isinstance(authority, LocalEvidenceAuthority):
+        return authority.evidence_label()
+    return "synthetic_offline"
 
 
 def _run_pilot(inv: Invocation) -> Outcome:
@@ -564,6 +589,11 @@ def _pilot(inv: Invocation) -> Outcome:
     results: list[dict[str, Any]] = []
     dispatched: str | None = None
     index = 0
+    label: EvidenceLabel = "synthetic_offline"
+    ran_live = False
+
+    def overall() -> EvidenceLabel:
+        return "live" if ran_live else "synthetic_offline"
 
     def halted(status: Status, code: str) -> Outcome:
         # Inner payloads are never echoed; a halted pilot is never partial success.
@@ -571,11 +601,13 @@ def _pilot(inv: Invocation) -> Outcome:
             status,
             code,
             {"steps": results, "haltedAt": index, "paidPilotAcceptance": "not_established"},
+            overall(),
         )
 
     try:
         with ExitStack() as stack:
             for index, (command, parsed) in enumerate(planned):
+                label = "synthetic_offline"
                 moment = rt.clock()
                 if moment >= grant.expires_at or moment >= binding.expires_at:
                     return halted("blocked", "authorization_expired")
@@ -587,10 +619,17 @@ def _pilot(inv: Invocation) -> Outcome:
                             stack.enter_context(runtime.session)
                         except ContractError as error:
                             results.append(
-                                {"command": command.name, "outcome": "blocked", "code": error.code}
+                                {
+                                    "command": command.name,
+                                    "outcome": "blocked",
+                                    "code": error.code,
+                                    "evidenceLabel": label,
+                                }
                             )
                             return halted("blocked", error.code)
                     services = runtime.services(session_open=within)
+                label = _step_label(services)  # before the step: the session may end with it
+                ran_live = ran_live or label == "live"
                 if getattr(parsed, "attempt_id", None) == ATTEMPT_TOKEN:
                     if dispatched is None:
                         return halted("blocked", "forbidden")
@@ -598,21 +637,38 @@ def _pilot(inv: Invocation) -> Outcome:
                 outcome = run_command(command, parsed, services)
                 if command.name == "dispatch":
                     dispatched = _dispatched_attempt(outcome)
-                if span is not None and index == span[1]:
-                    stack.close()  # the session ends with the last step that needs it
-                entry: dict[str, Any] = {"command": command.name, "outcome": outcome.status}
+                entry: dict[str, Any] = {
+                    "command": command.name,
+                    "outcome": outcome.status,
+                    "evidenceLabel": label,
+                }
                 if outcome.code is not None:
                     entry["code"] = outcome.code
-                results.append(entry)
+                results.append(entry)  # recorded before the session ends: a failed stop keeps it
+                if span is not None and index == span[1]:
+                    stack.close()  # the session ends with the last step that needs it
                 if outcome.status != "ok":
                     status = outcome.status if outcome.status in ("blocked", "failed") else "failed"
                     return halted(status, outcome.code or "internal_error")
     except KeyboardInterrupt:
         # The step already stopped its attempt while the session was open; the session has now
         # been exited by the stack. Nothing else is done here.
-        results.append({"command": planned[index][0].name, "outcome": "interrupted"})
+        results.append(
+            {
+                "command": planned[index][0].name,
+                "outcome": "interrupted",
+                "evidenceLabel": label,
+            }
+        )
         return halted("interrupted", "interrupted")
-    return _report("ok", None, {"steps": results, "paidPilotAcceptance": "not_established"})
+    except ContractError as error:
+        # The session could not be stopped on exit (or a step raised): what already ran under it
+        # stays reported as live, with the steps gathered so far; it is never synthetic evidence.
+        failure = classify(error)
+        return halted(failure.status, failure.code or "internal_error")
+    return _report(
+        "ok", None, {"steps": results, "paidPilotAcceptance": "not_established"}, overall()
+    )
 
 
 def _dispatched_attempt(outcome: Outcome) -> str | None:

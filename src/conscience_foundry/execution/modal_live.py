@@ -545,6 +545,11 @@ class LiveModalSession:
     def records(self) -> Mapping[str, CallRecord]:
         return MappingProxyType(self._records)
 
+    @property
+    def is_open(self) -> bool:
+        """True only between a successful ``__enter__`` and ``__exit__``: the app is running."""
+        return self._state == "open"
+
     # -- lifecycle ------------------------------------------------------------------
 
     def __enter__(self) -> Self:

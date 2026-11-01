@@ -16,7 +16,7 @@ import logging
 import subprocess
 import sys
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1361,6 +1361,31 @@ def test_default_clock_and_nonce_are_real_and_fresh() -> None:
 # -- fidelity against the installed SDK (no network, no client) ---------------------------
 
 
+@pytest.fixture
+def isolated_modal_modules() -> Iterator[None]:
+    """Keep the real SDK import from outliving the test.
+
+    The core import-boundary test asserts that no ``modal`` module is loaded in the process; a
+    real import here would leave the whole package family behind for every later test module.
+    """
+
+    def family() -> dict[str, Any]:
+        return {
+            name: module
+            for name, module in sys.modules.items()
+            if name == "modal" or name.startswith("modal.")
+        }
+
+    before = family()
+    try:
+        yield
+    finally:
+        for name in family():
+            sys.modules.pop(name, None)
+        sys.modules.update(before)
+
+
+@pytest.mark.usefixtures("isolated_modal_modules")
 def test_fake_matches_the_installed_modal_sdk() -> None:
     """What the session relies on exists in the real package, in the shape the fake imitates."""
     real = pytest.importorskip("modal")

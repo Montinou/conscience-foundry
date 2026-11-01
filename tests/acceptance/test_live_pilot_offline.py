@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 from psycopg import sql
+from pydantic import ValidationError
 
 for _sibling in ("integration", "adapters"):
     _path = str(Path(__file__).resolve().parents[1] / _sibling)
@@ -998,3 +999,159 @@ def test_interrupt_falls_back_to_unknown_outcome_when_cancel_fails(
     assert state == "unknown_outcome"  # never left running
     assert pilot.world.cancel_calls == [(call_id, True)]  # the backstop still terminated it
     assert_clean(pilot, result)
+
+
+# -- the evidence label ----------------------------------------------------------------------------
+
+LIVE_STEPS = {"dispatch", "reconcile"}
+"""The pilot steps that run while the live session is open."""
+
+
+def stored_records(pilot: Pilot, schema: str) -> list[dict[str, Any]]:
+    """Every JSON record of one schema in the local object store (the control side's records)."""
+    found: list[dict[str, Any]] = []
+    for path in sorted(pilot.env.objects.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_bytes())
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("schemaVersion") == schema:
+            found.append(value)
+    return found
+
+
+def test_offline_pilot_labels_synthetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cli = preflight_case.Cli(tmp_path, monkeypatch)
+    monkeypatch.setattr(pilot_cli, "run_command", preflight_case.Recorder())
+    finished = preflight_case.pilot(cli)
+    assert finished.exit == 0, finished.raw
+    assert finished.payload["evidenceLabel"] == "synthetic_offline"
+    steps = finished.payload["steps"]
+    assert steps and {step["evidenceLabel"] for step in steps} == {"synthetic_offline"}
+    # a halted pilot and one refused before any step say the same: nothing live was open
+    halted_by = preflight_case.Recorder({"backup": Outcome("blocked", "adapter_unavailable")})
+    monkeypatch.setattr(pilot_cli, "run_command", halted_by)
+    halted = preflight_case.pilot(cli)
+    assert halted.payload["evidenceLabel"] == "synthetic_offline"
+    assert {step["evidenceLabel"] for step in halted.payload["steps"]} == {"synthetic_offline"}
+    unready = preflight_case.pilot(cli, closed=frozenset())
+    assert unready.payload["evidenceLabel"] == "synthetic_offline"
+
+
+@pytest.mark.database
+def test_live_session_labels_live(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pilot = Pilot(ledger, tmp_path, monkeypatch)
+    result = pilot.run_pilot()
+    assert result.exit == 0, result.raw
+    labels = {step["command"]: step["evidenceLabel"] for step in result.payload["steps"]}
+    # exactly the steps that ran while the session was open are live; the rest are not
+    assert labels == {name: "live" if name in LIVE_STEPS else "synthetic_offline" for name in STEPS}
+    assert result.payload["evidenceLabel"] == "live"
+    # the control side's own record of the observation was written under the open session
+    records = stored_records(pilot, live.OBSERVATION_SCHEMA)
+    assert records and {record["evidenceLabel"] for record in records} == {"live"}
+    assert_clean(pilot, result)
+
+
+@pytest.mark.database
+def test_deadline_stop_record_is_labelled_live(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pilot = Pilot(ledger, tmp_path, monkeypatch, run_entry=False)
+    real = fake_modal.FakeCall.get
+
+    def get(call: Any, timeout: float | None = None, *, index: int = 0) -> Any:
+        if timeout:
+            pilot.clock.advance(timeout)
+        return real(call, timeout, index=index)
+
+    monkeypatch.setattr(fake_modal.FakeCall, "get", get)
+    result = pilot.run_pilot()
+    stops = stored_records(pilot, live.STOP_SCHEMA)
+    assert len(stops) == 1 and stops[0]["evidenceLabel"] == "live", result.raw
+    assert result.payload["evidenceLabel"] == "live"
+
+
+def exit_fails(pilot: Pilot) -> None:
+    """The ephemeral app cannot be stopped when the session closes."""
+
+    def broken(run: Any, *exc: Any) -> None:
+        run.world.exited.append(exc[0])
+        raise RuntimeError("synthetic app stop failure")
+
+    pilot.mp.setattr(fake_modal.FakeRun, "__exit__", broken)
+
+
+def spawn_fails(pilot: Pilot) -> None:
+    """The dispatch step halts inside the session, which then also cannot be stopped."""
+    exit_fails(pilot)
+    pilot.world.spawn_error = RuntimeError("synthetic spawn failure")
+
+
+@pytest.mark.database
+@pytest.mark.parametrize("fault", [exit_fails, spawn_fails], ids=["closing", "halted-then-closing"])
+def test_session_that_fails_to_close_is_still_labelled_live(
+    ledger: Ledger,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: Callable[[Pilot], None],
+) -> None:
+    pilot = Pilot(ledger, tmp_path, monkeypatch)
+    fault(pilot)
+    result = pilot.run_pilot()
+    # a paid dispatch was made under the open session: the refusal never reports it as synthetic
+    assert result.exit != 0, result.raw
+    assert result.payload["code"] == "unavailable", result.raw
+    assert result.payload["evidenceLabel"] == "live", result.raw
+    assert set(result.payload["residual_risks"]) == RISKS
+    steps = result.payload["steps"]  # what ran before the failure is still reported
+    assert steps and steps[-1]["command"] in LIVE_STEPS
+    assert {step["evidenceLabel"] for step in steps if step["command"] in LIVE_STEPS} == {"live"}
+    assert pilot.world.exited, "the app stop was attempted"
+
+
+def test_document_cannot_set_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # no operator document has a label field: the strict models refuse one
+    cli = preflight_case.Cli(tmp_path, monkeypatch)
+    for model, document in (
+        (preflight_case.PreflightPacket, cli.case.packet_wire),
+        (live.BillingRecord, {
+            "schemaVersion": "cfoundry.billing-record.v1", "projectId": PROJECT,
+            "attemptId": preflight_case.OTHER, "currency": "USD", "costStatus": "actual",
+            "amountUsd": "0.12", "source": "synthetic-billing-export", "recordedBy": ACTOR,
+            "recordedAt": TIME,
+        }),
+    ):  # fmt: skip
+        for value in ("live", "synthetic_offline"):
+            with pytest.raises(ValidationError) as refused:
+                model.model_validate({**document, "evidenceLabel": value})
+            assert [(e["type"], e["loc"]) for e in refused.value.errors()] == [
+                ("extra_forbidden", ("evidenceLabel",))
+            ]
+    # a record that already names a label is never stamped: the trusted side alone decides
+    with pytest.raises(ContractError) as forged:
+        live.stamp_label(b'{"evidenceLabel":"live","schemaVersion":"x"}', "synthetic_offline")
+    assert forged.value.code == "invalid_schema"
+    stamped = json.loads(live.stamp_label(b'{"schemaVersion":"x"}', "synthetic_offline"))
+    assert stamped == {"schemaVersion": "x", "evidenceLabel": "synthetic_offline"}
+    # the control-side record decoders accept the two labels and nothing else
+    limits = cli_case.limits()
+    for schema, base in (
+        (live.STOP_SCHEMA, {"attemptId": "a", "recordedAt": TIME, "remoteCallId": None,
+                            "trigger": "deadline"}),
+        (live.OBSERVATION_SCHEMA, {"action": "reconcile", "attemptId": "a", "observedState": "x",
+                                   "remoteCallId": None, "sdkState": "y"}),
+    ):  # fmt: skip
+        decode = live.LIVE_DECODERS[schema]
+        record = {"schemaVersion": schema, **base}
+        for good in ("live", "synthetic_offline"):
+            decode(wire({**record, "evidenceLabel": good}), limits)
+        for bad in ("document", "", None):
+            with pytest.raises(ContractError):
+                decode(wire({**record, "evidenceLabel": bad}), limits)
+        with pytest.raises(ContractError):
+            decode(wire(record), limits)  # unlabelled records are not accepted either

@@ -1026,3 +1026,19 @@ def test_release_authority_fails_closed_when_the_policy_lookup_fails() -> None:
             authority.approve(release_proof())
         assert refused.value.code == "forbidden"
         assert "store unavailable" not in repr(refused.value)
+
+
+def test_evidence_label_comes_from_the_authority_and_its_open_session() -> None:
+    # offline: no session, or a session that is not open, is synthetic whatever the label says
+    assert Rig().authority.evidence_label() == "synthetic_offline"
+    session = make_session()
+    assert session.is_open is False
+    live = Rig(session=session, label="live")
+    assert live.authority.evidence_label() == "synthetic_offline"  # a session that is not open
+    session._state = "open"  # the app is running
+    assert session.is_open is True
+    assert live.authority.evidence_label() == "live"
+    # an authority that is not a live one never reports live, even over an open session
+    assert Rig(session=session).authority.evidence_label() == "synthetic_offline"
+    session._state = "closed"
+    assert live.authority.evidence_label() == "synthetic_offline"

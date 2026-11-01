@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     from conscience_foundry.storage.r2 import R2CredentialIssuer
 
 EvidenceLabel = Literal["live", "synthetic_offline"]
+EVIDENCE_LABELS: tuple[str, ...] = get_args(EvidenceLabel)
 ESTIMATE_SCHEMA = "cfoundry.cost-estimate.v1"
 BUDGET_EVENT_SCHEMA = "cf.budget-event.v1"
 _DIGEST = TypeAdapter(Digest)
@@ -93,6 +94,15 @@ _CONTROL_ACTIONS = frozenset(
 _RELEASE_ACTIONS = frozenset(get_args(Action))
 _MATERIAL_PIECES = 2
 """A staging grant is exactly two credentials: read-only first, read-write second."""
+
+
+def evidence_label(session: LiveModalSession | None) -> EvidenceLabel:
+    """The label of a record written now: ``live`` only while a live session is open.
+
+    It is derived from the session this process holds and from nothing else: no document, request
+    or worker output can name or change it.
+    """
+    return "live" if session is not None and session.is_open else "synthetic_offline"
 
 
 def _refuse(code: str = "forbidden") -> ContractError:
@@ -195,6 +205,11 @@ class LocalEvidenceAuthority:
 
     def __repr__(self) -> str:
         return f"LocalEvidenceAuthority(label={self.label!r})"
+
+    def evidence_label(self) -> EvidenceLabel:
+        """The label of a record written right now: ``live`` needs a live authority and a session
+        that is open at this moment; anything else is ``synthetic_offline``."""
+        return evidence_label(self._session) if self.label == "live" else "synthetic_offline"
 
     # -- budget -----------------------------------------------------------------------
 
