@@ -37,7 +37,7 @@ NODE_TIMEOUT_SECONDS = 120
 BLOCKED_EXIT = 2
 
 LIMITS = ContractLimits(
-    schema_version="kf.contract-limits.v1",
+    schema_version="cf.contract-limits.v1",
     version="synthetic.parity.v1",
     max_json_bytes=1_000_000,
     max_string_scalars=10_000,
@@ -60,7 +60,7 @@ EXPECTED_VERDICTS: dict[str, tuple[bool, bool]] = {
 
 # Raw byte roles are exported as `{"not": {}}`: they compile but no JSON instance validates, so
 # they are outside JSON-instance parity and are reported separately from the compiled set.
-RAW_BYTE_ROLES = frozenset({"kf.raw-original.v1", "kf.canonical-text.v1"})
+RAW_BYTE_ROLES = frozenset({"cf.raw-original.v1", "cf.canonical-text.v1"})
 
 
 class SchemaParityError(Exception):

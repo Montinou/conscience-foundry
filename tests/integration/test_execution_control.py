@@ -253,7 +253,7 @@ class Case:
         self.store.put_verified(io.BytesIO(source_bytes), self.original, self.access)
         self.limits_ref = self.put(self.bound)
         self.spec = ExtractionSpec(
-            schema_version="kf.extraction-spec.v1",
+            schema_version="cf.extraction-spec.v1",
             processor_id="text.utf8.v1",
             processor_version="synthetic.v1",
             code_version="synthetic.v1",
@@ -267,7 +267,7 @@ class Case:
         tariff = self.proof()
         resource = self.proof()
         self.config = ExecutionConfig(
-            schema_version="kf.execution-config.v1",
+            schema_version="cf.execution-config.v1",
             adapter_id="synthetic.worker",
             deployment_version="synthetic.v1",
             image_digest="a" * 64,
@@ -311,7 +311,7 @@ class Case:
         auth_id = str(uuid4())
         self.plan = ExecutionPlan.model_validate(
             {
-                "schemaVersion": "kf.execution-plan.v1",
+                "schemaVersion": "cf.execution-plan.v1",
                 "projectId": PROJECT,
                 "runId": RUN,
                 "planId": str(uuid4()),
@@ -348,7 +348,7 @@ class Case:
         )
         self.plan_ref = self.put(self.plan)
         self.auth = RunAuthorization(
-            schema_version="kf.run-authorization.v1",
+            schema_version="cf.run-authorization.v1",
             authorization_id=auth_id,
             project_id=PROJECT,
             run_id=RUN,
@@ -422,7 +422,7 @@ class Case:
             material,
             scope,
         )
-        digest = hashlib.sha256(b"kf.transport-material.internal.v1\n")
+        digest = hashlib.sha256(b"cf.transport-material.internal.v1\n")
         digest.update(len(material).to_bytes(8, "big"))
         for piece in material:
             digest.update(len(piece).to_bytes(8, "big"))
@@ -462,7 +462,7 @@ class Case:
     def result(self, attempt: Any, *, extra_check: bool = False) -> Ref:
         source = self.data.report.entries[0].source_id
         asset = SourceAsset(
-            schema_version="kf.source-asset.v1",
+            schema_version="cf.source-asset.v1",
             project_id=PROJECT,
             asset_id=ASSET,
             source_id=source,
@@ -488,12 +488,12 @@ class Case:
                 }
             )
         quality_ref, map_ref = self.put(quality), self.put(output.origin_map)
-        text_ref = reference(output.text, "kf.canonical-text.v1").model_copy(
+        text_ref = reference(output.text, "cf.canonical-text.v1").model_copy(
             update={"media_type": "text/plain"}
         )
         self.store.put_verified(io.BytesIO(output.text), text_ref, self.access)
         revision = DocumentRevision(
-            schema_version="kf.document-revision.v1",
+            schema_version="cf.document-revision.v1",
             project_id=PROJECT,
             source_id=source,
             asset_id=ASSET,
@@ -521,7 +521,7 @@ class Case:
         revision_ref = self.put(revision)
         return self.put(
             ResultManifest(
-                schema_version="kf.result.v1",
+                schema_version="cf.result.v1",
                 project_id=PROJECT,
                 plan_id=self.plan.plan_id,
                 operation_key=self.plan.operation_key,
@@ -942,7 +942,7 @@ def test_terminal_snapshot_storage_rejects_a_stale_direct_write(
         with pytest.raises(ContractError, match="determinism_conflict"):
             save_attempt(tx, running, c.control)
         current, _, _, _ = _load(tx, running.attempt_id, c.control)
-        assert save_attempt(tx, current, c.control).artifact_schema == "kf.stage-attempt.v1"
+        assert save_attempt(tx, current, c.control).artifact_schema == "cf.stage-attempt.v1"
     assert attempt_row(ledger, running.attempt_id) == before
 
 
@@ -1151,7 +1151,7 @@ def test_result_rejects_foreign_input_before_content_read(ledger: Ledger, tmp_pa
         c.store.read_verified(result.document_revision_ref, c.access, 65536).data, c.bound
     )
     foreign_bytes = b"Unselected synthetic source"
-    foreign = reference(foreign_bytes, "kf.raw-original.v1").model_copy(
+    foreign = reference(foreign_bytes, "cf.raw-original.v1").model_copy(
         update={"media_type": "text/plain"}
     )
     c.store.put_verified(io.BytesIO(foreign_bytes), foreign, c.access)
@@ -1282,7 +1282,7 @@ def test_snapshot_and_explicit_financial_reconciliation_cas(ledger: Ledger, tmp_
     final_ref = c.proof()
     c.authority.billings[final_ref.digest] = ("actual", "4", True, True, False)
     settled = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1302,7 +1302,7 @@ def test_snapshot_and_explicit_financial_reconciliation_cas(ledger: Ledger, tmp_
     adjustment_ref = c.proof()
     c.authority.billings[adjustment_ref.digest] = ("actual", "3", True, True, False)
     adjustment = BillingAdjustment(
-        schema_version="kf.billing-adjustment.v1",
+        schema_version="cf.billing-adjustment.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1369,7 +1369,7 @@ def test_final_bill_actual_and_release_residual_are_distinct(
     receipt = c.proof()
     c.authority.billings[receipt.digest] = ("actual", "3", True, True, False)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1628,7 +1628,7 @@ def test_storage_billing_resolves_original_funding_plans_after_amendment(
     c.authority.billings[receipt.digest] = ("actual", "2", True, True, False)
     c.authority.billing_plans[receipt.digest] = (c.plan_ref.digest,)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=reservation,
@@ -1957,7 +1957,7 @@ def settle_final(c: Case, ledger: Ledger, attempt: Any, amount: str = "4") -> No
     receipt = c.proof()
     c.authority.billings[receipt.digest] = ("actual", amount, True, True, False)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -2145,7 +2145,7 @@ def test_active_attempt_reservation_cannot_be_finalized_on_evidence_alone(
         c.authority.billings[receipt.digest] = ("actual", "0", True, True, True)
         kind, amount = "release_unspent", "4"
     event = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -2226,7 +2226,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
     c.authority.observation = observation  # type: ignore[method-assign]
     record = CapabilityRecord.model_validate(
         {
-            "schema_version": "kf.modal-capability-record.v1",
+            "schema_version": "cf.modal-capability-record.v1",
             "project_id": PROJECT,
             "execution_config_ref": c.plan.execution_config_ref,
             "sdk_version": "synthetic-sdk.1",
@@ -2246,7 +2246,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
             "cancellation": "terminates_containers",
             "deadline_enforcement": "entry_and_every_bounded_step",
             "valid_until": c.plan.budget.valid_until,
-            "source_evidence_refs": (reference(b"synthetic evidence", "kf.capability-source.v1"),),
+            "source_evidence_refs": (reference(b"synthetic evidence", "cf.capability-source.v1"),),
         }
     )
     return ModalExecutor(
@@ -2397,7 +2397,7 @@ def test_a_noncanonical_stored_plan_is_refused_before_any_reservation(
     budget = c.plan.budget.model_copy(update={"authorization_id": auth_id})
     c.plan = c.plan.model_copy(update={"run_id": run, "plan_id": str(uuid4()), "budget": budget})
     pretty = json.dumps(json.loads(encoded(c.plan)), indent=2, sort_keys=True).encode()
-    c.plan_ref = reference(pretty, "kf.execution-plan.v1")
+    c.plan_ref = reference(pretty, "cf.execution-plan.v1")
     c.store.put_verified(io.BytesIO(pretty), c.plan_ref, c.access)
     c.auth = c.auth.model_copy(
         update={

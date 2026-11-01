@@ -91,7 +91,7 @@ CAMEL = {
 
 def ref(data: bytes, schema: str) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": hashlib.sha256(data).hexdigest(),
         "sizeBytes": len(data),
@@ -101,9 +101,9 @@ def ref(data: bytes, schema: str) -> dict[str, Any]:
     }
 
 
-TARIFF = ref(b"synthetic tariff", "kf.tariff.v1")
-DESTINATION = ref(b"synthetic destination", "kf.destination.v1")
-RESTORE = ref(b"synthetic restore drill", "kf.restore-evidence.v1")
+TARIFF = ref(b"synthetic tariff", "cf.tariff.v1")
+DESTINATION = ref(b"synthetic destination", "cf.destination.v1")
+RESTORE = ref(b"synthetic restore drill", "cf.restore-evidence.v1")
 LOCK = hashlib.sha256(b"synthetic lock").hexdigest()
 IMAGE = "a" * 64
 CODE = "b" * 64
@@ -111,19 +111,19 @@ CODE = "b" * 64
 
 def plan_document(manifest_policy: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.execution-plan.v1",
+        "schemaVersion": "cf.execution-plan.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "planId": "00000000-0000-0000-0000-000000000005",
-        "executionConfigRef": ref(b"synthetic config", "kf.execution-config.v1"),
-        "admissionReportRef": ref(b"synthetic report", "kf.admission-report.v1"),
-        "extractionSpecRef": ref(b"synthetic spec", "kf.extraction-spec.v1"),
+        "executionConfigRef": ref(b"synthetic config", "cf.execution-config.v1"),
+        "admissionReportRef": ref(b"synthetic report", "cf.admission-report.v1"),
+        "extractionSpecRef": ref(b"synthetic spec", "cf.extraction-spec.v1"),
         "policyRef": manifest_policy,
         "profileId": "technical_minimal",
         "profileVersion": "synthetic.v1",
-        "contractSetRef": ref(b"synthetic contracts", "kf.contract-set.v1"),
-        "limitsRefs": [ref(b"synthetic limits", "kf.contract-limits.v1")],
-        "inputRefs": [ref(b"synthetic input", "kf.raw-original.v1")],
+        "contractSetRef": ref(b"synthetic contracts", "cf.contract-set.v1"),
+        "limitsRefs": [ref(b"synthetic limits", "cf.contract-limits.v1")],
+        "inputRefs": [ref(b"synthetic input", "cf.raw-original.v1")],
         "operationKey": "c" * 64,
         "resources": {
             "cpuMilli": 1000,
@@ -174,7 +174,7 @@ def estimate_document() -> dict[str, Any]:
 
 def capability_document(plan_wire: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.modal-capability-record.v1",
+        "schemaVersion": "cf.modal-capability-record.v1",
         "projectId": PROJECT,
         "executionConfigRef": plan_wire["executionConfigRef"],
         "sdkVersion": "synthetic-sdk.1",
@@ -194,7 +194,7 @@ def capability_document(plan_wire: dict[str, Any]) -> dict[str, Any]:
         "cancellation": "terminates_containers",
         "deadlineEnforcement": "entry_and_every_bounded_step",
         "validUntil": PLAN_EXPIRY,
-        "sourceEvidenceRefs": [ref(b"synthetic evidence", "kf.capability-source.v1")],
+        "sourceEvidenceRefs": [ref(b"synthetic evidence", "cf.capability-source.v1")],
     }
 
 
@@ -281,18 +281,18 @@ def build(
         "deploymentVersion": "synthetic.deployment.v1",
         "imageDigest": IMAGE,
         "dependencyLockDigest": LOCK,
-        "capabilitiesRef": ref(documents["capabilities"], "kfx.capability-evidence.v1"),
+        "capabilitiesRef": ref(documents["capabilities"], "cfx.capability-evidence.v1"),
         "tariffRef": TARIFF,
-        "estimateRef": ref(documents["estimate"], "kfx.cost-estimate.v1"),
+        "estimateRef": ref(documents["estimate"], "cfx.cost-estimate.v1"),
         "policyRef": policy_ref,
         "destinationRef": DESTINATION,
-        "backupRef": ref(documents["backup"], "kfx.backup-evidence.v1"),
+        "backupRef": ref(documents["backup"], "cfx.backup-evidence.v1"),
         "contractLimits": json.loads(base_limits().model_dump_json(by_alias=True)),
         "resources": plan_wire["resources"],
         "maxRunUsd": plan_wire["budget"]["maxRunCost"],
         "maxAttemptUsd": plan_wire["budget"]["maxAttemptCost"],
         "retention": {
-            "schemaVersion": "kf.retention.v1",
+            "schemaVersion": "cf.retention.v1",
             "policyVersion": "synthetic.v1",
             "minStagingAgeSeconds": 60,
             "fundedStagingHorizonSeconds": 86400,
@@ -557,10 +557,10 @@ def test_estimate_scope_sums_and_caps_use_exact_decimals() -> None:
 
 def test_estimate_binds_tariff_reviewer_and_validity() -> None:
     def other_tariff(wire_estimate: dict[str, Any]) -> None:
-        wire_estimate["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        wire_estimate["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def other_line_tariff(wire_estimate: dict[str, Any]) -> None:
-        lines_of(wire_estimate)[1]["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        lines_of(wire_estimate)[1]["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def stranger(wire_estimate: dict[str, Any]) -> None:
         wire_estimate["reviewedBy"] = OTHER
@@ -636,13 +636,13 @@ def test_plan_must_be_the_pinned_canonical_plan() -> None:
     assert blocked_on(report, "plan:noncanonical")
 
     def other_tariff(wire_plan: dict[str, Any]) -> None:
-        wire_plan["budget"]["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        wire_plan["budget"]["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def other_resources(wire_packet: dict[str, Any]) -> None:
         wire_packet["resources"] = wire_packet["resources"] | {"cpuMilli": 500}
 
     def other_policy(wire_plan: dict[str, Any]) -> None:
-        wire_plan["policyRef"] = ref(b"another policy", "kf.policy.v1")
+        wire_plan["policyRef"] = ref(b"another policy", "cf.policy.v1")
 
     # the packet in each case is pinned to the plan bytes it was built with, so only the binding
     # between the packet's own values and that plan can block
@@ -749,12 +749,12 @@ def test_every_packet_field_changes_the_digest(name: str) -> None:
         "deployment_version": "other.deployment",
         "image_digest": "9" * 64,
         "dependency_lock_digest": "8" * 64,
-        "capabilities_ref": ref(b"x1", "kf.x.v1"),
-        "tariff_ref": ref(b"x2", "kf.x.v1"),
-        "estimate_ref": ref(b"x3", "kf.x.v1"),
-        "policy_ref": ref(b"x4", "kf.x.v1"),
-        "destination_ref": ref(b"x5", "kf.x.v1"),
-        "backup_ref": ref(b"x6", "kf.x.v1"),
+        "capabilities_ref": ref(b"x1", "cf.x.v1"),
+        "tariff_ref": ref(b"x2", "cf.x.v1"),
+        "estimate_ref": ref(b"x3", "cf.x.v1"),
+        "policy_ref": ref(b"x4", "cf.x.v1"),
+        "destination_ref": ref(b"x5", "cf.x.v1"),
+        "backup_ref": ref(b"x6", "cf.x.v1"),
         "contract_limits": base.packet_wire["contractLimits"] | {"maxJsonBytes": 1},
         "resources": base.packet_wire["resources"] | {"cpuMilli": 1},
         "max_run_usd": "9",
@@ -889,7 +889,7 @@ class Cli:
         """prepare-run, authorize-run and dispatch with files that bind the packet unless edited."""
         plan_bytes = self.case.evidence.plan or b""
         auth_wire: dict[str, Any] = {
-            "schemaVersion": "kf.run-authorization.v1",
+            "schemaVersion": "cf.run-authorization.v1",
             "authorizationId": "00000000-0000-0000-0000-000000000009",
             "projectId": PROJECT,
             "runId": RUN,
@@ -907,11 +907,11 @@ class Cli:
         plan_path = self.document("step-plan.json", plan if plan is not None else plan_bytes)
         auth_path = self.document("step-authorization.json", auth_bytes)
         plan_file = self.document(
-            "step-plan-ref.json", wire(plan_ref or ref(plan_bytes, "kf.execution-plan.v1"))
+            "step-plan-ref.json", wire(plan_ref or ref(plan_bytes, "cf.execution-plan.v1"))
         )
         auth_file = self.document(
             "step-authorization-ref.json",
-            wire(authorization_ref or ref(auth_bytes, "kf.run-authorization.v1")),
+            wire(authorization_ref or ref(auth_bytes, "cf.run-authorization.v1")),
         )
         estimate_file = self.document(
             "step-estimate-ref.json", wire(evidence_ref or self.case.packet_wire["estimateRef"])
@@ -1301,15 +1301,15 @@ def _auth_other_actor(cli: Cli) -> list[dict[str, Any]]:
 
 
 def _dispatch_other_plan(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(plan_ref=ref(b"another plan", "kf.execution-plan.v1"))
+    return cli.bound_steps(plan_ref=ref(b"another plan", "cf.execution-plan.v1"))
 
 
 def _dispatch_other_estimate(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(evidence_ref=ref(b"an estimate nobody reviewed", "kfx.cost-estimate.v1"))
+    return cli.bound_steps(evidence_ref=ref(b"an estimate nobody reviewed", "cfx.cost-estimate.v1"))
 
 
 def _dispatch_other_authorization(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(authorization_ref=ref(b"another grant", "kf.run-authorization.v1"))
+    return cli.bound_steps(authorization_ref=ref(b"another grant", "cf.run-authorization.v1"))
 
 
 def _dispatch_without_authorize(cli: Cli) -> list[dict[str, Any]]:

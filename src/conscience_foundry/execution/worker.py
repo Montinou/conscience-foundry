@@ -84,7 +84,7 @@ def _bootstrap(size: int) -> ContractLimits:
     bound = max(size, 1)
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "worker.bootstrap.v1",
             "maxJsonBytes": bound,
             "maxStringScalars": bound,
@@ -115,7 +115,7 @@ def _encode(record: WireModel, limits: ContractLimits) -> bytes:
 
 def _ref(project_id: str, data: bytes, schema: str, media_type: str) -> Ref:
     return Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project_id,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -246,18 +246,18 @@ def run_worker(
     # Pinned inputs. The limits are known only after the recipe names them, so the
     # first two reads are bounded by the approved output ceiling of the plan.
     pinned = plan.resources.max_output_bytes
-    spec_raw = read(plan.extraction_spec_ref, "kf.extraction-spec.v1", pinned)
+    spec_raw = read(plan.extraction_spec_ref, "cf.extraction-spec.v1", pinned)
     spec = _wire(ExtractionSpec, spec_raw, _bootstrap(len(spec_raw)))
     if spec.limits_ref.digest not in {ref.digest for ref in plan.limits_refs}:
         raise ContractError("forbidden")
-    limits_raw = read(spec.limits_ref, "kf.contract-limits.v1", pinned)
+    limits_raw = read(spec.limits_ref, "cf.contract-limits.v1", pinned)
     limits = _wire(ContractLimits, limits_raw, _bootstrap(len(limits_raw)))
     if _wire(ExecutionPlan, plan_bytes, limits) != plan:
         raise ContractError("hash_mismatch")
     if _wire(StageAttempt, attempt_bytes, limits) != attempt:
         raise ContractError("hash_mismatch")
 
-    report_raw = read(plan.admission_report_ref, "kf.admission-report.v1", limits.max_json_bytes)
+    report_raw = read(plan.admission_report_ref, "cf.admission-report.v1", limits.max_json_bytes)
     report = _wire(AdmissionReport, report_raw, limits)
     (source_ref,) = plan.input_refs
     rows = [
@@ -274,9 +274,9 @@ def run_worker(
     ceiling = min(plan.resources.max_output_bytes, limits.max_output_bytes)
     if source_ref.size_bytes * _WORKING_COPIES > memory_bytes:
         raise ContractError("limit_exceeded")
-    source = read(source_ref, "kf.raw-original.v1", limits.max_source_bytes)
+    source = read(source_ref, "cf.raw-original.v1", limits.max_source_bytes)
     asset = SourceAsset(
-        schema_version="kf.source-asset.v1",
+        schema_version="cf.source-asset.v1",
         project_id=plan.project_id,
         asset_id=row.asset_id,
         source_id=row.source_id,
@@ -295,7 +295,7 @@ def run_worker(
         moved: int,
     ) -> ResultManifest:
         return ResultManifest(
-            schema_version="kf.result.v1",
+            schema_version="cf.result.v1",
             project_id=plan.project_id,
             plan_id=plan.plan_id,
             operation_key=plan.operation_key,
@@ -365,7 +365,7 @@ def run_worker(
             transferred,
         )
         raw = _encode(manifest, limits)
-        manifest_ref = _ref(plan.project_id, raw, "kf.result.v1", _ARTIFACT_MEDIA)
+        manifest_ref = _ref(plan.project_id, raw, "cf.result.v1", _ARTIFACT_MEDIA)
         write(manifest_ref, raw, checked=True)  # strictly last: it names only verified outputs
         return manifest_ref
 
@@ -384,13 +384,13 @@ def run_worker(
         projected((), verdict, None, None, 0)
         return conclude((), verdict, None, None)
 
-    text_ref = _ref(plan.project_id, output.text, "kf.canonical-text.v1", "text/plain")
+    text_ref = _ref(plan.project_id, output.text, "cf.canonical-text.v1", "text/plain")
     origin_raw = _encode(output.origin_map, limits)
-    origin_ref = _ref(plan.project_id, origin_raw, "kf.origin-map.v1", _ARTIFACT_MEDIA)
+    origin_ref = _ref(plan.project_id, origin_raw, "cf.origin-map.v1", _ARTIFACT_MEDIA)
     quality_raw = _encode(output.quality, limits)
-    quality_ref = _ref(plan.project_id, quality_raw, "kf.quality-report.v1", _ARTIFACT_MEDIA)
+    quality_ref = _ref(plan.project_id, quality_raw, "cf.quality-report.v1", _ARTIFACT_MEDIA)
     revision = DocumentRevision(
-        schema_version="kf.document-revision.v1",
+        schema_version="cf.document-revision.v1",
         project_id=plan.project_id,
         source_id=row.source_id,
         asset_id=row.asset_id,
@@ -416,7 +416,7 @@ def run_worker(
         quality_report_ref=quality_ref,
     )
     revision_raw = _encode(revision, limits)
-    revision_ref = _ref(plan.project_id, revision_raw, "kf.document-revision.v1", _ARTIFACT_MEDIA)
+    revision_ref = _ref(plan.project_id, revision_raw, "cf.document-revision.v1", _ARTIFACT_MEDIA)
     parts = (
         (text_ref, output.text),
         (origin_ref, origin_raw),

@@ -190,7 +190,7 @@ def intake_document(
     """An intake manifest whose declared digest and size describe the declared bytes."""
     return json.dumps(
         {
-            "schemaVersion": "kf.intake.v1",
+            "schemaVersion": "cf.intake.v1",
             "projectId": PROJECT,
             "batchId": batch_id,
             "profileId": profile_id,
@@ -216,7 +216,7 @@ def intake_document(
 def admission_environment(h: Harness) -> tuple[Any, Path, Any]:
     env, root = base.cli_case.admit_environment(h.tmp, h.mp, h.ledger)
     policy_bytes = admission().evidence.pinned_policy.model_dump_json(by_alias=True).encode()
-    return env, root, reference(policy_bytes, "kf.policy.v1")
+    return env, root, reference(policy_bytes, "cf.policy.v1")
 
 
 def table_rows(ledger: Ledger, table: str) -> int:
@@ -1355,7 +1355,7 @@ def d05(h: Harness) -> None:
         return ref
 
     settled = BudgetEvent(
-        schema_version="kf.budget-event.v1", project_id=PROJECT, run_id=base.execution_case.RUN,
+        schema_version="cf.budget-event.v1", project_id=PROJECT, run_id=base.execution_case.RUN,
         reservation_id=reservation, attempt_id=attempt_id, scope="attempt",
         event_id=str(uuid4()), event_type="settle", amount_usd="4", cost_status="actual",
         evidence_ref=bill("4"), created_at=TIME,
@@ -1369,7 +1369,7 @@ def d05(h: Harness) -> None:
 
     def adjust(prior: str, revised: str, *, replays: int = 1) -> Any:
         correction = BillingAdjustment(
-            schema_version="kf.billing-adjustment.v1", project_id=PROJECT,
+            schema_version="cf.billing-adjustment.v1", project_id=PROJECT,
             run_id=base.execution_case.RUN, reservation_id=reservation, adjustment_id=str(uuid4()),
             settlement_event_id=settled.event_id, expected_prior_actual_usd=prior,
             revised_actual_usd=revised, evidence_ref=bill(revised), created_at=TIME,

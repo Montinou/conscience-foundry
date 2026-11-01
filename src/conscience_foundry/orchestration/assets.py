@@ -23,13 +23,13 @@ from conscience_foundry.contracts.common import ContractError, Digest, Id
 from conscience_foundry.contracts.execution import AttemptState
 from conscience_foundry.contracts.project import ProjectConfig
 
-PARTITIONS_NAME = "kf_f1_asset_partitions"
-JOB_NAME = "kf_f1_partition_job"
-ADMISSION = "kf_admission"
-PROCESSING = "kf_processing"
-RECONCILIATION = "kf_reconciliation"
-RELEASE_CANDIDATE = "kf_release_candidate"
-GROUP_NAME = "kf_f1"
+PARTITIONS_NAME = "cf_f1_asset_partitions"
+JOB_NAME = "cf_f1_partition_job"
+ADMISSION = "cf_admission"
+PROCESSING = "cf_processing"
+RECONCILIATION = "cf_reconciliation"
+RELEASE_CANDIDATE = "cf_release_candidate"
+GROUP_NAME = "cf_f1"
 PAID_STAGES = (PROCESSING, RECONCILIATION)
 
 _ID = TypeAdapter(Id)
@@ -129,7 +129,7 @@ def _fail(stage: str, code: str) -> dg.Failure:
     """A stable, redacted, non-retryable failure; never a raw message or provider payload."""
     return dg.Failure(
         description=f"{stage}: {code}",
-        metadata={"kf_stage": stage, "kf_code": code},
+        metadata={"cf_stage": stage, "cf_code": code},
         allow_retries=False,
     )
 
@@ -199,10 +199,10 @@ def _verified(
 
 def _identity(partition: PartitionIdentity, stage: str) -> dict[str, str]:
     return {
-        "kf_stage": stage,
-        "kf_project_id": partition.project_id,
-        "kf_asset_id": partition.asset_id,
-        "kf_extraction_spec_digest": partition.extraction_spec_digest,
+        "cf_stage": stage,
+        "cf_project_id": partition.project_id,
+        "cf_asset_id": partition.asset_id,
+        "cf_extraction_spec_digest": partition.extraction_spec_digest,
     }
 
 
@@ -214,11 +214,11 @@ def _materialized(
     attempt: AttemptView,
 ) -> dict[str, str]:
     return _identity(partition, stage) | {
-        "kf_operation_key": view.operation_key,
-        "kf_plan_id": attempt.plan_id,
-        "kf_attempt_id": attempt.attempt_id,
-        "kf_result_digest": record.selected_result_ref.digest,
-        "kf_selection_outcome": record.outcome,
+        "cf_operation_key": view.operation_key,
+        "cf_plan_id": attempt.plan_id,
+        "cf_attempt_id": attempt.attempt_id,
+        "cf_result_digest": record.selected_result_ref.digest,
+        "cf_selection_outcome": record.outcome,
     }
 
 
@@ -330,7 +330,7 @@ def build_definitions(control: ExecutionControl, config: ProjectConfig) -> dg.De
         if view.admission_report_digest is None or not _digest(view.admission_report_digest):
             raise _fail(ADMISSION, "control_error")
         return _identity(partition, ADMISSION) | {
-            "kf_admission_report_digest": view.admission_report_digest
+            "cf_admission_report_digest": view.admission_report_digest
         }
 
     def processing(partition: PartitionIdentity, retry_after_failure: bool) -> Mapping[str, str]:
@@ -358,7 +358,7 @@ def build_definitions(control: ExecutionControl, config: ProjectConfig) -> dg.De
         ):
             raise _fail(RELEASE_CANDIDATE, "result_unverified")
         return _materialized(partition, RELEASE_CANDIDATE, view, record, attempt) | {
-            "kf_release_digest": candidate.release_digest
+            "cf_release_digest": candidate.release_digest
         }
 
     assets = [

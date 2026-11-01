@@ -112,7 +112,7 @@ def check_exact_quote(
     ):
         raise ContractError("hash_mismatch")
     if (
-        revision.text_ref.artifact_schema != "kf.canonical-text.v1"
+        revision.text_ref.artifact_schema != "cf.canonical-text.v1"
         or revision.text_ref.media_type != "text/plain"
     ):
         raise ContractError("unsupported_format")

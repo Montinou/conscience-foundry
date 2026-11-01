@@ -47,7 +47,7 @@ def _scalar_length(value: int) -> None:
 
 
 class ExtractionSpec(WireModel):
-    schema_version: Literal["kf.extraction-spec.v1"]
+    schema_version: Literal["cf.extraction-spec.v1"]
     processor_id: Literal["text.utf8.v1"]
     processor_version: Version
     code_version: Version
@@ -77,7 +77,7 @@ class Section(WireModel):
 
 
 class DocumentRevision(WireModel):
-    schema_version: Literal["kf.document-revision.v1"]
+    schema_version: Literal["cf.document-revision.v1"]
     project_id: Id
     source_id: Id
     asset_id: Id
@@ -143,7 +143,7 @@ class DocumentRevision(WireModel):
 
 
 class DocumentSpan(WireModel):
-    schema_version: Literal["kf.document-span.v1"]
+    schema_version: Literal["cf.document-span.v1"]
     project_id: Id
     source_id: Id
     revision_id: Digest
@@ -176,7 +176,7 @@ def validate_span_shape(span: DocumentSpan, revision: DocumentRevision, scalar_l
 
 
 class OriginMap(WireModel):
-    schema_version: Literal["kf.origin-map.v1"]
+    schema_version: Literal["cf.origin-map.v1"]
     kind: Literal["identity_utf8"]
     original_digest: Digest
     text_digest: Digest
@@ -198,7 +198,7 @@ class QualityCheck(WireModel):
 
 
 class QualityReport(WireModel):
-    schema_version: Literal["kf.quality-report.v1"]
+    schema_version: Literal["cf.quality-report.v1"]
     source_id: Id
     checks: Annotated[tuple[QualityCheck, ...], BeforeValidator(_json_array)]
     disposition: Literal["valid", "needs_review", "quarantined"]
@@ -225,7 +225,7 @@ class QualityReport(WireModel):
 
 
 class RevisionReview(WireModel):
-    schema_version: Literal["kf.revision-review.v1"]
+    schema_version: Literal["cf.revision-review.v1"]
     project_id: Id
     revision_id: Digest
     decision: Literal["accepted", "needs_review", "rejected"]

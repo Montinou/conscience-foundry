@@ -25,7 +25,7 @@ class ArtifactProducer(WireModel):
 
 
 class ArtifactManifest(WireModel):
-    schema_version: Literal["kf.artifact-manifest.v1"]
+    schema_version: Literal["cf.artifact-manifest.v1"]
     project_id: Id
     artifact: Ref
     producer: ArtifactProducer

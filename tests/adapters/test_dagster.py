@@ -86,15 +86,15 @@ def project_config(project: str = PROJECT) -> ProjectConfig:
 
     return ProjectConfig.model_validate(
         {
-            "schemaVersion": "kf.project.v1",
+            "schemaVersion": "cf.project.v1",
             "projectId": project,
             "profileId": "technical_minimal",
             "profileVersion": "synthetic.profile.v1",
-            "policyRef": pin("kf.policy.v1"),
-            "limitsRefs": [pin("kf.contract-limits.v1")],
-            "contractSetRef": pin("kf.contract-set.v1"),
-            "storageConfigRef": pin("kf.storage-config.v1"),
-            "executionConfigRef": pin("kf.execution-config.v1"),
+            "policyRef": pin("cf.policy.v1"),
+            "limitsRefs": [pin("cf.contract-limits.v1")],
+            "contractSetRef": pin("cf.contract-set.v1"),
+            "storageConfigRef": pin("cf.storage-config.v1"),
+            "executionConfigRef": pin("cf.execution-config.v1"),
         }
     )
 
@@ -111,10 +111,10 @@ def selection(
             update={"project_id": project}
         )
 
-    result = pin("result", "kf.result.v1")
+    result = pin("result", "cf.result.v1")
     return OperationResultRecord.model_validate(
         {
-            "schemaVersion": "kf.operation-result-record.v1",
+            "schemaVersion": "cf.operation-result-record.v1",
             "projectId": project,
             "operationKey": operation_key,
             "eventId": str(uuid4()),
@@ -124,7 +124,7 @@ def selection(
             "comparisonDigest": digest_of("comparison"),
             "outcome": outcome,
             "selectedResultRef": result,
-            "evidenceRef": pin("evidence", "kf.control-evidence.v1"),
+            "evidenceRef": pin("evidence", "cf.control-evidence.v1"),
             "recordedAt": TIME,
         }
     )
@@ -167,7 +167,7 @@ def failure_codes(result: dg.ExecuteInProcessResult) -> list[str]:
         if event.is_step_failure:
             failure = event.step_failure_data.user_failure_data
             assert failure is not None, "unexpected non-Failure error escaped the asset"
-            codes.append(str(failure.metadata["kf_code"].value))
+            codes.append(str(failure.metadata["cf_code"].value))
         assert event.event_type != dg.DagsterEventType.STEP_UP_FOR_RETRY
     return codes
 
@@ -332,17 +332,17 @@ def test_partition_is_not_cache_identity() -> None:
     assert first.success
     old_operation = control.operation_key
     (old,) = instance.materializations(PROCESSING)
-    assert old["kf_operation_key"] == old_operation
+    assert old["cf_operation_key"] == old_operation
 
     # Same partition, but pinned policy/contracts changed, so the ledger derives a new operation.
     control.operation_key = digest_of("operation-2-after-policy-change")
     second = instance.run(defs, key, PROCESSING)
     assert second.success
     newest, previous = instance.materializations(PROCESSING)
-    assert newest["kf_operation_key"] == control.operation_key != old_operation
+    assert newest["cf_operation_key"] == control.operation_key != old_operation
     assert previous == old
     assert control.dispatches == [old_operation, control.operation_key]  # no reuse of the old one
-    assert newest["kf_attempt_id"] != old["kf_attempt_id"]
+    assert newest["cf_attempt_id"] != old["cf_attempt_id"]
 
     # A stale or hostile facade answer for another operation is not accepted as this one.
     control.operation_key = digest_of("operation-3")
@@ -427,7 +427,7 @@ def test_unresolved_attempt_is_reconciled_and_never_redispatched() -> None:
     done = instance.run(defs, key, PROCESSING)
     assert done.success and len(control.dispatches) == 1
     (row,) = instance.materializations(PROCESSING)
-    assert row["kf_attempt_id"] == control.attempts[control.operation_key][0].attempt_id
+    assert row["cf_attempt_id"] == control.attempts[control.operation_key][0].attempt_id
     # A selected result is re-recorded from the ledger selection, never dispatched again.
     assert instance.run(defs, key, PROCESSING).success
     assert len(control.dispatches) == 1
@@ -463,28 +463,28 @@ def test_reconciliation_asset_never_dispatches() -> None:
     done = instance.run(defs, key_for(), RECONCILIATION)
     assert done.success and control.dispatches == []
     (row,) = instance.materializations(RECONCILIATION)
-    assert row["kf_attempt_id"] == attempt.attempt_id
-    assert row["kf_stage"] == RECONCILIATION
+    assert row["cf_attempt_id"] == attempt.attempt_id
+    assert row["cf_stage"] == RECONCILIATION
 
 
 def test_materialization_metadata_is_public_identity_only() -> None:
     control, defs, instance = fake_setup()
     assert instance.run(defs, key_for(), ADMISSION, PROCESSING).success
     (admitted,) = instance.materializations(ADMISSION)
-    assert admitted["kf_admission_report_digest"] == digest_of("admission-report")
+    assert admitted["cf_admission_report_digest"] == digest_of("admission-report")
     (row,) = instance.materializations(PROCESSING)
     attempt = control.attempts[control.operation_key][0]
     record = control.selected[control.operation_key]
     assert row == {
-        "kf_stage": PROCESSING,
-        "kf_project_id": PROJECT,
-        "kf_asset_id": ASSET,
-        "kf_extraction_spec_digest": SPEC_DIGEST,
-        "kf_operation_key": control.operation_key,
-        "kf_plan_id": attempt.plan_id,
-        "kf_attempt_id": attempt.attempt_id,
-        "kf_result_digest": record.selected_result_ref.digest,
-        "kf_selection_outcome": "selected",
+        "cf_stage": PROCESSING,
+        "cf_project_id": PROJECT,
+        "cf_asset_id": ASSET,
+        "cf_extraction_spec_digest": SPEC_DIGEST,
+        "cf_operation_key": control.operation_key,
+        "cf_plan_id": attempt.plan_id,
+        "cf_attempt_id": attempt.attempt_id,
+        "cf_result_digest": record.selected_result_ref.digest,
+        "cf_selection_outcome": "selected",
     }
 
 
@@ -509,8 +509,8 @@ def test_release_candidate_needs_a_verified_selection_and_ledger_approval() -> N
     control.candidate = True
     assert instance.run(defs, key, RELEASE_CANDIDATE).success
     (row,) = instance.materializations(RELEASE_CANDIDATE)
-    assert row["kf_release_digest"] == digest_of("release")
-    assert row["kf_operation_key"] == control.operation_key
+    assert row["cf_release_digest"] == digest_of("release")
+    assert row["cf_operation_key"] == control.operation_key
 
 
 def test_paused_ledger_stops_dagster_dispatch_but_not_observation() -> None:
@@ -649,9 +649,9 @@ def test_backfill_reconciles_unknown_attempt(ledger: Ledger, tmp_path: Path) -> 
     assert after["attempts"] == 1 and after["reservations"] == 1 and after["dispatch_claims"] == 1
     assert after["outstanding"] == before["outstanding"]
     (row,) = instance.materializations(PROCESSING)
-    assert row["kf_attempt_id"] == first.attempt_id
-    assert row["kf_plan_id"] == first.plan_id
-    assert row["kf_operation_key"] == case.plan.operation_key
+    assert row["cf_attempt_id"] == first.attempt_id
+    assert row["cf_plan_id"] == first.plan_id
+    assert row["cf_operation_key"] == case.plan.operation_key
     # Re-running materializes from the ledger selection and still submits nothing.
     assert instance.run(defs, key_for(), PROCESSING).success
     assert executor.calls == 1 and ledger_counts(ledger)["attempts"] == 1
@@ -720,4 +720,4 @@ def test_late_result_still_reconciles_under_pause(ledger: Ledger, tmp_path: Path
     done = instance.run(defs, key_for(), RECONCILIATION)
     assert done.success and executor.calls == 1
     (row,) = instance.materializations(RECONCILIATION)
-    assert row["kf_attempt_id"] == attempt.attempt_id
+    assert row["cf_attempt_id"] == attempt.attempt_id

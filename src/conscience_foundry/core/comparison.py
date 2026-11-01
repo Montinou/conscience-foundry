@@ -38,7 +38,7 @@ def comparison_digest(projection: F1Comparison, *, limits: ContractLimits) -> Di
     _limits(limits)
     if type(projection) is not F1Comparison:
         raise ContractError("invalid_schema")
-    return _bounded_hash("kf.f1-comparison.v1", {
+    return _bounded_hash("cf.f1-comparison.v1", {
         "projectId": _string(projection.project_id, _ID, limits),
         "assetId": _string(projection.asset_id, _ID, limits),
         "sourceId": _string(projection.source_id, _ID, limits),
@@ -62,7 +62,7 @@ def quality_projection_digest(report: QualityReport, *, limits: ContractLimits) 
     _limits(limits)
     if (
         type(report) is not QualityReport
-        or report.schema_version != "kf.quality-report.v1"
+        or report.schema_version != "cf.quality-report.v1"
         or type(report.checks) is not tuple
     ):
         raise ContractError("invalid_schema")
@@ -91,7 +91,7 @@ def quality_projection_digest(report: QualityReport, *, limits: ContractLimits) 
     disposition = _string(report.disposition, _VERSION, limits)
     try:
         QualityReport.model_validate({
-            "schema_version": "kf.quality-report.v1",
+            "schema_version": "cf.quality-report.v1",
             "source_id": _string(report.source_id, _ID, limits),
             "checks": tuple(validated_checks), "disposition": disposition,
         })
@@ -99,6 +99,6 @@ def quality_projection_digest(report: QualityReport, *, limits: ContractLimits) 
         raise ContractError("invalid_schema") from None
     # Application-defined array order; JCS only orders object keys.
     checks.sort(key=lambda item: str(item["checkId"]).encode("utf-16-be"))
-    return _bounded_hash("kf.quality-projection.v1", {
+    return _bounded_hash("cf.quality-projection.v1", {
         "disposition": disposition, "checks": checks,
     }, limits)

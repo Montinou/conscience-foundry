@@ -34,7 +34,7 @@ def _json_array(value: object) -> object:
 class CapabilityRecord(WireModel):
     """Private operator-supplied evidence about one exact remote deployment."""
 
-    schema_version: Literal["kf.modal-capability-record.v1"]
+    schema_version: Literal["cf.modal-capability-record.v1"]
     project_id: Id
     execution_config_ref: Ref
     sdk_version: Version

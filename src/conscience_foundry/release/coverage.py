@@ -72,7 +72,7 @@ def bounded_rows(
     budget: QueryBudget | None = None,
 ) -> tuple[Row, ...]:
     """Server-side count and encoded-byte gates precede Python materialization."""
-    bound = limits_for(release, "kf.coverage-report.v1")
+    bound = limits_for(release, "cf.coverage-report.v1")
     projection: sql.Composable = sql.SQL("to_jsonb(t)")
     money = _MONEY_COLUMNS.get(table, ())
     if money:
@@ -109,7 +109,7 @@ def metadata_ids(
     release: ReleaseContext,
 ) -> tuple[tuple[str, ...], ...]:
     """Minimal identity routing is used only to evaluate all-source audit access."""
-    bound = limits_for(release, "kf.coverage-report.v1")
+    bound = limits_for(release, "cf.coverage-report.v1")
     guarded = sql.SQL("SELECT * FROM ({}) routing LIMIT %s").format(query)
     count, size = tx.connection.execute(
         sql.SQL(
@@ -135,17 +135,17 @@ def capture(
     project = release.access.project_id
     if "auditMetadataRead" not in release.access.scopes:
         raise ContractError("forbidden")
-    bound = limits_for(release, "kf.coverage-report.v1")
+    bound = limits_for(release, "cf.coverage-report.v1")
     if type(admissions) is not tuple or not admissions or len(admissions) > bound.max_array_items:
         raise ContractError("invalid_schema")
     for ref in admissions:
         if (
             type(ref) is not Ref
             or ref.project_id != project
-            or ref.artifact_schema != "kf.admission-report.v1"
+            or ref.artifact_schema != "cf.admission-report.v1"
         ):
             raise ContractError("invalid_schema")
-        bounded_model(ref, release, "kf.artifact-ref.v1")
+        bounded_model(ref, release, "cf.artifact-ref.v1")
     if len({identity(ref) for ref in admissions}) != len(admissions):
         raise ContractError("invalid_schema")
     tx.lock(project)
@@ -351,7 +351,7 @@ def capture(
         policy,
         release.access,
         clock(release),
-        hashlib.sha256(b"kf.release-snapshot.internal.v1\n" + raw).hexdigest(),
+        hashlib.sha256(b"cf.release-snapshot.internal.v1\n" + raw).hexdigest(),
     )
 
 
@@ -534,7 +534,7 @@ def build_coverage(
                 choice = None
             entries.append(outcome(snapshot, view, item.asset_id, reviews, choice))
     return CoverageReport(
-        schema_version="kf.coverage-report.v1",
+        schema_version="cf.coverage-report.v1",
         project_id=snapshot.policy.project_id,
         selection_digest=selection_digest,
         admission_report_refs=snapshot.supplied,

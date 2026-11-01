@@ -173,7 +173,7 @@ def approve(
 ) -> None:
     if type(raw) is not bytes:
         raise ContractError("invalid_schema")
-    bound = limits_for(release, "kf.revision-review.v1")
+    bound = limits_for(release, "cf.revision-review.v1")
     if len(raw) > min(bound.max_json_bytes, bound.max_output_bytes):
         raise ContractError("limit_exceeded")
     proof = ReleaseProof(

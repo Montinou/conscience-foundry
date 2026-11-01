@@ -137,7 +137,7 @@ def _grants(
     total = (
         len(grants.output_scope)
         + 8 * (len(grants.material) + 2)
-        + len(b"kf.transport-material.internal.v1\n")
+        + len(b"cf.transport-material.internal.v1\n")
     )
     if total > bound.max_source_bytes:
         raise ContractError("limit_exceeded")
@@ -183,7 +183,7 @@ def _grants(
     if not clock(control) < grants.expires_at <= min(plan.expires_at, auth.expires_at):
         raise ContractError("authorization_expired")
     # Length delimiters distinguish e.g. (b"ab", b"c") from (b"a", b"bc").
-    digest = hashlib.sha256(b"kf.transport-material.internal.v1\n")
+    digest = hashlib.sha256(b"cf.transport-material.internal.v1\n")
     digest.update(len(grants.material).to_bytes(8, "big"))
     for piece in grants.material:
         digest.update(len(piece).to_bytes(8, "big"))
@@ -414,7 +414,7 @@ def dispatch(
         and type(submission.remote_call_id) is str
         and bool(submission.remote_call_id)
         and len(submission.remote_call_id)
-        <= limits_for(control, "kf.stage-attempt.v1").max_string_scalars
+        <= limits_for(control, "cf.stage-attempt.v1").max_string_scalars
     )
     usable = identified and submission.accepted is True
     with ledger.transaction() as tx:
@@ -481,7 +481,7 @@ def _observation(
         if type(observation.usage) is not ResourceUsage:
             raise ContractError("invalid_schema")
         usage = ResourceUsage.from_wire(
-            encoded(observation.usage), limits_for(control, "kf.result.v1")
+            encoded(observation.usage), limits_for(control, "cf.result.v1")
         )
     request = bounded_request(
         {
@@ -526,7 +526,7 @@ def _observation(
         type(facts.remote_call_id) is str
         and bool(facts.remote_call_id)
         and len(facts.remote_call_id)
-        <= limits_for(control, "kf.stage-attempt.v1").max_string_scalars
+        <= limits_for(control, "cf.stage-attempt.v1").max_string_scalars
     )
     if facts.remote_call_id is not None and not identified:
         raise ContractError("forbidden")
@@ -602,7 +602,7 @@ def _reconcile_observation(
         )
         if usage is not None:
             event = BudgetEvent(
-                schema_version="kf.budget-event.v1",
+                schema_version="cf.budget-event.v1",
                 project_id=attempt.project_id,
                 run_id=run,
                 reservation_id=attempt.reservation_id,
@@ -732,7 +732,7 @@ def _resume_grants(tx: LedgerTxn, project: Id, run: Id | None, control: ControlC
         "WHERE (a.project_id,a.run_id)=(r.project_id,r.run_id) "
         "AND a.state NOT IN ('succeeded','failed','cancelled')))))"
     ).format(reservations=tx.table("reservations"), attempts=tx.table("attempts"))
-    bound = limits_for(control, "kf.run-authorization.v1")
+    bound = limits_for(control, "cf.run-authorization.v1")
     count = tx.connection.execute(
         sql.SQL("SELECT count(*) FROM {} r WHERE {}").format(tx.table("runs"), predicate),
         (project, run, run),
@@ -916,7 +916,7 @@ def _manual_retry(
     current = snapshot(tx, plan.project_id, plan.run_id, control, plan.operation_key)
     if current != risk.expected_snapshot_digest:
         raise ContractError("determinism_conflict")
-    bound = limits_for(control, "kf.stage-attempt.v1")
+    bound = limits_for(control, "cf.stage-attempt.v1")
     count = tx.connection.execute(
         sql.SQL(
             "SELECT count(*) FROM {} WHERE project_id=%s AND ((run_id=%s AND state IN "

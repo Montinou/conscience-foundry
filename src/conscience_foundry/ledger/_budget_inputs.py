@@ -88,7 +88,7 @@ def _context(context: BudgetContext, project: Id, run: Id, action: str) -> None:
         raise ContractError("invalid_schema") from None
     if (
         context.access.project_id != project
-        or context.current_policy.schema_version != "kf.policy.v1"
+        or context.current_policy.schema_version != "cf.policy.v1"
         or context.current_policy.project_id != project
         or context.current_policy.effective_at > context.now
     ):
@@ -109,7 +109,7 @@ def _ref(data: bytes, ref: Ref, schema: str, project: Id) -> None:
     if type(data) is not bytes or type(ref) is not Ref:
         raise ContractError("invalid_schema")
     if (
-        ref.schema_version != "kf.artifact-ref.v1"
+        ref.schema_version != "cf.artifact-ref.v1"
         or ref.project_id != project
         or ref.artifact_schema != schema
         or ref.media_type != "application/json"

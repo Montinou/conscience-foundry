@@ -20,7 +20,7 @@ def money_text(value: Decimal) -> str:
 
 def accounting_events(snapshot: Snapshot, release: ReleaseContext) -> tuple[BudgetEvent, ...]:
     result = []
-    bound = limits_for(release, "kf.budget-event.v1")
+    bound = limits_for(release, "cf.budget-event.v1")
     for row in snapshot.rows["budget_events"]:
         raw = bytes.fromhex(row["record_bytes"][2:])
         if hashlib.sha256(raw).hexdigest() != row["record_digest"]:
@@ -126,7 +126,7 @@ def run_reports(
                 )
             )
         report = RunReport(
-            schema_version="kf.run-report.v1",
+            schema_version="cf.run-report.v1",
             project_id=release.access.project_id,
             run_id=run["run_id"],
             batch_id=view.manifest.batch_id,
@@ -179,7 +179,7 @@ def build_provenance(
             )
         )
     return ProvenanceReport(
-        schema_version="kf.provenance-report.v1",
+        schema_version="cf.provenance-report.v1",
         project_id=snapshot.policy.project_id,
         selection_digest=selection_digest,
         entries=tuple(entries),

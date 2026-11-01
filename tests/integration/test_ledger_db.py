@@ -40,7 +40,7 @@ TIME = "2026-10-25T00:00:00.000Z"
 
 def limits() -> ContractLimits:
     return ContractLimits(
-        schema_version="kf.contract-limits.v1",
+        schema_version="cf.contract-limits.v1",
         version="synthetic.v1",
         max_json_bytes=65536,
         max_string_scalars=1024,
@@ -61,7 +61,7 @@ def encoded(value: Any) -> bytes:
 
 def reference(data: bytes, schema: str) -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=PROJECT,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -82,7 +82,7 @@ class Admission:
 def admission(*, title: str = "Synthetic manual", extra_asset: bool = False) -> Admission:
     policy = PolicyArtifact.model_validate(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "allowedRemoteDestinations": [],
             "effectiveAt": TIME,
@@ -131,23 +131,23 @@ def admission(*, title: str = "Synthetic manual", extra_asset: bool = False) -> 
         )
     manifest = IntakeManifest.model_validate(
         {
-            "schemaVersion": "kf.intake.v1",
+            "schemaVersion": "cf.intake.v1",
             "projectId": PROJECT,
             "batchId": BATCH,
             "profileId": "technical_minimal",
             "profileVersion": "synthetic.v1",
-            "policyRef": reference(policy_bytes, "kf.policy.v1"),
+            "policyRef": reference(policy_bytes, "cf.policy.v1"),
             "createdAt": TIME,
             "items": items,
         }
     )
     manifest_bytes = encoded(manifest)
-    snapshot = reference(payload, "kf.raw-original.v1").model_copy(
+    snapshot = reference(payload, "cf.raw-original.v1").model_copy(
         update={"media_type": "text/plain"}
     )
     report = AdmissionReport.model_validate(
         {
-            "schemaVersion": "kf.admission-report.v1",
+            "schemaVersion": "cf.admission-report.v1",
             "projectId": PROJECT,
             "batchId": BATCH,
             "manifestDigest": hashlib.sha256(manifest_bytes).hexdigest(),
@@ -167,9 +167,9 @@ def admission(*, title: str = "Synthetic manual", extra_asset: bool = False) -> 
     )
     report_bytes = encoded(report)
     return Admission(
-        reference(manifest_bytes, "kf.intake.v1"),
+        reference(manifest_bytes, "cf.intake.v1"),
         report,
-        reference(report_bytes, "kf.admission-report.v1"),
+        reference(report_bytes, "cf.admission-report.v1"),
         AdmissionRegistrationEvidence(
             manifest_bytes=manifest_bytes,
             report_bytes=report_bytes,
@@ -178,9 +178,9 @@ def admission(*, title: str = "Synthetic manual", extra_asset: bool = False) -> 
             limits_by_schema={
                 schema: limits()
                 for schema in (
-                    "kf.intake.v1",
-                    "kf.admission-report.v1",
-                    "kf.policy.v1",
+                    "cf.intake.v1",
+                    "cf.admission-report.v1",
+                    "cf.policy.v1",
                 )
             },
         ),
@@ -348,7 +348,7 @@ def test_transaction_rollback_and_unique_event(ledger: Ledger) -> None:
     register(ledger, data)
     evidence = reference(b"synthetic evidence", "synthetic.evidence.v1")
     event = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=RESERVATION,
@@ -600,7 +600,7 @@ def test_registration_rejects_incomplete_policy_universe(ledger: Ledger) -> None
     policy = data.evidence.pinned_policy.model_copy(update={"sources": ()})
     policy_bytes = encoded(policy)
     manifest = IntakeManifest.from_wire(data.evidence.manifest_bytes, limits()).model_copy(
-        update={"policy_ref": reference(policy_bytes, "kf.policy.v1")}
+        update={"policy_ref": reference(policy_bytes, "cf.policy.v1")}
     )
     manifest_bytes = encoded(manifest)
     report = data.report.model_copy(
@@ -617,9 +617,9 @@ def test_registration_rejects_incomplete_policy_universe(ledger: Ledger) -> None
     with pytest.raises(ContractError, match="forbidden"):
         with ledger.transaction() as tx:
             register_admission(
-                reference(manifest_bytes, "kf.intake.v1"),
+                reference(manifest_bytes, "cf.intake.v1"),
                 report,
-                reference(report_bytes, "kf.admission-report.v1"),
+                reference(report_bytes, "cf.admission-report.v1"),
                 tx,
                 evidence=evidence,
             )
@@ -674,9 +674,9 @@ def test_registration_conflict_caught_by_caller_leaves_no_partial_rows(ledger: L
     with ledger.transaction() as tx:
         with pytest.raises(ContractError, match="determinism_conflict"):
             register_admission(
-                reference(manifest_bytes, "kf.intake.v1"),
+                reference(manifest_bytes, "cf.intake.v1"),
                 report,
-                reference(report_bytes, "kf.admission-report.v1"),
+                reference(report_bytes, "cf.admission-report.v1"),
                 tx,
                 evidence=evidence,
             )

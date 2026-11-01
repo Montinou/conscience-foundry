@@ -64,7 +64,7 @@ from conscience_foundry.storage.locator import LocationRegistry
 pytestmark = pytest.mark.database
 REVOKED = "2026-10-26T00:00:00.000Z"
 POLICY = RetentionPolicy(
-    schema_version="kf.retention.v1",
+    schema_version="cf.retention.v1",
     policy_version="synthetic.v1",
     min_staging_age_seconds=60,
     funded_staging_horizon_seconds=3600,
@@ -549,19 +549,19 @@ def test_backup_survives_a_verified_release_that_is_no_longer_eligible(
 def test_backup_refuses_a_manifest_the_restore_limits_would_refuse(
     library: Library, backup_store: LocalObjectStore, tmp_path: Path, cap: dict[str, int]
 ) -> None:
-    """The manifest is decoded at restore under kf.library-release.v1 limits; backup must agree."""
+    """The manifest is decoded at restore under cf.library-release.v1 limits; backup must agree."""
     lib = library
     verified(lib)
     release = lib.value.release
     # The caps stay above what loading the release itself needs, so only the manifest trips them.
     tight = dict(release.limits_by_schema)
-    tight["kf.library-release.v1"] = tight["kf.library-release.v1"].model_copy(update=cap)
+    tight["cf.library-release.v1"] = tight["cf.library-release.v1"].model_copy(update=cap)
     with pytest.raises(ContractError) as error:
         take(lib, backup_store, release=replace(release, limits_by_schema=tight))
     assert error.value.code == "limit_exceeded"
     assert object_files(tmp_path / "backup") == set()  # nothing was copied before the refusal
     manifest = take(lib, backup_store)  # the same recovery point under the normal limits is fine
-    normal = release.limits_by_schema["kf.library-release.v1"]
+    normal = release.limits_by_schema["cf.library-release.v1"]
     assert RecoveryManifest.from_wire(manifest_wire(manifest), normal) == manifest
 
 
@@ -676,10 +676,10 @@ def result_outputs(lib: Library) -> tuple[Ref, ...]:
     """The outputs the staged result manifest lists, read the way the retention report reads it."""
     (entry,) = retention(lib, "2026-10-25T00:10:00.000Z").entries
     raw = lib.value.release.store.read_verified(entry.ref, lib.access, entry.ref.size_bytes).data
-    manifest = ResultManifest.from_wire(raw, limits_for(lib.value.release, "kf.result.v1"))
+    manifest = ResultManifest.from_wire(raw, limits_for(lib.value.release, "cf.result.v1"))
     assert {ref.artifact_schema for ref in manifest.outputs} >= {
-        "kf.document-revision.v1",
-        "kf.quality-report.v1",
+        "cf.document-revision.v1",
+        "cf.quality-report.v1",
     }
     return manifest.outputs
 

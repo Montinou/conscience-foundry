@@ -49,7 +49,7 @@ def encoded(value: object) -> bytes:
 
 def reference(data: bytes, schema: str, media: str = "application/json") -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=PROJECT,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -101,7 +101,7 @@ class Environment:
         ]
         raw = encoded(
             {
-                "schemaVersion": "kf.intake.v1",
+                "schemaVersion": "cf.intake.v1",
                 "projectId": PROJECT,
                 "batchId": BATCH,
                 "profileId": "technical_minimal",
@@ -111,7 +111,7 @@ class Environment:
                 "items": items,
             }
         )
-        return IntakeManifest.from_wire(raw, self.limits["kf.intake.v1"]), raw
+        return IntakeManifest.from_wire(raw, self.limits["cf.intake.v1"]), raw
 
     def inspect(self, manifest: IntakeManifest, raw: bytes, **overrides: object) -> AdmissionReport:
         arguments: dict[str, object] = {
@@ -137,7 +137,7 @@ class Environment:
         report_ref: ArtifactRef | None = None,
     ) -> object:
         raw = encoded(report) if report_bytes is None else report_bytes
-        report_ref = reference(raw, "kf.admission-report.v1") if report_ref is None else report_ref
+        report_ref = reference(raw, "cf.admission-report.v1") if report_ref is None else report_ref
         return source_asset(
             manifest,
             report,
@@ -162,7 +162,7 @@ def test_intake_rejects_pinned_denial_bytes_with_fabricated_decoding(
     policy_value["sources"][0]["read"] = "deny"
     denied = encoded(policy_value)
     env.project = ProjectConfig.model_validate(
-        env.project.model_dump() | {"policy_ref": reference(denied, "kf.policy.v1")}
+        env.project.model_dump() | {"policy_ref": reference(denied, "cf.policy.v1")}
     )
     actual = b"synthetic source"
     (env.source_root / "manual.txt").write_bytes(actual)
@@ -183,7 +183,7 @@ def environment(tmp_path: Path) -> Iterator[Environment]:
     source_root.mkdir()
     target_root.mkdir()
     bounds = ContractLimits(
-        schema_version="kf.contract-limits.v1",
+        schema_version="cf.contract-limits.v1",
         version="synthetic.custody-limits.v1",
         max_json_bytes=500_000,
         max_string_scalars=1024,
@@ -204,7 +204,7 @@ def environment(tmp_path: Path) -> Iterator[Environment]:
     )
     binding = technical_metadata_binding(bundle, project_id=PROJECT, limits_by_schema=limits)
     profile = ProfileDescriptor(
-        schema_version="kf.profile.v1",
+        schema_version="cf.profile.v1",
         profile_id="technical_minimal",
         version="synthetic.profile.v1",
         metadata_schema_ref=binding.expected_schema_ref,
@@ -214,7 +214,7 @@ def environment(tmp_path: Path) -> Iterator[Environment]:
     )
     policy_bytes = encoded(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "policyVersion": "synthetic.policy.v1",
             "sources": [source_policy(SOURCE_A), source_policy(SOURCE_B)],
@@ -224,15 +224,15 @@ def environment(tmp_path: Path) -> Iterator[Environment]:
     )
     policy = PolicyArtifact.from_wire(policy_bytes, bounds)
     project = ProjectConfig(
-        schema_version="kf.project.v1",
+        schema_version="cf.project.v1",
         project_id=PROJECT,
         profile_id=profile.profile_id,
         profile_version=profile.version,
-        policy_ref=reference(policy_bytes, "kf.policy.v1"),
-        limits_refs=(reference(encoded(bounds), "kf.contract-limits.v1"),),
-        contract_set_ref=reference(encoded(bundle), "kf.contract-set.v1"),
-        storage_config_ref=reference(b"{}", "kf.storage-config.v1"),
-        execution_config_ref=reference(b"{}", "kf.execution-config.v1"),
+        policy_ref=reference(policy_bytes, "cf.policy.v1"),
+        limits_refs=(reference(encoded(bounds), "cf.contract-limits.v1"),),
+        contract_set_ref=reference(encoded(bundle), "cf.contract-set.v1"),
+        storage_config_ref=reference(b"{}", "cf.storage-config.v1"),
+        execution_config_ref=reference(b"{}", "cf.execution-config.v1"),
     )
 
     def authorize(ref: ArtifactRef, context: AccessContext, effect: str) -> None:
@@ -269,7 +269,7 @@ def test_success_snapshots_original_and_preserves_source(environment: Environmen
     assert report.policy_version == environment.policy.policy_version
     assert [row.status for row in report.entries] == ["admitted"]
     snapshot = report.entries[0].snapshot_ref
-    assert snapshot is not None and snapshot.artifact_schema == "kf.raw-original.v1"
+    assert snapshot is not None and snapshot.artifact_schema == "cf.raw-original.v1"
     assert snapshot.digest == hashlib.sha256(data).hexdigest()
     assert environment.store.read_verified(snapshot, CONTEXT, 1024).data == data
     assert source.read_bytes() == data
@@ -328,7 +328,7 @@ def test_exact_custody_path_checked_despite_existing_identical_snapshot(
     environment: Environment,
 ) -> None:
     data = b"Existing synthetic snapshot"
-    known = reference(data, "kf.raw-original.v1", "text/plain")
+    known = reference(data, "cf.raw-original.v1", "text/plain")
     environment.store.put_verified(io.BytesIO(data), known, CONTEXT)
     manifest, raw = environment.manifest([(ASSET_A, SOURCE_A, "missing.txt", data)])
     report = environment.inspect(manifest, raw)
@@ -345,7 +345,7 @@ def test_deny_and_unknown_block_before_source_read(
         (environment.source_root / name).write_bytes(data)
     policy_bytes = encoded(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "policyVersion": "synthetic.policy.v2",
             "effectiveAt": TIME,
@@ -357,9 +357,9 @@ def test_deny_and_unknown_block_before_source_read(
         }
     )
     environment.policy_bytes = policy_bytes
-    environment.policy = PolicyArtifact.from_wire(policy_bytes, environment.limits["kf.policy.v1"])
+    environment.policy = PolicyArtifact.from_wire(policy_bytes, environment.limits["cf.policy.v1"])
     environment.project = environment.project.model_copy(
-        update={"policy_ref": reference(policy_bytes, "kf.policy.v1")}
+        update={"policy_ref": reference(policy_bytes, "cf.policy.v1")}
     )
     manifest, raw = environment.manifest(
         [
@@ -468,7 +468,7 @@ def test_source_asset_verifies_exact_report_and_manifest_bytes(environment: Envi
     manifest, raw = environment.manifest([(ASSET_A, SOURCE_A, "a.txt", data)])
     report = environment.inspect(manifest, raw)
     report_bytes = encoded(report)
-    report_ref = reference(report_bytes, "kf.admission-report.v1")
+    report_ref = reference(report_bytes, "cf.admission-report.v1")
     assert environment.asset(manifest, raw, report, ASSET_A).source_id == SOURCE_A  # type: ignore[attr-defined]
     for changed_bytes in (
         report_bytes + b" ",
@@ -480,7 +480,7 @@ def test_source_asset_verifies_exact_report_and_manifest_bytes(environment: Envi
             )
     with pytest.raises(ContractError):
         environment.asset(manifest, raw + b" ", report, ASSET_A)
-    wrong_ref = report_ref.model_copy(update={"artifact_schema": "kf.policy.v1"})
+    wrong_ref = report_ref.model_copy(update={"artifact_schema": "cf.policy.v1"})
     with pytest.raises(ContractError):
         environment.asset(manifest, raw, report, ASSET_A, report_ref=wrong_ref)
 
@@ -505,7 +505,7 @@ def test_report_audit_denial_withholds_before_any_source_content(
     blocked = source_policy(SOURCE_B, read="deny") | {"auditMetadataRead": audit_permission}
     raw_policy = encoded(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "policyVersion": "synthetic.policy.v3",
             "effectiveAt": TIME,
@@ -514,9 +514,9 @@ def test_report_audit_denial_withholds_before_any_source_content(
         }
     )
     environment.policy_bytes = raw_policy
-    environment.policy = PolicyArtifact.from_wire(raw_policy, environment.limits["kf.policy.v1"])
+    environment.policy = PolicyArtifact.from_wire(raw_policy, environment.limits["cf.policy.v1"])
     environment.project = environment.project.model_copy(
-        update={"policy_ref": reference(raw_policy, "kf.policy.v1")}
+        update={"policy_ref": reference(raw_policy, "cf.policy.v1")}
     )
     manifest, raw = environment.manifest(
         [
@@ -550,7 +550,7 @@ def test_source_asset_requires_project_audit_scope(environment: Environment) -> 
         source_asset(
             manifest,
             report,
-            reference(report_bytes, "kf.admission-report.v1"),
+            reference(report_bytes, "cf.admission-report.v1"),
             ASSET_A,
             manifest_bytes=raw,
             report_bytes=report_bytes,
@@ -595,7 +595,7 @@ def test_current_revocation_cannot_reuse_historical_admission_allow(
     current = PolicyArtifact.from_wire(
         encoded(
             {
-                "schemaVersion": "kf.policy.v1",
+                "schemaVersion": "cf.policy.v1",
                 "projectId": PROJECT,
                 "policyVersion": "synthetic.current-policy.v4",
                 "effectiveAt": TIME,
@@ -603,13 +603,13 @@ def test_current_revocation_cannot_reuse_historical_admission_allow(
                 "allowedRemoteDestinations": [],
             }
         ),
-        environment.limits["kf.policy.v1"],
+        environment.limits["cf.policy.v1"],
     )
     with pytest.raises(ContractError):
         source_asset(
             manifest,
             report,
-            reference(report_bytes, "kf.admission-report.v1"),
+            reference(report_bytes, "cf.admission-report.v1"),
             ASSET_A,
             manifest_bytes=raw,
             report_bytes=report_bytes,
@@ -621,7 +621,7 @@ def test_current_revocation_cannot_reuse_historical_admission_allow(
         )
 
 
-@pytest.mark.parametrize("schema", ["kf.intake.v1", "kf.policy.v1"])
+@pytest.mark.parametrize("schema", ["cf.intake.v1", "cf.policy.v1"])
 def test_structured_input_role_output_ceiling_precedes_source_io(
     environment: Environment,
     monkeypatch: pytest.MonkeyPatch,
@@ -630,7 +630,7 @@ def test_structured_input_role_output_ceiling_precedes_source_io(
     data = b"Synthetic ceiling source"
     (environment.source_root / "a.txt").write_bytes(data)
     manifest, raw = environment.manifest([(ASSET_A, SOURCE_A, "a.txt", data)])
-    body = raw if schema == "kf.intake.v1" else environment.policy_bytes
+    body = raw if schema == "cf.intake.v1" else environment.policy_bytes
     configured = environment.limits | {
         schema: environment.limits[schema].model_copy(update={"max_output_bytes": len(body) - 1})
     }
@@ -655,7 +655,7 @@ def test_report_role_ceiling_and_snapshot_role_are_verified(environment: Environ
     report = environment.inspect(manifest, raw)
     report_bytes = encoded(report)
     limited = environment.limits | {
-        "kf.admission-report.v1": environment.limits["kf.admission-report.v1"].model_copy(
+        "cf.admission-report.v1": environment.limits["cf.admission-report.v1"].model_copy(
             update={"max_output_bytes": len(report_bytes) - 1}
         )
     }
@@ -671,7 +671,7 @@ def test_snapshot_role_cannot_be_reinterpreted(environment: Environment) -> None
     report = environment.inspect(manifest, raw)
     snapshot = report.entries[0].snapshot_ref
     assert snapshot is not None
-    wrong_snapshot = snapshot.model_copy(update={"artifact_schema": "kf.canonical-text.v1"})
+    wrong_snapshot = snapshot.model_copy(update={"artifact_schema": "cf.canonical-text.v1"})
     wrong_row = report.entries[0].model_copy(update={"snapshot_ref": wrong_snapshot})
     wrong_report = report.model_copy(update={"entries": (wrong_row,)})
     with pytest.raises(ContractError):
@@ -700,9 +700,9 @@ def test_source_asset_requires_its_own_finite_family_limits(
     asset = environment.asset(manifest, raw, report, ASSET_A)
     configured = dict(environment.limits)
     if missing:
-        configured.pop("kf.source-asset.v1")
+        configured.pop("cf.source-asset.v1")
     else:
-        configured["kf.source-asset.v1"] = configured["kf.source-asset.v1"].model_copy(
+        configured["cf.source-asset.v1"] = configured["cf.source-asset.v1"].model_copy(
             update={"max_output_bytes": len(encoded(asset)) - 1}
         )
     environment.limits = configured
@@ -720,7 +720,7 @@ def test_partial_report_retains_denied_source_without_content_read(
         (environment.source_root / name).write_bytes(data)
     policy_bytes = encoded(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "policyVersion": "synthetic.partial-policy.v1",
             "effectiveAt": TIME,
@@ -729,9 +729,9 @@ def test_partial_report_retains_denied_source_without_content_read(
         }
     )
     environment.policy_bytes = policy_bytes
-    environment.policy = PolicyArtifact.from_wire(policy_bytes, environment.limits["kf.policy.v1"])
+    environment.policy = PolicyArtifact.from_wire(policy_bytes, environment.limits["cf.policy.v1"])
     environment.project = environment.project.model_copy(
-        update={"policy_ref": reference(policy_bytes, "kf.policy.v1")}
+        update={"policy_ref": reference(policy_bytes, "cf.policy.v1")}
     )
     manifest, raw = environment.manifest(
         [
@@ -764,7 +764,7 @@ def test_unavailable_current_policy_never_falls_back(environment: Environment) -
         source_asset(
             manifest,
             report,
-            reference(report_bytes, "kf.admission-report.v1"),
+            reference(report_bytes, "cf.admission-report.v1"),
             ASSET_A,
             manifest_bytes=raw,
             report_bytes=report_bytes,

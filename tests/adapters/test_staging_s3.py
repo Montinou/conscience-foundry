@@ -133,12 +133,12 @@ def allow(_ref: ArtifactRef, _context: AccessContext, _effect: str) -> None:
 
 def ref_for(data: bytes, project: str = PROJECT) -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
         media_type="text/plain",
-        artifact_schema="kf.raw-original.v1",
+        artifact_schema="cf.raw-original.v1",
         locations=(),
     )
 
@@ -428,7 +428,7 @@ LATER = "2030-01-01T01:00:00.000Z"
 
 def synthetic_ref(schema: str, seed: str) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": hashlib.sha256(seed.encode()).hexdigest(),
         "sizeBytes": 10,
@@ -441,18 +441,18 @@ def synthetic_ref(schema: str, seed: str) -> dict[str, Any]:
 def make_plan(expires_at: str = LATER, valid_until: str = LATER) -> ExecutionPlan:
     return ExecutionPlan.model_validate(
         {
-            "schemaVersion": "kf.execution-plan.v1",
+            "schemaVersion": "cf.execution-plan.v1",
             "projectId": PROJECT,
             "runId": RUN_ID,
             "planId": PLAN_ID,
-            "executionConfigRef": synthetic_ref("kf.execution-config.v1", "config"),
-            "admissionReportRef": synthetic_ref("kf.admission-report.v1", "report"),
-            "extractionSpecRef": synthetic_ref("kf.extraction-spec.v1", "spec"),
-            "policyRef": synthetic_ref("kf.policy.v1", "policy"),
+            "executionConfigRef": synthetic_ref("cf.execution-config.v1", "config"),
+            "admissionReportRef": synthetic_ref("cf.admission-report.v1", "report"),
+            "extractionSpecRef": synthetic_ref("cf.extraction-spec.v1", "spec"),
+            "policyRef": synthetic_ref("cf.policy.v1", "policy"),
             "profileId": "synthetic.profile",
             "profileVersion": "v1",
-            "contractSetRef": synthetic_ref("kf.contract-set.v1", "contracts"),
-            "limitsRefs": [synthetic_ref("kf.contract-limits.v1", "limits")],
+            "contractSetRef": synthetic_ref("cf.contract-set.v1", "contracts"),
+            "limitsRefs": [synthetic_ref("cf.contract-limits.v1", "limits")],
             "inputRefs": [INPUT.model_dump(by_alias=True)],
             "operationKey": hashlib.sha256(b"operation").hexdigest(),
             "resources": {
@@ -469,7 +469,7 @@ def make_plan(expires_at: str = LATER, valid_until: str = LATER) -> ExecutionPla
                 "currency": "USD",
                 "maxRunCost": "1",
                 "maxAttemptCost": "1",
-                "tariffRef": synthetic_ref("kf.tariff.v1", "tariff"),
+                "tariffRef": synthetic_ref("cf.tariff.v1", "tariff"),
                 "authorizationId": "00000000-0000-0000-0000-0000000000a5",
                 "validUntil": valid_until,
             },
@@ -480,7 +480,7 @@ def make_plan(expires_at: str = LATER, valid_until: str = LATER) -> ExecutionPla
 
 def make_attempt(plan: ExecutionPlan, state: str = "reserved", **overrides: Any) -> StageAttempt:
     values: dict[str, Any] = {
-        "schemaVersion": "kf.stage-attempt.v1",
+        "schemaVersion": "cf.stage-attempt.v1",
         "projectId": PROJECT,
         "planId": plan.plan_id,
         "operationKey": plan.operation_key,

@@ -70,9 +70,9 @@ def _verify_context(
     limits_by_schema: Mapping[str, ContractLimits],
     context: AccessContext,
 ) -> None:
-    _parsed_match(manifest_bytes, manifest, _limits(limits_by_schema, "kf.intake.v1"))
-    _parsed_match(policy_bytes, policy, _limits(limits_by_schema, "kf.policy.v1"))
-    _verify_reference(policy_bytes, manifest.policy_ref, "kf.policy.v1", manifest.project_id)
+    _parsed_match(manifest_bytes, manifest, _limits(limits_by_schema, "cf.intake.v1"))
+    _parsed_match(policy_bytes, policy, _limits(limits_by_schema, "cf.policy.v1"))
+    _verify_reference(policy_bytes, manifest.policy_ref, "cf.policy.v1", manifest.project_id)
     if context.project_id != manifest.project_id or policy.project_id != manifest.project_id:
         raise ContractError("forbidden")
 
@@ -127,8 +127,8 @@ def inspect_intake(
     database registration, a revision acceptance or a dispatch authorization.
     """
     _verify_context(manifest, manifest_bytes, policy, policy_bytes, limits_by_schema, context)
-    report_limits = _limits(limits_by_schema, "kf.admission-report.v1")
-    source_limits = _limits(limits_by_schema, "kf.raw-original.v1")
+    report_limits = _limits(limits_by_schema, "cf.admission-report.v1")
+    source_limits = _limits(limits_by_schema, "cf.raw-original.v1")
     try:
         TypeAdapter(Instant).validate_python(checked_at)
     except ValidationError:
@@ -145,12 +145,12 @@ def inspect_intake(
             require_permission(context, policy, item.source_id, "read")
             require_permission(context, policy, item.source_id, "extract")
             expected = ArtifactRef(
-                schema_version="kf.artifact-ref.v1",
+                schema_version="cf.artifact-ref.v1",
                 project_id=manifest.project_id,
                 digest=item.original_digest,
                 size_bytes=item.size_bytes,
                 media_type=item.media_type,
-                artifact_schema="kf.raw-original.v1",
+                artifact_schema="cf.raw-original.v1",
                 locations=(),
             )
 
@@ -202,7 +202,7 @@ def inspect_intake(
                 )
             )
     report = AdmissionReport(
-        schema_version="kf.admission-report.v1",
+        schema_version="cf.admission-report.v1",
         project_id=manifest.project_id,
         batch_id=manifest.batch_id,
         manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
@@ -236,12 +236,12 @@ def source_asset(
     This does not prove snapshot content, durable batch registration or dispatch
     eligibility. T11/T13 must establish those independent facts.
     """
-    asset_limits = _limits(limits_by_schema, "kf.source-asset.v1")
+    asset_limits = _limits(limits_by_schema, "cf.source-asset.v1")
     _verify_context(
         manifest, manifest_bytes, pinned_policy, policy_bytes, limits_by_schema, context
     )
-    _parsed_match(report_bytes, report, _limits(limits_by_schema, "kf.admission-report.v1"))
-    _verify_reference(report_bytes, report_ref, "kf.admission-report.v1", manifest.project_id)
+    _parsed_match(report_bytes, report, _limits(limits_by_schema, "cf.admission-report.v1"))
+    _verify_reference(report_bytes, report_ref, "cf.admission-report.v1", manifest.project_id)
     if report.manifest_digest != hashlib.sha256(manifest_bytes).hexdigest():
         raise ContractError("hash_mismatch")
     report.validate_manifest(manifest, pinned_policy)
@@ -250,12 +250,12 @@ def source_asset(
     row = next((row for row in report.entries if row.asset_id == asset_id), None)
     if item is None or row is None or row.status != "admitted" or row.snapshot_ref is None:
         raise ContractError("forbidden")
-    if row.snapshot_ref.artifact_schema != "kf.raw-original.v1":
+    if row.snapshot_ref.artifact_schema != "cf.raw-original.v1":
         raise ContractError("unsupported_schema")
     require_permission(context, current_policy, item.source_id, "read")
     require_permission(context, current_policy, item.source_id, "extract")
     asset = SourceAsset(
-        schema_version="kf.source-asset.v1",
+        schema_version="cf.source-asset.v1",
         project_id=manifest.project_id,
         asset_id=item.asset_id,
         source_id=item.source_id,

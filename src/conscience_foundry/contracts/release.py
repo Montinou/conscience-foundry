@@ -55,8 +55,8 @@ class ReleaseSource(WireModel):
 
     @model_validator(mode="after")
     def reference_roles(self) -> Self:
-        _schema(self.revision_ref, "kf.document-revision.v1")
-        _schema(self.review_ref, "kf.revision-review.v1")
+        _schema(self.revision_ref, "cf.document-revision.v1")
+        _schema(self.review_ref, "cf.revision-review.v1")
         if self.revision_ref.project_id != self.review_ref.project_id:
             raise ValueError("cross-project source references")
         return self
@@ -69,7 +69,7 @@ class ReleaseComponent(WireModel):
 
 
 class LibraryRelease(WireModel):
-    schema_version: Literal["kf.library-release.v1"]
+    schema_version: Literal["cf.library-release.v1"]
     project_id: Id
     release_id: Id
     profile_id: NonemptyString
@@ -103,8 +103,8 @@ class LibraryRelease(WireModel):
             ),
             self.project_id,
         )
-        _schema(self.coverage_report_ref, "kf.coverage-report.v1")
-        _schema(self.provenance_report_ref, "kf.provenance-report.v1")
+        _schema(self.coverage_report_ref, "cf.coverage-report.v1")
+        _schema(self.provenance_report_ref, "cf.provenance-report.v1")
         return self
 
     def validate_f1(self) -> None:
@@ -114,7 +114,7 @@ class LibraryRelease(WireModel):
 
     def selection_digest(self) -> str:
         return hash_jcs(
-            "kf.release-selection.v1",
+            "cf.release-selection.v1",
             [entry.model_dump(mode="json", by_alias=True) for entry in self.source_entries],
         )
 
@@ -142,13 +142,13 @@ class CoverageEntry(WireModel):
         if (self.status != "accepted" or not self.selected) and not self.reasons:
             raise ValueError("nonaccepted or excluded coverage requires reason")
         if self.revision_ref is not None:
-            _schema(self.revision_ref, "kf.document-revision.v1")
+            _schema(self.revision_ref, "cf.document-revision.v1")
         _unique_refs(self.outcome_evidence_refs)
         return self
 
 
 class CoverageReport(WireModel):
-    schema_version: Literal["kf.coverage-report.v1"]
+    schema_version: Literal["cf.coverage-report.v1"]
     project_id: Id
     selection_digest: Digest
     admission_report_refs: Annotated[tuple[Ref, ...], BeforeValidator(_array), Field(min_length=1)]
@@ -162,7 +162,7 @@ class CoverageReport(WireModel):
             raise ValueError("coverage rows must be unique and sorted")
         _unique_refs(self.admission_report_refs)
         for ref in self.admission_report_refs:
-            _schema(ref, "kf.admission-report.v1")
+            _schema(ref, "cf.admission-report.v1")
         _project(
             (
                 *self.admission_report_refs,
@@ -206,20 +206,20 @@ class ProvenanceEntry(WireModel):
 
     @model_validator(mode="after")
     def reference_roles(self) -> Self:
-        _schema(self.revision_ref, "kf.document-revision.v1")
-        _schema(self.review_ref, "kf.revision-review.v1")
-        _schema(self.operation_result_ref, "kf.operation-result-record.v1")
+        _schema(self.revision_ref, "cf.document-revision.v1")
+        _schema(self.review_ref, "cf.revision-review.v1")
+        _schema(self.operation_result_ref, "cf.operation-result-record.v1")
         for ref in self.attempt_refs:
-            _schema(ref, "kf.stage-attempt.v1")
+            _schema(ref, "cf.stage-attempt.v1")
         for ref in self.run_report_refs:
-            _schema(ref, "kf.run-report.v1")
+            _schema(ref, "cf.run-report.v1")
         _unique_refs(self.attempt_refs)
         _unique_refs(self.run_report_refs)
         return self
 
 
 class ProvenanceReport(WireModel):
-    schema_version: Literal["kf.provenance-report.v1"]
+    schema_version: Literal["cf.provenance-report.v1"]
     project_id: Id
     selection_digest: Digest
     entries: Annotated[tuple[ProvenanceEntry, ...], BeforeValidator(_array)]
@@ -265,7 +265,7 @@ class ProvenanceReport(WireModel):
 
 
 class ImportReceipt(WireModel):
-    schema_version: Literal["kf.import-receipt.v1"]
+    schema_version: Literal["cf.import-receipt.v1"]
     project_id: Id
     import_id: Id
     release_ref: Ref
@@ -276,7 +276,7 @@ class ImportReceipt(WireModel):
 
     @model_validator(mode="after")
     def verification_shape(self) -> Self:
-        _schema(self.release_ref, "kf.library-release.v1")
+        _schema(self.release_ref, "cf.library-release.v1")
         _project((self.release_ref, *self.verified_artifacts), self.project_id)
         _unique_refs(self.verified_artifacts)
         if self.status == "local_verified" and (not self.verified_artifacts or self.reasons):
@@ -287,7 +287,7 @@ class ImportReceipt(WireModel):
 
 
 class RetentionPolicy(WireModel):
-    schema_version: Literal["kf.retention.v1"]
+    schema_version: Literal["cf.retention.v1"]
     policy_version: Version
     min_staging_age_seconds: SafeInteger
     funded_staging_horizon_seconds: PositiveInteger
@@ -310,7 +310,7 @@ PublicationStage = Literal[
 
 
 class PublicationRecord(WireModel):
-    schema_version: Literal["kf.publication-record.v1"]
+    schema_version: Literal["cf.publication-record.v1"]
     project_id: Id
     release_digest: Digest
     event_id: Id
@@ -334,9 +334,9 @@ class PublicationRecord(WireModel):
             raise ValueError("publication event cannot follow itself")
         if (self.stage == "published") != (self.publication_authorization_ref is not None):
             raise ValueError("publication grant only belongs to published event")
-        _schema(self.policy_ref, "kf.policy.v1")
+        _schema(self.policy_ref, "cf.policy.v1")
         if self.publication_authorization_ref is not None:
-            _schema(self.publication_authorization_ref, "kf.publication-authorization.v1")
+            _schema(self.publication_authorization_ref, "cf.publication-authorization.v1")
         _project(
             (
                 self.policy_ref,
@@ -354,7 +354,7 @@ class PublicationRecord(WireModel):
 
 
 class PublicationAuthorization(WireModel):
-    schema_version: Literal["kf.publication-authorization.v1"]
+    schema_version: Literal["cf.publication-authorization.v1"]
     project_id: Id
     release_digest: Digest
     actor_id: Id
@@ -364,7 +364,7 @@ class PublicationAuthorization(WireModel):
 
     @model_validator(mode="after")
     def bounded_grant_shape(self) -> Self:
-        _schema(self.policy_ref, "kf.policy.v1")
+        _schema(self.policy_ref, "cf.policy.v1")
         _project((self.policy_ref,), self.project_id)
         if self.expires_at <= self.authorized_at:
             raise ValueError("publication grant expiry must follow authorization")
@@ -372,7 +372,7 @@ class PublicationAuthorization(WireModel):
 
 
 class ActivationRecord(WireModel):
-    schema_version: Literal["kf.activation.v1"]
+    schema_version: Literal["cf.activation.v1"]
     project_id: Id
     expected_previous_release_digest: Digest | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None

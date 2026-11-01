@@ -55,10 +55,10 @@ B_SOURCE = "00000000-0000-0000-0000-000000000008"
 def two_sources(first: bytes = b"Synthetic text") -> Admission:
     data = admission(extra_asset=True)
     manifest = IntakeManifest.from_wire(
-        data.evidence.manifest_bytes, data.evidence.limits_by_schema["kf.intake.v1"]
+        data.evidence.manifest_bytes, data.evidence.limits_by_schema["cf.intake.v1"]
     )
     refs = [
-        reference(payload, "kf.raw-original.v1").model_copy(update={"media_type": "text/plain"})
+        reference(payload, "cf.raw-original.v1").model_copy(update={"media_type": "text/plain"})
         for payload in (first, b"Excluded synthetic source")
     ]
     items = tuple(
@@ -176,7 +176,7 @@ class ReleaseCase:
 
         logical = json.loads(revision)["revisionId"]
         fields: dict[str, Any] = {
-            "schema_version": "kf.revision-review.v1",
+            "schema_version": "cf.revision-review.v1",
             "project_id": PROJECT,
             "revision_id": logical,
             "decision": decision,
@@ -446,7 +446,7 @@ def test_alternate_wrapper_with_same_logical_revision_is_not_interchangeable(
     raw = value.read(revision_ref, value.case.access, 65536).data
     alternate = json.dumps(json.loads(raw), indent=1, sort_keys=True).encode()
     assert alternate != raw
-    alternate_ref = reference(alternate, "kf.document-revision.v1")
+    alternate_ref = reference(alternate, "cf.document-revision.v1")
     value.case.store.put_verified(io.BytesIO(alternate), alternate_ref, value.case.access)
     with pytest.raises(ContractError):
         value.review(alternate_ref)
@@ -493,7 +493,7 @@ def test_review_requires_exact_independent_approval_and_binding(
         value.review(revision_ref, policy_version="stale.v0")
     assert code(error) == "permission_unknown"
     review = RevisionReview(
-        schema_version="kf.revision-review.v1",
+        schema_version="cf.revision-review.v1",
         project_id=PROJECT,
         revision_id="e" * 64,
         decision="accepted",
@@ -676,7 +676,7 @@ def test_content_artifacts_are_never_read_as_approval_evidence(
     assert excluded is not None
     evidence = excluded if target == "excluded_raw" else revision_ref
     review = RevisionReview(
-        schema_version="kf.revision-review.v1",
+        schema_version="cf.revision-review.v1",
         project_id=PROJECT,
         revision_id=json.loads(value.read(revision_ref, value.case.access, 65536).data)[
             "revisionId"
@@ -754,7 +754,7 @@ def test_snapshot_row_cap_precedes_materialization(
     selected = (selected_source(value),)
     value.allow_build(selected)
     tight = dict(value.release.limits_by_schema)
-    tight["kf.coverage-report.v1"] = value.case.bound.model_copy(update=cap)
+    tight["cf.coverage-report.v1"] = value.case.bound.model_copy(update=cap)
     with pytest.raises(ContractError) as error:
         value.build(selected, release=replace(value.release, limits_by_schema=tight))
     assert code(error) == "limit_exceeded"
@@ -767,7 +767,7 @@ def test_row_and_byte_caps_fail_before_rows_are_fetched(
 ) -> None:
     value = release_case
     tight = dict(value.release.limits_by_schema)
-    tight["kf.coverage-report.v1"] = value.case.bound.model_copy(update=cap)
+    tight["cf.coverage-report.v1"] = value.case.bound.model_copy(update=cap)
     limited = replace(value.release, limits_by_schema=tight)
     where = sql.SQL("t.project_id=%s")
     with value.ledger.transaction() as tx:
@@ -810,7 +810,7 @@ def reservation(
 
 def usage(rid: str, amount: str | None, *, scope: str = "attempt") -> BudgetEvent:
     fields: dict[str, Any] = {
-        "schema_version": "kf.budget-event.v1",
+        "schema_version": "cf.budget-event.v1",
         "project_id": PROJECT,
         "run_id": RUN,
         "reservation_id": rid,
@@ -818,7 +818,7 @@ def usage(rid: str, amount: str | None, *, scope: str = "attempt") -> BudgetEven
         "event_id": str(uuid4()),
         "event_type": "record_usage",
         "cost_status": "unknown" if amount is None else "estimated",
-        "evidence_ref": reference(b"synthetic-evidence", "kf.raw-original.v1"),
+        "evidence_ref": reference(b"synthetic-evidence", "cf.raw-original.v1"),
         "created_at": TIME,
     }
     if scope == "attempt":

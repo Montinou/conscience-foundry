@@ -78,20 +78,20 @@ class Case:
 def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int = 3) -> Case:
     data = admission()
     manifest = IntakeManifest.from_wire(data.evidence.manifest_bytes, limits())
-    tariff = reference(b"{}", "kf.tariff.v1")
+    tariff = reference(b"{}", "cf.tariff.v1")
     config = ExecutionConfig(
-        schema_version="kf.execution-config.v1",
+        schema_version="cf.execution-config.v1",
         adapter_id="synthetic.worker",
         deployment_version="synthetic.v1",
         image_digest="a" * 64,
         tariff_ref=tariff,
-        resource_policy_ref=reference(b"{}", "kf.resource-policy.v1"),
+        resource_policy_ref=reference(b"{}", "cf.resource-policy.v1"),
         remote_destination_id="synthetic.worker",
     )
     config_bytes = encoded(config)
-    limit_ref = reference(encoded(limits()), "kf.contract-limits.v1")
-    contract_set = reference(b"{}", "kf.contract-set.v1")
-    extraction = reference(b"{}", "kf.extraction-spec.v1")
+    limit_ref = reference(encoded(limits()), "cf.contract-limits.v1")
+    contract_set = reference(b"{}", "cf.contract-set.v1")
+    extraction = reference(b"{}", "cf.extraction-spec.v1")
     original = data.report.entries[0].snapshot_ref
     assert original is not None
     key = operation_key(
@@ -112,7 +112,7 @@ def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int =
     authorization_id = str(uuid4())
     plan = ExecutionPlan.model_validate(
         {
-            "schemaVersion": "kf.execution-plan.v1",
+            "schemaVersion": "cf.execution-plan.v1",
             "projectId": PROJECT,
             "runId": run_id,
             "planId": str(uuid4()),
@@ -149,7 +149,7 @@ def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int =
     )
     plan_bytes = encoded(plan)
     auth = RunAuthorization(
-        schema_version="kf.run-authorization.v1",
+        schema_version="cf.run-authorization.v1",
         authorization_id=authorization_id,
         project_id=PROJECT,
         run_id=run_id,
@@ -163,18 +163,18 @@ def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int =
     )
     auth_bytes = encoded(auth)
     authority = Authority()
-    proof = reference(b"synthetic estimate", "kf.synthetic-evidence.v1")
+    proof = reference(b"synthetic estimate", "cf.synthetic-evidence.v1")
     authority.allow(proof, plan_bytes)
     authority.allow(reference(auth_bytes, auth.schema_version), auth_bytes)
     schemas = (
-        "kf.intake.v1",
-        "kf.admission-report.v1",
-        "kf.policy.v1",
-        "kf.execution-plan.v1",
-        "kf.run-authorization.v1",
-        "kf.execution-config.v1",
-        "kf.budget-event.v1",
-        "kf.billing-adjustment.v1",
+        "cf.intake.v1",
+        "cf.admission-report.v1",
+        "cf.policy.v1",
+        "cf.execution-plan.v1",
+        "cf.run-authorization.v1",
+        "cf.execution-config.v1",
+        "cf.budget-event.v1",
+        "cf.billing-adjustment.v1",
     )
     current_policy = data.evidence.pinned_policy.model_copy(
         update={"allowed_remote_destinations": ("synthetic.worker",)}
@@ -271,7 +271,7 @@ def event(
 ) -> BudgetEvent:
     value = BudgetEvent.model_validate(
         {
-            "schemaVersion": "kf.budget-event.v1",
+            "schemaVersion": "cf.budget-event.v1",
             "projectId": PROJECT,
             "runId": c.plan.run_id,
             "reservationId": attempt.reservation_id,
@@ -322,7 +322,7 @@ def test_corrected_bill_cas_and_replay(ledger: Ledger) -> None:
     adjustments = []
     for prior, revised in (("4", "3"), ("3", "5")):
         correction = BillingAdjustment(
-            schema_version="kf.billing-adjustment.v1",
+            schema_version="cf.billing-adjustment.v1",
             project_id=PROJECT,
             run_id=RUN,
             reservation_id=attempt.reservation_id,
@@ -437,7 +437,7 @@ def test_storage_accounting_keeps_original_grant_after_amendment_and_expiry(
 
     def storage_event(kind: str, amount: str) -> BudgetEvent:
         value = BudgetEvent(
-            schema_version="kf.budget-event.v1",
+            schema_version="cf.budget-event.v1",
             project_id=PROJECT,
             run_id=RUN,
             reservation_id=storage,
@@ -466,7 +466,7 @@ def test_storage_accounting_keeps_original_grant_after_amendment_and_expiry(
     release = storage_event("release_unspent", "1")
     apply(ledger, c, release)
     adjustment = BillingAdjustment(
-        schema_version="kf.billing-adjustment.v1",
+        schema_version="cf.billing-adjustment.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=storage,
@@ -577,7 +577,7 @@ def test_storage_liability_outlives_worker(ledger: Ledger) -> None:
     assert balances(ledger)[0:3] == (Decimal(2), Decimal(3), Decimal(2))
     with ledger.transaction() as tx:
         e = BudgetEvent(
-            schema_version="kf.budget-event.v1",
+            schema_version="cf.budget-event.v1",
             project_id=PROJECT,
             run_id=RUN,
             reservation_id=storage,
@@ -765,7 +765,7 @@ def test_accounting_replay_rechecks_current_evidence_authority(ledger: Ledger) -
     with pytest.raises(ContractError, match="forbidden"):
         apply(ledger, denied, settled)
     correction = BillingAdjustment(
-        schema_version="kf.billing-adjustment.v1",
+        schema_version="cf.billing-adjustment.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -796,7 +796,7 @@ def test_concurrent_corrections_compare_and_swap_effective_actual(ledger: Ledger
     apply(ledger, c, settled)
     corrections = [
         BillingAdjustment(
-            schema_version="kf.billing-adjustment.v1",
+            schema_version="cf.billing-adjustment.v1",
             project_id=PROJECT,
             run_id=RUN,
             reservation_id=attempt.reservation_id,

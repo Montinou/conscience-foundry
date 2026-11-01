@@ -255,7 +255,7 @@ def _bootstrap(size: int) -> ContractLimits:
     bound = max(size, 1)
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "cli.bootstrap.v1",
             "maxJsonBytes": bound,
             "maxStringScalars": bound,
@@ -408,11 +408,11 @@ class Runtime:
         return (self.services.clock or now)()
 
     def read_policy_bytes(self) -> bytes:
-        return read_trusted(self.config.policy_path, self.limit("kf.policy.v1").max_json_bytes)
+        return read_trusted(self.config.policy_path, self.limit("cf.policy.v1").max_json_bytes)
 
     def current_policy(self, project: Id) -> PolicyArtifact:
         """Re-read on every call so each effect boundary sees the policy as it is now."""
-        return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("kf.policy.v1"))
+        return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("cf.policy.v1"))
 
     def _local_store(self, settings: StoreSettings) -> LocalObjectStore:
         project, access = self.config.project_id, self.access

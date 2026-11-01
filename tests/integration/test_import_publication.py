@@ -242,13 +242,13 @@ def test_import_verifies_selected_closure_and_records_receipt(library: Library) 
     assert lib.digest not in {ref.digest for ref in receipt.verified_artifacts}
     schemas = {ref.artifact_schema for ref in receipt.verified_artifacts}
     assert {
-        "kf.document-revision.v1",
-        "kf.revision-review.v1",
-        "kf.canonical-text.v1",
-        "kf.coverage-report.v1",
-        "kf.provenance-report.v1",
-        "kf.extraction-spec.v1",
-        "kf.contract-limits.v1",
+        "cf.document-revision.v1",
+        "cf.revision-review.v1",
+        "cf.canonical-text.v1",
+        "cf.coverage-report.v1",
+        "cf.provenance-report.v1",
+        "cf.extraction-spec.v1",
+        "cf.contract-limits.v1",
     } <= schemas
     verified, stored = lib.row()
     assert verified is True
@@ -475,7 +475,7 @@ def revision_of(lib: Library) -> DocumentRevision:
 
 def span_of(lib: Library, start: int, end: int, **overrides: Any) -> DocumentSpan:
     fields: dict[str, Any] = {
-        "schema_version": "kf.document-span.v1",
+        "schema_version": "cf.document-span.v1",
         "project_id": PROJECT,
         "source_id": lib.source.source_id,
         "revision_id": revision_of(lib).revision_id,
@@ -675,12 +675,12 @@ def policy_ref(lib: Library, version: str | None = None) -> Ref:
     policy = lib.value.case.policy
     if version is not None:
         policy = policy.model_copy(update={"policy_version": version})
-    return store(lib, policy, "kf.policy.v1")
+    return store(lib, policy, "cf.policy.v1")
 
 
 def grant(lib: Library, **overrides: Any) -> Ref:
     fields: dict[str, Any] = {
-        "schema_version": "kf.publication-authorization.v1",
+        "schema_version": "cf.publication-authorization.v1",
         "project_id": PROJECT,
         "release_digest": lib.digest,
         "actor_id": ACTOR,
@@ -689,7 +689,7 @@ def grant(lib: Library, **overrides: Any) -> Ref:
         "expires_at": LATER,
     }
     return store(
-        lib, PublicationAuthorization(**{**fields, **overrides}), "kf.publication-authorization.v1"
+        lib, PublicationAuthorization(**{**fields, **overrides}), "cf.publication-authorization.v1"
     )
 
 
@@ -711,7 +711,7 @@ def publication(
     lib: Library, stage: str, previous: str | None, **overrides: Any
 ) -> PublicationRecord:
     fields: dict[str, Any] = {
-        "schema_version": "kf.publication-record.v1",
+        "schema_version": "cf.publication-record.v1",
         "project_id": PROJECT,
         "release_digest": lib.digest,
         "event_id": str(uuid4()),
@@ -819,7 +819,7 @@ def test_publication_database_rejects_forked_or_duplicate_chain_rows(library: Li
     imported(lib)
     second = publication(lib, "validated", first.event_id)
     append(lib, second)
-    ref = store(lib, second, "kf.publication-record.v1")
+    ref = store(lib, second, "cf.publication-record.v1")
 
     def insert(event_id: str, stage: str, previous: str | None) -> None:
         with lib.ledger.transaction() as tx:
@@ -944,7 +944,7 @@ def test_publication_evidence_is_closed_and_bound_to_the_release(library: Librar
         lib.value.read(receipt_ref(lib), lib.access, 65536).data, lib.value.case.bound
     )
     forged = store(
-        lib, genuine.model_copy(update={"import_id": str(uuid4())}), "kf.import-receipt.v1"
+        lib, genuine.model_copy(update={"import_id": str(uuid4())}), "cf.import-receipt.v1"
     )
     with pytest.raises(ContractError) as error:
         append(
@@ -1087,14 +1087,14 @@ def test_published_requires_valid_grant_and_current_permission(library: Library)
 
 def store_grant_like_policy(lib: Library) -> Ref:
     """A ref with the right shape but a schema that is not a publication grant."""
-    return policy_ref(lib).model_copy(update={"artifact_schema": "kf.publication-authorization.v1"})
+    return policy_ref(lib).model_copy(update={"artifact_schema": "cf.publication-authorization.v1"})
 
 
 def activation(
     lib: Library, digest: str, expected: str | None, **overrides: Any
 ) -> ActivationRecord:
     fields: dict[str, Any] = {
-        "schema_version": "kf.activation.v1",
+        "schema_version": "cf.activation.v1",
         "project_id": PROJECT,
         "next_release_digest": digest,
         "actor_id": ACTOR,

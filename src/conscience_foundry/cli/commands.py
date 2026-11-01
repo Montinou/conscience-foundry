@@ -186,12 +186,12 @@ def _document[Model: WireModel](
 
 
 def _ref_file(rt: Runtime, path: str) -> Ref:
-    return _document(rt, path, Ref, "kf.artifact-ref.v1")[1]
+    return _document(rt, path, Ref, "cf.artifact-ref.v1")[1]
 
 
 def _ref(rt: Runtime, data: bytes, schema: str) -> Ref:
     return Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=rt.config.project_id,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -274,26 +274,26 @@ def _admit(inv: Invocation) -> Outcome:
     settings = rt.config.admission
     if settings is None:
         raise ContractError("config_invalid")
-    manifest_bound = rt.limit("kf.intake.v1")
+    manifest_bound = rt.limit("cf.intake.v1")
     manifest_bytes = read_input(args.manifest, manifest_bound.max_json_bytes)
     manifest = IntakeManifest.from_wire(manifest_bytes, manifest_bound)
     project = ProjectConfig.from_wire(
-        read_trusted(settings.project_config_path, rt.limit("kf.project.v1").max_json_bytes),
-        rt.limit("kf.project.v1"),
+        read_trusted(settings.project_config_path, rt.limit("cf.project.v1").max_json_bytes),
+        rt.limit("cf.project.v1"),
     )
     profile = ProfileDescriptor.from_wire(
-        read_trusted(settings.profile_path, rt.limit("kf.profile.v1").max_json_bytes),
-        rt.limit("kf.profile.v1"),
+        read_trusted(settings.profile_path, rt.limit("cf.profile.v1").max_json_bytes),
+        rt.limit("cf.profile.v1"),
     )
     bundle = ContractSet.from_wire(
-        read_trusted(settings.contract_set_path, rt.limit("kf.contract-set.v1").max_json_bytes),
-        rt.limit("kf.contract-set.v1"),
+        read_trusted(settings.contract_set_path, rt.limit("cf.contract-set.v1").max_json_bytes),
+        rt.limit("cf.contract-set.v1"),
     )
     binding = technical_metadata_binding(
         bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
     )
     policy_bytes = rt.read_policy_bytes()
-    policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("kf.policy.v1"))
+    policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("cf.policy.v1"))
     store = rt.store
     report = inspect_intake(
         manifest,
@@ -310,8 +310,8 @@ def _admit(inv: Invocation) -> Outcome:
         checked_at=rt.clock(),
     )
     report_bytes = report.model_dump_json(by_alias=True).encode("utf-8")
-    manifest_ref = _ref(rt, manifest_bytes, "kf.intake.v1")
-    report_ref = _ref(rt, report_bytes, "kf.admission-report.v1")
+    manifest_ref = _ref(rt, manifest_bytes, "cf.intake.v1")
+    report_ref = _ref(rt, report_bytes, "cf.admission-report.v1")
     _install(rt, manifest_bytes, manifest_ref)
     _install(rt, report_bytes, report_ref)
     _install(rt, policy_bytes, manifest.policy_ref)
@@ -355,13 +355,13 @@ def _prepare_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _prepare_run(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, plan = _document(rt, args.plan, ExecutionPlan, "kf.execution-plan.v1")
+    data, plan = _document(rt, args.plan, ExecutionPlan, "cf.execution-plan.v1")
     _require_operator(rt, plan.project_id, None)
     if data != encoded(plan):
         # Plan digests bind the stored bytes in every grant and adapter, which all digest the
         # canonical serialization: a pretty-printed or reordered file would be refused at dispatch.
         raise ContractError("invalid_schema")
-    ref = _ref(rt, data, "kf.execution-plan.v1")
+    ref = _ref(rt, data, "cf.execution-plan.v1")
     control = rt.control
     _install(rt, data, ref)
     with rt.ledger.transaction() as tx:
@@ -383,11 +383,11 @@ def _authorize_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _authorize_run(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, auth = _document(rt, args.authorization, RunAuthorization, "kf.run-authorization.v1")
+    data, auth = _document(rt, args.authorization, RunAuthorization, "cf.run-authorization.v1")
     # The document's actor is a claim. It must be the configured operator before anything else.
     _require_operator(rt, auth.project_id, auth.actor_id)
     previous = _id(args.previous_authorization_id) if args.previous_authorization_id else None
-    ref = _ref(rt, data, "kf.run-authorization.v1")
+    ref = _ref(rt, data, "cf.run-authorization.v1")
     control = rt.control
     _install(rt, data, ref)
     with rt.ledger.transaction() as tx:
@@ -437,7 +437,7 @@ def _dispatch(inv: Invocation) -> Outcome:
     asset_id = _id(args.asset_id)
     retry = None
     if args.manual_retry:
-        request = _document(rt, args.manual_retry, ManualRetryRequest, "kf.artifact-ref.v1")[1]
+        request = _document(rt, args.manual_retry, ManualRetryRequest, "cf.artifact-ref.v1")[1]
         retry = ManualRetry(
             request.evidence_ref,
             request.expected_snapshot_digest,
@@ -576,7 +576,7 @@ def _review_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _review(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, review = _document(rt, args.review, RevisionReview, "kf.revision-review.v1")
+    data, review = _document(rt, args.review, RevisionReview, "cf.revision-review.v1")
     _require_operator(rt, review.project_id, review.actor_id)
     ref = record_review(
         review,
@@ -608,7 +608,7 @@ def _build_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _build_release(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, selection = _document(rt, args.selection, ReleaseSelection, "kf.library-release.v1")
+    _, selection = _document(rt, args.selection, ReleaseSelection, "cf.library-release.v1")
     candidate = build_release(
         tuple(selection.sources),
         tuple(selection.admission_report_refs),
@@ -620,12 +620,12 @@ def _build_release(inv: Invocation) -> Outcome:
     raw = encoded(candidate)
     digest = hashlib.sha256(raw).hexdigest()
     reference = Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=rt.config.project_id,
         digest=digest,
         size_bytes=len(raw),
         media_type="application/json",
-        artifact_schema="kf.library-release.v1",
+        artifact_schema="cf.library-release.v1",
         locations=(
             ArtifactLocation(
                 store_id=rt.config.object_store.store_id,
@@ -666,7 +666,7 @@ def _record_argument(parser: argparse.ArgumentParser) -> None:
 
 def _publish(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, record = _document(rt, args.record, PublicationRecord, "kf.publication-record.v1")
+    _, record = _document(rt, args.record, PublicationRecord, "cf.publication-record.v1")
     _require_operator(rt, record.project_id, record.actor_id)
     try:
         pin = rt.pin(record.release_digest)
@@ -678,7 +678,7 @@ def _publish(inv: Invocation) -> Outcome:
 
 def _activate(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, record = _document(rt, args.record, ActivationRecord, "kf.activation.v1")
+    _, record = _document(rt, args.record, ActivationRecord, "cf.activation.v1")
     _require_operator(rt, record.project_id, record.actor_id)
     activate(record, rt.access, rt.ledger, release=rt.release)
     return _ok(activeReleaseDigest=record.next_release_digest)
@@ -693,7 +693,7 @@ def _span_arguments(parser: argparse.ArgumentParser) -> None:
 def _read_span(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     digest = _digest(args.release_digest)
-    _, span = _document(rt, args.span, DocumentSpan, "kf.document-span.v1")
+    _, span = _document(rt, args.span, DocumentSpan, "cf.document-span.v1")
     resolved = resolve_span(
         rt.access, digest, span, rt.ledger, rt.store, release=rt.release, pin=rt.pin(digest)
     )
@@ -773,7 +773,7 @@ def _manifest_argument(parser: argparse.ArgumentParser) -> None:
 
 def _restore(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, manifest = _document(rt, args.manifest, RecoveryManifest, "kf.library-release.v1")
+    _, manifest = _document(rt, args.manifest, RecoveryManifest, "cf.library-release.v1")
     report = restore(manifest, rt.access, rt.ledger, rt.backup, rt.store)
     data = {
         "verifiedRefs": len(report.verified_refs),
@@ -796,7 +796,7 @@ def _retention_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _retention_report(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, policy = _document(rt, args.policy, RetentionPolicy, "kf.retention.v1")
+    _, policy = _document(rt, args.policy, RetentionPolicy, "cf.retention.v1")
     report = retention_report(
         rt.access,
         rt.ledger,

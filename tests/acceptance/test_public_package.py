@@ -158,7 +158,7 @@ UNLISTED_UNDER_ALLOWED_PREFIXES = [
     "src/conscience_foundry/notes.txt",
     "src/conscience_foundry/storage/blob.bin",
     "schemas/notes.md",
-    "schemas/kf.extra.v1.dump.json",
+    "schemas/cf.extra.v1.dump.json",
     "scripts/run.sh",
     "scripts/data.json",
     "tests/fixtures/export.csv",
@@ -183,8 +183,8 @@ def test_every_shipped_extension_family_stays_allowed() -> None:
         "src/conscience_foundry/__init__.py",
         "src/conscience_foundry/py.typed",
         "src/conscience_foundry/ledger/migrations/001_initial.sql",
-        "schemas/kf.document-span.v1.schema.json",
-        "schemas/kf.document-span.v1.rules.json",
+        "schemas/cf.document-span.v1.schema.json",
+        "schemas/cf.document-span.v1.rules.json",
         "schemas/json-schema.2020-12.schema.json",
         "scripts/check_public_boundary.py",
         "tests/conftest.py",
@@ -265,7 +265,7 @@ def test_js_tooling_is_locked_without_absolute_paths_or_credentials() -> None:
 
 def limits() -> ContractLimits:
     return ContractLimits(
-        schema_version="kf.contract-limits.v1",
+        schema_version="cf.contract-limits.v1",
         version="synthetic.v1",
         max_json_bytes=1_000_000,
         max_string_scalars=10_000,
@@ -295,7 +295,7 @@ def test_cross_language_schema_and_unicode_fixtures() -> None:
     # The independent validator compiled every exported schema in the bundle.
     assert node["compiledSchemas"] == sorted(registered_schema_ids())
     # The two raw byte roles compile as {"not": {}} but are outside JSON-instance parity.
-    assert node["outsideInstanceParity"] == ["kf.canonical-text.v1", "kf.raw-original.v1"]
+    assert node["outsideInstanceParity"] == ["cf.canonical-text.v1", "cf.raw-original.v1"]
     assert set(node["outsideInstanceParity"]) <= set(node["compiledSchemas"])
     for case in fixtures["shapeCases"]:
         cid = case["caseId"]
@@ -382,7 +382,7 @@ def test_independent_jcs_bytes_and_digests() -> None:
     assert b'"1.00"' in bytes.fromhex(vectors["decimal-strings"]["canonicalUtf8Hex"])
     assert b"9007199254740991" in bytes.fromhex(vectors["safe-integer-limits"]["canonicalUtf8Hex"])
     assert vectors["domain-key-order-digest"]["digest"] != hashlib.sha256(
-        b"kf.revision.v1\n" + '{"\ue000":"x","\U00010000":"y"}'.encode()
+        b"cf.revision.v1\n" + '{"\ue000":"x","\U00010000":"y"}'.encode()
     ).hexdigest()
 
 
@@ -503,9 +503,9 @@ def test_exported_schemas_express_array_bounds_as_items_keywords() -> None:
     for schema_id in registered_schema_ids():
         for path, node in array_nodes(schema_id):
             assert not node.keys() & {"minLength", "maxLength"}, f"{schema_id}{path}"
-    plan = dict(array_nodes("kf.run-authorization.v1"))["/properties/allowedPlanDigests"]
+    plan = dict(array_nodes("cf.run-authorization.v1"))["/properties/allowedPlanDigests"]
     assert plan["minItems"] == 1
-    result = dict(array_nodes("kf.result.v1"))["/properties/inputDigests"]
+    result = dict(array_nodes("cf.result.v1"))["/properties/inputDigests"]
     assert (result["minItems"], result["maxItems"]) == (1, 1)
     # The array-bound cases are plain shape failures now: the independent validator rejects them.
     parity = load_script("check_schema_parity")

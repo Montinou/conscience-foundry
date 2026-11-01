@@ -62,7 +62,7 @@ from conscience_foundry.storage.local import ObjectStore
 def _store_exact(raw: bytes, schema: str, release: ReleaseContext) -> Ref:
     digest = hashlib.sha256(raw).hexdigest()
     ref = Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=release.access.project_id,
         digest=digest,
         size_bytes=len(raw),
@@ -125,15 +125,15 @@ def _operation_admissions(
 # (raw originals, canonical text, revisions, spans, results) need source read/extract.
 EVIDENCE_SCHEMAS = frozenset(
     {
-        "kf.admission-report.v1",
-        "kf.intake.v1",
-        "kf.operation-result-record.v1",
-        "kf.run-report.v1",
-        "kf.coverage-report.v1",
-        "kf.provenance-report.v1",
-        "kf.revision-review.v1",
-        "kf.budget-event.v1",
-        "kf.billing-adjustment.v1",
+        "cf.admission-report.v1",
+        "cf.intake.v1",
+        "cf.operation-result-record.v1",
+        "cf.run-report.v1",
+        "cf.coverage-report.v1",
+        "cf.provenance-report.v1",
+        "cf.revision-review.v1",
+        "cf.budget-event.v1",
+        "cf.billing-adjustment.v1",
     }
 )
 
@@ -258,7 +258,7 @@ def record_review(
     evidence_ref: Ref,
 ) -> Ref:
     checked_context(context, store, release)
-    checked = RevisionReview.from_wire(review_bytes, limits_for(release, "kf.revision-review.v1"))
+    checked = RevisionReview.from_wire(review_bytes, limits_for(release, "cf.revision-review.v1"))
     if (
         type(review) is not RevisionReview
         or checked != review
@@ -267,7 +267,7 @@ def record_review(
         or review.reviewed_at > clock(release)
     ):
         raise ContractError("forbidden")
-    bounded_model(revision_ref, release, "kf.artifact-ref.v1")
+    bounded_model(revision_ref, release, "cf.artifact-ref.v1")
     with ledger.transaction() as tx:
         tx.lock(context.project_id)
         snapshot = capture(_operation_admissions(operation_key, tx, release), tx, release)
@@ -347,7 +347,7 @@ def record_admission_withdrawal(
         TypeAdapter(Id).validate_python(value)
     if "auditMetadataRead" not in context.scopes:
         raise ContractError("forbidden")
-    bounded_model(reason, release, "kf.revision-review.v1")
+    bounded_model(reason, release, "cf.revision-review.v1")
     with ledger.transaction() as tx:
         tx.lock(context.project_id)
         routes = metadata_ids(
@@ -394,7 +394,7 @@ def record_admission_withdrawal(
             raw = bytes.fromhex(row["record_bytes"][2:])
             if hashlib.sha256(raw).hexdigest() != row["request_digest"]:
                 raise ContractError("hash_mismatch")
-            old = load_json(raw, limits_for(release, "kf.revision-review.v1"))
+            old = load_json(raw, limits_for(release, "cf.revision-review.v1"))
             approve(
                 release,
                 "withdraw_admission",
@@ -465,18 +465,18 @@ def build_release(
     release: ReleaseContext,
 ) -> LibraryRelease:
     checked_context(context, store, release)
-    bound = limits_for(release, "kf.library-release.v1")
+    bound = limits_for(release, "cf.library-release.v1")
     if type(selected) is not tuple or not selected or len(selected) > bound.max_array_items:
         raise ContractError("invalid_schema")
     for source in selected:
         if type(source) is not ReleaseSource:
             raise ContractError("invalid_schema")
-        bounded_model(source, release, "kf.library-release.v1")
+        bounded_model(source, release, "cf.library-release.v1")
     ids = tuple(source.source_id for source in selected)
     if ids != tuple(sorted(set(ids))):
         raise ContractError("invalid_schema")
     selection = [source.model_dump(mode="json", by_alias=True) for source in selected]
-    selection_digest = hash_jcs("kf.release-selection.v1", selection)
+    selection_digest = hash_jcs("cf.release-selection.v1", selection)
     with ledger.transaction() as tx:
         tx.lock(context.project_id)
         snapshot = capture(admissions, tx, release)
@@ -534,7 +534,7 @@ def build_release(
             put_record(provenance, release),
         )
         candidate = LibraryRelease(
-            schema_version="kf.library-release.v1",
+            schema_version="cf.library-release.v1",
             project_id=context.project_id,
             release_id=str(uuid4()),
             profile_id=profile_id,

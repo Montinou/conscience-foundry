@@ -118,7 +118,7 @@ def record_failure(
             receipt_ref: Ref | None = None
             if kind == "import":
                 failed = ImportReceipt(
-                    schema_version="kf.import-receipt.v1",
+                    schema_version="cf.import-receipt.v1",
                     project_id=project,
                     import_id=str(uuid4()),
                     release_ref=row.release_ref,
@@ -236,7 +236,7 @@ def _closure(
     root: Ref, model: LibraryRelease, release: ReleaseContext
 ) -> dict[tuple[object, ...], tuple[Ref, Any]]:
     """Registered selected-content edges only; audit edges are opaque links."""
-    bound = limits_for(release, "kf.library-release.v1")
+    bound = limits_for(release, "cf.library-release.v1")
     seen: dict[tuple[object, ...], tuple[Ref, Any]] = {identity(root): (root, model)}
     active: set[tuple[object, ...]] = {identity(root)}
     total = root.size_bytes
@@ -261,7 +261,7 @@ def _closure(
                 visit(edge.ref)
         active.remove(key)
 
-    for edge in edge_roles("kf.library-release.v1", model):
+    for edge in edge_roles("cf.library-release.v1", model):
         if edge.role == "content":
             visit(edge.ref)
     return seen
@@ -294,7 +294,7 @@ def _verify_content(
         text = seen[identity(revision.text_ref)][1]
         if (
             type(text) is not bytes
-            or revision.text_ref.artifact_schema != "kf.canonical-text.v1"
+            or revision.text_ref.artifact_schema != "cf.canonical-text.v1"
             or revision.text_ref.digest != revision.original_ref.digest
             or revision.text_ref.size_bytes != revision.original_ref.size_bytes
         ):
@@ -326,9 +326,9 @@ def import_release(
     if type(release_ref) is not Ref:
         raise ContractError("invalid_schema")
     check_pin(pin, release_ref.digest, release)
-    bounded_model(release_ref, release, "kf.artifact-ref.v1")
+    bounded_model(release_ref, release, "cf.artifact-ref.v1")
     project = context.project_id
-    if release_ref.project_id != project or release_ref.artifact_schema != "kf.library-release.v1":
+    if release_ref.project_id != project or release_ref.artifact_schema != "cf.library-release.v1":
         raise ContractError("forbidden")
     try:
         return _import_verified(release_ref, ledger, release, pin, project)
@@ -387,7 +387,7 @@ def _import_verified(
                 raise ContractError("hash_mismatch")
             return prior
         receipt = ImportReceipt(
-            schema_version="kf.import-receipt.v1",
+            schema_version="cf.import-receipt.v1",
             project_id=project,
             import_id=str(uuid4()),
             release_ref=loaded.row.release_ref,

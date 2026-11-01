@@ -138,7 +138,7 @@ def current_policy(control: VerificationContext, project: Id) -> PolicyArtifact:
         value = control.current_policy(project)
         if type(value) is not PolicyArtifact:
             raise ValueError
-        value = PolicyArtifact.from_wire(encoded(value), limits_for(control, "kf.policy.v1"))
+        value = PolicyArtifact.from_wire(encoded(value), limits_for(control, "cf.policy.v1"))
     except ContractError:
         raise
     except Exception:
@@ -160,7 +160,7 @@ def bounded_request(value: object, control: VerificationContext) -> bytes:
     """Bound internal decisions with the installed finite control-record limits."""
     import json
 
-    bound = limits_for(control, "kf.stage-attempt.v1")
+    bound = limits_for(control, "cf.stage-attempt.v1")
     size, pieces = 0, []
     try:
         for piece in json.JSONEncoder(
@@ -198,7 +198,7 @@ def read_artifact(
     bound = limits_for(control, ref.artifact_schema)
     ceiling = (
         bound.max_source_bytes
-        if ref.artifact_schema == "kf.raw-original.v1"
+        if ref.artifact_schema == "cf.raw-original.v1"
         else min(bound.max_output_bytes, bound.max_json_bytes)
     )
     if ref.size_bytes > ceiling:
@@ -240,7 +240,7 @@ def put_record(record: WireModel, control: VerificationContext) -> Ref:
     if type(schema) is not str:
         raise ContractError("unsupported_schema")
     ref = Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=control.access.project_id,
         digest=hashlib.sha256(raw).hexdigest(),
         size_bytes=len(raw),
@@ -265,13 +265,13 @@ def checked_reason(reason: Reason, control: ControlContext) -> Reason:
     if type(reason) is not Reason:
         raise ContractError("invalid_schema")
     raw = encoded(reason)
-    return Reason.from_wire(raw, limits_for(control, "kf.stage-attempt.v1"))
+    return Reason.from_wire(raw, limits_for(control, "cf.stage-attempt.v1"))
 
 
 def money(value: object, control: ControlContext) -> Decimal:
     if type(value) is not str:
         raise ContractError("invalid_schema")
-    if len(value) > limits_for(control, "kf.budget-event.v1").max_string_scalars:
+    if len(value) > limits_for(control, "cf.budget-event.v1").max_string_scalars:
         raise ContractError("limit_exceeded")
     try:
         return Decimal(TypeAdapter(Money).validate_python(value))
@@ -422,14 +422,14 @@ def source_asset(
                 plan.contract_set_ref.digest,
                 tuple(ref.digest for ref in plan.limits_refs),
             ),
-            limits=limits_for(control, "kf.execution-plan.v1"),
+            limits=limits_for(control, "cf.execution-plan.v1"),
         )
         if key == plan.operation_key and identity(entry.snapshot_ref) == identity(
             plan.input_refs[0]
         ):
             candidates.append(
                 SourceAsset(
-                    schema_version="kf.source-asset.v1",
+                    schema_version="cf.source-asset.v1",
                     project_id=plan.project_id,
                     asset_id=item.asset_id,
                     source_id=item.source_id,
@@ -567,7 +567,7 @@ class BudgetVerifier:
             ).format(tx.table("budget_events")),
             (claim.project_id, claim.run_id, claim.reservation_id),
         ).fetchone()
-        bound = limits_for(c, "kf.budget-event.v1")
+        bound = limits_for(c, "cf.budget-event.v1")
         if count is None or count[0] > bound.max_array_items:
             raise ContractError("limit_exceeded")
         entries = tx.connection.execute(
@@ -673,7 +673,7 @@ class BudgetVerifier:
         request: Any
         if claim.purpose == "install_run_authorization":
             request = RunAuthorization.from_wire(
-                claim.request_bytes, limits_for(c, "kf.run-authorization.v1")
+                claim.request_bytes, limits_for(c, "cf.run-authorization.v1")
             )
             if (
                 request != auth
@@ -682,10 +682,10 @@ class BudgetVerifier:
                 raise ContractError("hash_mismatch")
         elif claim.purpose == "reserve_attempt":
             request = ExecutionPlan.from_wire(
-                claim.request_bytes, limits_for(c, "kf.execution-plan.v1")
+                claim.request_bytes, limits_for(c, "cf.execution-plan.v1")
             )
         elif claim.purpose == "reserve_storage":
-            request = load_json(claim.request_bytes, limits_for(c, "kf.budget-event.v1"))
+            request = load_json(claim.request_bytes, limits_for(c, "cf.budget-event.v1"))
             if (
                 type(request) is not dict
                 or set(request)
@@ -698,11 +698,11 @@ class BudgetVerifier:
                 raise ContractError("forbidden")
         elif claim.purpose == "billing_adjustment":
             request = BillingAdjustment.from_wire(
-                claim.request_bytes, limits_for(c, "kf.billing-adjustment.v1")
+                claim.request_bytes, limits_for(c, "cf.billing-adjustment.v1")
             )
         else:
             request = BudgetEvent.from_wire(
-                claim.request_bytes, limits_for(c, "kf.budget-event.v1")
+                claim.request_bytes, limits_for(c, "cf.budget-event.v1")
             )
         if isinstance(request, (BudgetEvent, BillingAdjustment)) and (
             request.project_id != claim.project_id
@@ -761,7 +761,7 @@ class BudgetVerifier:
                 raise ContractError("forbidden")
             if type(facts.plan_refs) is not tuple or not facts.plan_refs:
                 raise ContractError("forbidden")
-            if len(facts.plan_refs) > limits_for(c, "kf.execution-plan.v1").max_array_items:
+            if len(facts.plan_refs) > limits_for(c, "cf.execution-plan.v1").max_array_items:
                 raise ContractError("limit_exceeded")
             if claim.purpose == "reserve_storage" and (
                 len({ref.digest for ref in facts.plan_refs}) != len(facts.plan_refs)
@@ -847,13 +847,13 @@ class BudgetVerifier:
                         claim.project_id,
                         claim.run_id,
                         claim.reservation_id,
-                        limits_for(c, "kf.budget-event.v1").max_array_items + 1,
+                        limits_for(c, "cf.budget-event.v1").max_array_items + 1,
                     ),
                 ).fetchall()
-                if len(entries) > limits_for(c, "kf.budget-event.v1").max_array_items:
+                if len(entries) > limits_for(c, "cf.budget-event.v1").max_array_items:
                     raise ContractError("limit_exceeded")
                 settlements = [
-                    BudgetEvent.from_wire(bytes(entry[0]), limits_for(c, "kf.budget-event.v1"))
+                    BudgetEvent.from_wire(bytes(entry[0]), limits_for(c, "cf.budget-event.v1"))
                     for entry in entries
                 ]
                 settlements = [entry for entry in settlements if entry.event_type == "settle"]

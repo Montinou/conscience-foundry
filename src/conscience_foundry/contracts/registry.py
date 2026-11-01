@@ -82,9 +82,9 @@ from conscience_foundry.contracts.release import (
 
 JSON_SCHEMA_ID = "json-schema.2020-12"
 JSON_SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
-SEMANTIC_RULES_ID: Literal["kf.semantic-rules.v1"] = "kf.semantic-rules.v1"
+SEMANTIC_RULES_ID: Literal["cf.semantic-rules.v1"] = "cf.semantic-rules.v1"
 VALIDATOR_VERSION = "conscience-foundry.f1.contracts.v1"
-RAW_SCHEMA_IDS = frozenset({"kf.raw-original.v1", "kf.canonical-text.v1"})
+RAW_SCHEMA_IDS = frozenset({"cf.raw-original.v1", "cf.canonical-text.v1"})
 
 
 def _array(value: object) -> object:
@@ -114,7 +114,7 @@ class SchemaPair(WireModel):
 
 
 class ContractSet(WireModel):
-    schema_version: Literal["kf.contract-set.v1"]
+    schema_version: Literal["cf.contract-set.v1"]
     version: Version
     contracts: Annotated[tuple[ContractBinding, ...], BeforeValidator(_array), Field(min_length=1)]
     compatible_pairs: Annotated[tuple[SchemaPair, ...], BeforeValidator(_array)]
@@ -142,7 +142,7 @@ class ContractSet(WireModel):
 
 
 class SemanticRulesDescriptor(WireModel):
-    schema_version: Literal["kf.semantic-rules.v1"]
+    schema_version: Literal["cf.semantic-rules.v1"]
     schema_id: Version
     validator_version: Version
     edge_policy_id: Version
@@ -150,49 +150,49 @@ class SemanticRulesDescriptor(WireModel):
 
 SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
     {
-        "kf.artifact-ref.v1": ArtifactRef,
-        "kf.contract-limits.v1": ContractLimits,
-        "kf.project.v1": ProjectConfig,
-        "kf.storage-config.v1": StorageConfig,
-        "kf.profile.v1": ProfileDescriptor,
-        "kf.policy.v1": PolicyArtifact,
-        "kf.technical-metadata.v1": TechnicalMetadata,
-        "kf.intake.v1": IntakeManifest,
-        "kf.admission-report.v1": AdmissionReport,
-        "kf.source-asset.v1": SourceAsset,
-        "kf.artifact-manifest.v1": ArtifactManifest,
-        "kf.extraction-spec.v1": ExtractionSpec,
-        "kf.document-revision.v1": DocumentRevision,
-        "kf.document-span.v1": DocumentSpan,
-        "kf.origin-map.v1": OriginMap,
-        "kf.quality-report.v1": QualityReport,
-        "kf.revision-review.v1": RevisionReview,
-        "kf.execution-config.v1": ExecutionConfig,
-        "kf.execution-plan.v1": ExecutionPlan,
-        "kf.run-authorization.v1": RunAuthorization,
-        "kf.stage-attempt.v1": StageAttempt,
-        "kf.result.v1": ResultManifest,
-        "kf.budget-event.v1": BudgetEvent,
-        "kf.billing-adjustment.v1": BillingAdjustment,
-        "kf.operation-result-record.v1": OperationResultRecord,
-        "kf.run-report.v1": RunReport,
-        "kf.library-release.v1": LibraryRelease,
-        "kf.coverage-report.v1": CoverageReport,
-        "kf.provenance-report.v1": ProvenanceReport,
-        "kf.import-receipt.v1": ImportReceipt,
-        "kf.retention.v1": RetentionPolicy,
-        "kf.publication-record.v1": PublicationRecord,
-        "kf.publication-authorization.v1": PublicationAuthorization,
-        "kf.activation.v1": ActivationRecord,
-        "kf.contract-set.v1": ContractSet,
-        "kf.enrichment-spec.v1": EnrichmentSpec,
-        "kf.enrichment-request.v1": EnrichmentRequest,
-        "kf.enrichment-result.v1": EnrichmentResult,
-        "kf.annotation-set.v1": AnnotationSet,
-        "kf.decision-task.v1": DecisionTaskSpec,
-        "kf.decision-release.v1": DecisionRelease,
-        "kf.decision-request.v1": DecisionRequest,
-        "kf.decision-result.v1": DecisionResult,
+        "cf.artifact-ref.v1": ArtifactRef,
+        "cf.contract-limits.v1": ContractLimits,
+        "cf.project.v1": ProjectConfig,
+        "cf.storage-config.v1": StorageConfig,
+        "cf.profile.v1": ProfileDescriptor,
+        "cf.policy.v1": PolicyArtifact,
+        "cf.technical-metadata.v1": TechnicalMetadata,
+        "cf.intake.v1": IntakeManifest,
+        "cf.admission-report.v1": AdmissionReport,
+        "cf.source-asset.v1": SourceAsset,
+        "cf.artifact-manifest.v1": ArtifactManifest,
+        "cf.extraction-spec.v1": ExtractionSpec,
+        "cf.document-revision.v1": DocumentRevision,
+        "cf.document-span.v1": DocumentSpan,
+        "cf.origin-map.v1": OriginMap,
+        "cf.quality-report.v1": QualityReport,
+        "cf.revision-review.v1": RevisionReview,
+        "cf.execution-config.v1": ExecutionConfig,
+        "cf.execution-plan.v1": ExecutionPlan,
+        "cf.run-authorization.v1": RunAuthorization,
+        "cf.stage-attempt.v1": StageAttempt,
+        "cf.result.v1": ResultManifest,
+        "cf.budget-event.v1": BudgetEvent,
+        "cf.billing-adjustment.v1": BillingAdjustment,
+        "cf.operation-result-record.v1": OperationResultRecord,
+        "cf.run-report.v1": RunReport,
+        "cf.library-release.v1": LibraryRelease,
+        "cf.coverage-report.v1": CoverageReport,
+        "cf.provenance-report.v1": ProvenanceReport,
+        "cf.import-receipt.v1": ImportReceipt,
+        "cf.retention.v1": RetentionPolicy,
+        "cf.publication-record.v1": PublicationRecord,
+        "cf.publication-authorization.v1": PublicationAuthorization,
+        "cf.activation.v1": ActivationRecord,
+        "cf.contract-set.v1": ContractSet,
+        "cf.enrichment-spec.v1": EnrichmentSpec,
+        "cf.enrichment-request.v1": EnrichmentRequest,
+        "cf.enrichment-result.v1": EnrichmentResult,
+        "cf.annotation-set.v1": AnnotationSet,
+        "cf.decision-task.v1": DecisionTaskSpec,
+        "cf.decision-release.v1": DecisionRelease,
+        "cf.decision-request.v1": DecisionRequest,
+        "cf.decision-result.v1": DecisionResult,
         SEMANTIC_RULES_ID: SemanticRulesDescriptor,
     }
 )
@@ -275,7 +275,7 @@ def _rules_bytes(schema_id: str) -> bytes:
 def _artifact_ref(data: bytes, schema_id: str, project_id: str, store_id: str) -> Ref:
     digest = hashlib.sha256(data).hexdigest()
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project_id,
         digest=digest,
         size_bytes=len(data),
@@ -287,7 +287,7 @@ def _artifact_ref(data: bytes, schema_id: str, project_id: str, store_id: str) -
 
 def _check_byte_ceiling(data: bytes, schema_id: str, limits: ContractLimits) -> None:
     ceiling = (
-        limits.max_source_bytes if schema_id == "kf.raw-original.v1" else limits.max_output_bytes
+        limits.max_source_bytes if schema_id == "cf.raw-original.v1" else limits.max_output_bytes
     )
     if len(data) > ceiling:
         raise ContractError("limit_exceeded")
@@ -331,14 +331,14 @@ def export_schemas(
             )
         )
     bundle = ContractSet(
-        schema_version="kf.contract-set.v1",
+        schema_version="cf.contract-set.v1",
         version=version,
         contracts=tuple(bindings),
         compatible_pairs=(),
     )
     ContractSet.from_wire(
         bundle.model_dump_json(by_alias=True).encode(),
-        _limits("kf.contract-set.v1", limits_by_schema),
+        _limits("cf.contract-set.v1", limits_by_schema),
     )
     for key, data in objects.items():
         destination = output_dir / key
@@ -400,7 +400,7 @@ def technical_metadata_binding(
     """Return the trusted static validator pin from a verified installed bundle."""
     validate_contract_set(bundle, project_id=project_id, limits_by_schema=limits_by_schema)
     binding = next(
-        binding for binding in bundle.contracts if binding.schema_id == "kf.technical-metadata.v1"
+        binding for binding in bundle.contracts if binding.schema_id == "cf.technical-metadata.v1"
     )
     return TechnicalMetadataBinding(binding.schema_ref)
 
@@ -426,7 +426,7 @@ def validate_artifact(
     if schema_id in RAW_SCHEMA_IDS:
         if artifact.media_type != "text/plain":
             raise ContractError("unsupported_format")
-        if schema_id == "kf.canonical-text.v1":
+        if schema_id == "cf.canonical-text.v1":
             try:
                 data.decode("utf-8")
             except UnicodeError:

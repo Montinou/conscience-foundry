@@ -4,10 +4,10 @@
   "shapeCases": [
     {
       "caseId": "span-valid",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -20,10 +20,10 @@
     },
     {
       "caseId": "span-unknown-field",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -37,10 +37,10 @@
     },
     {
       "caseId": "span-string-integer",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -53,10 +53,10 @@
     },
     {
       "caseId": "span-null-required",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -69,10 +69,10 @@
     },
     {
       "caseId": "span-integer-above-safe",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -85,10 +85,10 @@
     },
     {
       "caseId": "span-negative-integer",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -101,10 +101,10 @@
     },
     {
       "caseId": "span-fractional-number",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -117,10 +117,10 @@
     },
     {
       "caseId": "span-missing-required",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -132,10 +132,10 @@
     },
     {
       "caseId": "span-wrong-const",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v2",
+        "schemaVersion": "cf.document-span.v2",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -148,10 +148,10 @@
     },
     {
       "caseId": "span-max-safe-integer",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -164,10 +164,10 @@
     },
     {
       "caseId": "span-empty-range",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -180,10 +180,10 @@
     },
     {
       "caseId": "span-lone-surrogate-section",
-      "schemaId": "kf.document-span.v1",
+      "schemaId": "cf.document-span.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -196,10 +196,10 @@
     },
     {
       "caseId": "quality-valid",
-      "schemaId": "kf.quality-report.v1",
+      "schemaId": "cf.quality-report.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.quality-report.v1",
+        "schemaVersion": "cf.quality-report.v1",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "checks": [
           {
@@ -241,10 +241,10 @@
     },
     {
       "caseId": "quality-valid-with-failed-check",
-      "schemaId": "kf.quality-report.v1",
+      "schemaId": "cf.quality-report.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.quality-report.v1",
+        "schemaVersion": "cf.quality-report.v1",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "checks": [
           {
@@ -286,10 +286,10 @@
     },
     {
       "caseId": "origin-map-valid",
-      "schemaId": "kf.origin-map.v1",
+      "schemaId": "cf.origin-map.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.origin-map.v1",
+        "schemaVersion": "cf.origin-map.v1",
         "kind": "identity_utf8",
         "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "textDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -299,10 +299,10 @@
     },
     {
       "caseId": "origin-map-unequal-digests",
-      "schemaId": "kf.origin-map.v1",
+      "schemaId": "cf.origin-map.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.origin-map.v1",
+        "schemaVersion": "cf.origin-map.v1",
         "kind": "identity_utf8",
         "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "textDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -312,10 +312,10 @@
     },
     {
       "caseId": "origin-map-short-digest",
-      "schemaId": "kf.origin-map.v1",
+      "schemaId": "cf.origin-map.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.origin-map.v1",
+        "schemaVersion": "cf.origin-map.v1",
         "kind": "identity_utf8",
         "originalDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "textDigest": "abc",
@@ -325,10 +325,10 @@
     },
     {
       "caseId": "money-valid",
-      "schemaId": "kf.billing-adjustment.v1",
+      "schemaId": "cf.billing-adjustment.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000003",
         "reservationId": "00000000-0000-4000-8000-000000000004",
@@ -337,12 +337,12 @@
         "expectedPriorActualUsd": "1.00",
         "revisedActualUsd": "1.250000000",
         "evidenceRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.result.v1",
+          "artifactSchema": "cf.result.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -356,10 +356,10 @@
     },
     {
       "caseId": "money-ten-fraction-digits",
-      "schemaId": "kf.billing-adjustment.v1",
+      "schemaId": "cf.billing-adjustment.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000003",
         "reservationId": "00000000-0000-4000-8000-000000000004",
@@ -368,12 +368,12 @@
         "expectedPriorActualUsd": "1.00",
         "revisedActualUsd": "0.1234567890",
         "evidenceRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.result.v1",
+          "artifactSchema": "cf.result.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -387,10 +387,10 @@
     },
     {
       "caseId": "money-negative",
-      "schemaId": "kf.billing-adjustment.v1",
+      "schemaId": "cf.billing-adjustment.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000003",
         "reservationId": "00000000-0000-4000-8000-000000000004",
@@ -399,12 +399,12 @@
         "expectedPriorActualUsd": "1.00",
         "revisedActualUsd": "-1.00",
         "evidenceRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.result.v1",
+          "artifactSchema": "cf.result.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -418,10 +418,10 @@
     },
     {
       "caseId": "money-json-number",
-      "schemaId": "kf.billing-adjustment.v1",
+      "schemaId": "cf.billing-adjustment.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000003",
         "reservationId": "00000000-0000-4000-8000-000000000004",
@@ -430,12 +430,12 @@
         "expectedPriorActualUsd": "1.00",
         "revisedActualUsd": 1,
         "evidenceRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.result.v1",
+          "artifactSchema": "cf.result.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -449,10 +449,10 @@
     },
     {
       "caseId": "money-cross-project-evidence",
-      "schemaId": "kf.billing-adjustment.v1",
+      "schemaId": "cf.billing-adjustment.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000003",
         "reservationId": "00000000-0000-4000-8000-000000000004",
@@ -461,12 +461,12 @@
         "expectedPriorActualUsd": "1.00",
         "revisedActualUsd": "1.250000000",
         "evidenceRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-0000000000ff",
           "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.result.v1",
+          "artifactSchema": "cf.result.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -480,10 +480,10 @@
     },
     {
       "caseId": "limits-valid-max-safe",
-      "schemaId": "kf.contract-limits.v1",
+      "schemaId": "cf.contract-limits.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.contract-limits.v1",
+        "schemaVersion": "cf.contract-limits.v1",
         "version": "synthetic.v1",
         "maxJsonBytes": 9007199254740991,
         "maxStringScalars": 1000,
@@ -498,10 +498,10 @@
     },
     {
       "caseId": "limits-zero",
-      "schemaId": "kf.contract-limits.v1",
+      "schemaId": "cf.contract-limits.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.contract-limits.v1",
+        "schemaVersion": "cf.contract-limits.v1",
         "version": "synthetic.v1",
         "maxJsonBytes": 9007199254740991,
         "maxStringScalars": 1000,
@@ -516,15 +516,15 @@
     },
     {
       "caseId": "artifact-ref-valid",
-      "schemaId": "kf.artifact-ref.v1",
+      "schemaId": "cf.artifact-ref.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "sizeBytes": 12,
         "mediaType": "application/json",
-        "artifactSchema": "kf.result.v1",
+        "artifactSchema": "cf.result.v1",
         "locations": [
           {
             "storeId": "synthetic-store",
@@ -536,15 +536,15 @@
     },
     {
       "caseId": "artifact-ref-empty-locations-key",
-      "schemaId": "kf.artifact-ref.v1",
+      "schemaId": "cf.artifact-ref.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "sizeBytes": 12,
         "mediaType": "application/json",
-        "artifactSchema": "kf.result.v1",
+        "artifactSchema": "cf.result.v1",
         "locations": [
           {
             "storeId": "s"
@@ -555,21 +555,21 @@
     },
     {
       "caseId": "revision-valid",
-      "schemaId": "kf.document-revision.v1",
+      "schemaId": "cf.document-revision.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.document-revision.v1",
+        "schemaVersion": "cf.document-revision.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "assetId": "00000000-0000-4000-8000-000000000003",
         "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "originalRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.raw-original.v1",
+          "artifactSchema": "cf.raw-original.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -578,12 +578,12 @@
           ]
         },
         "textRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.canonical-text.v1",
+          "artifactSchema": "cf.canonical-text.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -592,12 +592,12 @@
           ]
         },
         "extractionSpecRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "2222222222222222222222222222222222222222222222222222222222222222",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.extraction-spec.v1",
+          "artifactSchema": "cf.extraction-spec.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -615,12 +615,12 @@
           }
         ],
         "originMapRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "3333333333333333333333333333333333333333333333333333333333333333",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.origin-map.v1",
+          "artifactSchema": "cf.origin-map.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -629,12 +629,12 @@
           ]
         },
         "qualityReportRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "4444444444444444444444444444444444444444444444444444444444444444",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.quality-report.v1",
+          "artifactSchema": "cf.quality-report.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -647,21 +647,21 @@
     },
     {
       "caseId": "revision-null-optional",
-      "schemaId": "kf.document-revision.v1",
+      "schemaId": "cf.document-revision.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.document-revision.v1",
+        "schemaVersion": "cf.document-revision.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "assetId": "00000000-0000-4000-8000-000000000003",
         "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "originalRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.raw-original.v1",
+          "artifactSchema": "cf.raw-original.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -670,12 +670,12 @@
           ]
         },
         "textRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.canonical-text.v1",
+          "artifactSchema": "cf.canonical-text.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -684,12 +684,12 @@
           ]
         },
         "extractionSpecRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "2222222222222222222222222222222222222222222222222222222222222222",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.extraction-spec.v1",
+          "artifactSchema": "cf.extraction-spec.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -708,12 +708,12 @@
           }
         ],
         "originMapRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "3333333333333333333333333333333333333333333333333333333333333333",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.origin-map.v1",
+          "artifactSchema": "cf.origin-map.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -722,12 +722,12 @@
           ]
         },
         "qualityReportRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "4444444444444444444444444444444444444444444444444444444444444444",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.quality-report.v1",
+          "artifactSchema": "cf.quality-report.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -740,21 +740,21 @@
     },
     {
       "caseId": "revision-reversed-section",
-      "schemaId": "kf.document-revision.v1",
+      "schemaId": "cf.document-revision.v1",
       "kind": "semantic_invalid",
       "instance": {
-        "schemaVersion": "kf.document-revision.v1",
+        "schemaVersion": "cf.document-revision.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "sourceId": "00000000-0000-4000-8000-000000000002",
         "assetId": "00000000-0000-4000-8000-000000000003",
         "revisionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "originalRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.raw-original.v1",
+          "artifactSchema": "cf.raw-original.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -763,12 +763,12 @@
           ]
         },
         "textRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "1111111111111111111111111111111111111111111111111111111111111111",
           "sizeBytes": 12,
           "mediaType": "text/plain",
-          "artifactSchema": "kf.canonical-text.v1",
+          "artifactSchema": "cf.canonical-text.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -777,12 +777,12 @@
           ]
         },
         "extractionSpecRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "2222222222222222222222222222222222222222222222222222222222222222",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.extraction-spec.v1",
+          "artifactSchema": "cf.extraction-spec.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -800,12 +800,12 @@
           }
         ],
         "originMapRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "3333333333333333333333333333333333333333333333333333333333333333",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.origin-map.v1",
+          "artifactSchema": "cf.origin-map.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -814,12 +814,12 @@
           ]
         },
         "qualityReportRef": {
-          "schemaVersion": "kf.artifact-ref.v1",
+          "schemaVersion": "cf.artifact-ref.v1",
           "projectId": "00000000-0000-4000-8000-000000000001",
           "digest": "4444444444444444444444444444444444444444444444444444444444444444",
           "sizeBytes": 12,
           "mediaType": "application/json",
-          "artifactSchema": "kf.quality-report.v1",
+          "artifactSchema": "cf.quality-report.v1",
           "locations": [
             {
               "storeId": "synthetic-store",
@@ -832,10 +832,10 @@
     },
     {
       "caseId": "run-authorization-valid",
-      "schemaId": "kf.run-authorization.v1",
+      "schemaId": "cf.run-authorization.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.run-authorization.v1",
+        "schemaVersion": "cf.run-authorization.v1",
         "authorizationId": "00000000-0000-4000-8000-000000000011",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000012",
@@ -853,10 +853,10 @@
     },
     {
       "caseId": "run-authorization-empty-plan-digests",
-      "schemaId": "kf.run-authorization.v1",
+      "schemaId": "cf.run-authorization.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.run-authorization.v1",
+        "schemaVersion": "cf.run-authorization.v1",
         "authorizationId": "00000000-0000-4000-8000-000000000011",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "runId": "00000000-0000-4000-8000-000000000012",
@@ -872,10 +872,10 @@
     },
     {
       "caseId": "result-valid",
-      "schemaId": "kf.result.v1",
+      "schemaId": "cf.result.v1",
       "kind": "valid",
       "instance": {
-        "schemaVersion": "kf.result.v1",
+        "schemaVersion": "cf.result.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "planId": "00000000-0000-4000-8000-000000000014",
         "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -895,12 +895,12 @@
           "providerRequestIds": [],
           "costStatus": "unknown",
           "tariffRef": {
-            "schemaVersion": "kf.artifact-ref.v1",
+            "schemaVersion": "cf.artifact-ref.v1",
             "projectId": "00000000-0000-4000-8000-000000000001",
             "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "sizeBytes": 12,
             "mediaType": "application/json",
-            "artifactSchema": "kf.result.v1",
+            "artifactSchema": "cf.result.v1",
             "locations": [
               {
                 "storeId": "synthetic-store",
@@ -915,10 +915,10 @@
     },
     {
       "caseId": "result-two-input-digests",
-      "schemaId": "kf.result.v1",
+      "schemaId": "cf.result.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.result.v1",
+        "schemaVersion": "cf.result.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "planId": "00000000-0000-4000-8000-000000000014",
         "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -939,12 +939,12 @@
           "providerRequestIds": [],
           "costStatus": "unknown",
           "tariffRef": {
-            "schemaVersion": "kf.artifact-ref.v1",
+            "schemaVersion": "cf.artifact-ref.v1",
             "projectId": "00000000-0000-4000-8000-000000000001",
             "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "sizeBytes": 12,
             "mediaType": "application/json",
-            "artifactSchema": "kf.result.v1",
+            "artifactSchema": "cf.result.v1",
             "locations": [
               {
                 "storeId": "synthetic-store",
@@ -959,10 +959,10 @@
     },
     {
       "caseId": "result-empty-input-digests",
-      "schemaId": "kf.result.v1",
+      "schemaId": "cf.result.v1",
       "kind": "shape_invalid",
       "instance": {
-        "schemaVersion": "kf.result.v1",
+        "schemaVersion": "cf.result.v1",
         "projectId": "00000000-0000-4000-8000-000000000001",
         "planId": "00000000-0000-4000-8000-000000000014",
         "operationKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -980,12 +980,12 @@
           "providerRequestIds": [],
           "costStatus": "unknown",
           "tariffRef": {
-            "schemaVersion": "kf.artifact-ref.v1",
+            "schemaVersion": "cf.artifact-ref.v1",
             "projectId": "00000000-0000-4000-8000-000000000001",
             "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "sizeBytes": 12,
             "mediaType": "application/json",
-            "artifactSchema": "kf.result.v1",
+            "artifactSchema": "cf.result.v1",
             "locations": [
               {
                 "storeId": "synthetic-store",
@@ -1166,8 +1166,8 @@
       "canonical": "{\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"originMapDigest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"originalDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\",\"structureDigest\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"textDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\"}",
       "canonicalUtf8Hex": "7b2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f726967696e4d6170446967657374223a2234343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434222c226f726967696e616c446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032222c22737472756374757265446967657374223a2233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333222c2274657874446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d",
       "note": "originMapDigest sorts before originalDigest (M < a)",
-      "domain": "kf.revision.v1",
-      "digest": "4e05fdbbf1d6b0127925de2056d5827da1982de6284fc4486aa263e275feed57"
+      "domain": "cf.revision.v1",
+      "digest": "ca969e90e9b0cf16a2f79af4c3c44ca9f796d14425d9d68c24c5123f6a20cf68"
     },
     {
       "caseId": "operation-projection",
@@ -1191,8 +1191,8 @@
       "canonical": "{\"assetId\":\"00000000-0000-4000-8000-000000000003\",\"contractSetDigest\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"inputDigests\":[\"1111111111111111111111111111111111111111111111111111111111111111\"],\"limitsDigests\":[\"7777777777777777777777777777777777777777777777777777777777777777\",\"8888888888888888888888888888888888888888888888888888888888888888\"],\"policyDigest\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"profileId\":\"synthetic.profile\",\"profileVersion\":\"1\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\"}",
       "canonicalUtf8Hex": "7b2261737365744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303033222c22636f6e7472616374536574446967657374223a2236363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636222c2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c22696e70757444696765737473223a5b2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131225d2c226c696d69747344696765737473223a5b2237373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737222c2238383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838383838225d2c22706f6c696379446967657374223a2235353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535222c2270726f66696c654964223a2273796e7468657469632e70726f66696c65222c2270726f66696c6556657273696f6e223a2231222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032227d",
       "note": "operation identity projection",
-      "domain": "kf.operation.v1",
-      "digest": "5cd8f5e41f771abf9080d55c502084641a21c7152f7b5b4b255bdc5d484a0c3c"
+      "domain": "cf.operation.v1",
+      "digest": "6c85712eb668218fd9b22c6c4914100113fbbf53a232170a95a219f4f4f37597"
     },
     {
       "caseId": "comparison-projection",
@@ -1212,8 +1212,8 @@
       "canonical": "{\"assetId\":\"00000000-0000-4000-8000-000000000003\",\"extractionSpecDigest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"operationKey\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"originMapDigest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"originalDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"projectId\":\"00000000-0000-4000-8000-000000000001\",\"qualityProjectionDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"revisionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":\"00000000-0000-4000-8000-000000000002\",\"structureDigest\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"textDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\"}",
       "canonicalUtf8Hex": "7b2261737365744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303033222c2265787472616374696f6e53706563446967657374223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f7065726174696f6e4b6579223a2239393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939222c226f726967696e4d6170446967657374223a2234343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434222c226f726967696e616c446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c2270726f6a6563744964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303031222c227175616c69747950726f6a656374696f6e446967657374223a2262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227265766973696f6e4964223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c22736f757263654964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303032222c22737472756374757265446967657374223a2233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333222c2274657874446967657374223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d",
       "note": "comparison identity projection",
-      "domain": "kf.f1-comparison.v1",
-      "digest": "b41e5f1d07e3a7dd21d76342c7c7bb95acbfaecce92a14cb238c3281a5f8bd41"
+      "domain": "cf.f1-comparison.v1",
+      "digest": "b7dca64dec9570747a35b13c0f101d29397cfd139be112ff5c62910b123f931f"
     },
     {
       "caseId": "domain-key-order-digest",
@@ -1224,8 +1224,8 @@
       "canonical": "{\"\ud800\udc00\":\"y\",\"\ue000\":\"x\"}",
       "canonicalUtf8Hex": "7b22f0908080223a2279222c22ee8080223a2278227d",
       "note": "digest depends on UTF-16 key order",
-      "domain": "kf.revision.v1",
-      "digest": "41076d97716890ebe29884fce83a510d8ef6fd50fcc78584820b7e5fcf9239b2"
+      "domain": "cf.revision.v1",
+      "digest": "4500363f97402a6e0f7e2c87c21a27ac50d52a39eaf4cbc4f3513a8ce7a1b788"
     }
   ]
 }

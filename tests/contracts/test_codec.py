@@ -29,7 +29,7 @@ ORIGINAL_CREATE_CONNECTION = socket.create_connection
 
 def limits(**overrides: int) -> ContractLimits:
     fields = {
-        "schemaVersion": "kf.contract-limits.v1",
+        "schemaVersion": "cf.contract-limits.v1",
         "version": "synthetic.limits.v1",
         "maxJsonBytes": 4096,
         "maxStringScalars": 256,
@@ -128,7 +128,7 @@ def test_common_scalar_contracts() -> None:
 def test_artifact_locations_and_strict_common_models() -> None:
     location = {"storeId": "synthetic", "objectKey": "sha256/abc"}
     ref = {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": "00000000-0000-0000-0000-000000000001",
         "digest": "a" * 64,
         "sizeBytes": 0,
@@ -142,7 +142,7 @@ def test_artifact_locations_and_strict_common_models() -> None:
         {"sizeBytes": True},
         {"sizeBytes": None},
         {"mediaType": "\ud800"},
-        {"schemaVersion": "kf.artifact-ref.v2"},
+        {"schemaVersion": "cf.artifact-ref.v2"},
     ):
         with pytest.raises(ValidationError):
             ArtifactRef.model_validate(ref | update)
@@ -195,7 +195,7 @@ def test_cyclic_python_values_and_wire_aliases_are_rejected() -> None:
     with pytest.raises(ContractError):
         hash_jcs("synthetic.v1", cyclic)
     with pytest.raises(ContractError):
-        ContractLimits.from_wire(b'{"schema_version":"kf.contract-limits.v1"}', limits())
+        ContractLimits.from_wire(b'{"schema_version":"cf.contract-limits.v1"}', limits())
     with pytest.raises(RuntimeError, match="Network access is disabled"):
         socket.getaddrinfo("example.invalid", 443)
 
@@ -204,7 +204,7 @@ def test_timestamp_schema_and_trusted_nested_construction() -> None:
     assert "pattern" in TypeAdapter(Instant).json_schema()
     location = ArtifactLocation(store_id="synthetic", object_key="sha256/abc")
     ref = ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id="00000000-0000-0000-0000-000000000001",
         digest="a" * 64,
         size_bytes=1,
@@ -218,7 +218,7 @@ def test_timestamp_schema_and_trusted_nested_construction() -> None:
 def test_accepted_artifact_locations_cannot_be_mutated() -> None:
     location = ArtifactLocation(store_id="synthetic", object_key="sha256/abc")
     ref = ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id="00000000-0000-0000-0000-000000000001",
         digest="a" * 64,
         size_bytes=1,

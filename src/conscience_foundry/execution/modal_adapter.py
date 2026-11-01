@@ -55,7 +55,7 @@ from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import ObjectStore
 
 _INSTANT = TypeAdapter(Instant)
-OBSERVATION_SCHEMA = "kf.modal-call-observation.v1"
+OBSERVATION_SCHEMA = "cf.modal-call-observation.v1"
 
 
 @dataclass(frozen=True)
@@ -244,7 +244,7 @@ class ModalExecutor:
             ref = Ref.from_wire(raw, self.limits)
             if (
                 ref.project_id != attempt.project_id
-                or ref.artifact_schema != "kf.result.v1"
+                or ref.artifact_schema != "cf.result.v1"
                 or ref.media_type != "application/json"
                 or ref.size_bytes > self.limits.max_output_bytes
             ):

@@ -65,7 +65,7 @@ class ResourceUsage(WireModel):
 
 
 class BudgetEvent(WireModel):
-    schema_version: Literal["kf.budget-event.v1"]
+    schema_version: Literal["cf.budget-event.v1"]
     project_id: Id
     run_id: Id
     reservation_id: Id
@@ -103,7 +103,7 @@ class BudgetEvent(WireModel):
 
 
 class BillingAdjustment(WireModel):
-    schema_version: Literal["kf.billing-adjustment.v1"]
+    schema_version: Literal["cf.billing-adjustment.v1"]
     project_id: Id
     run_id: Id
     reservation_id: Id
@@ -122,7 +122,7 @@ class BillingAdjustment(WireModel):
 
 
 class OperationResultRecord(WireModel):
-    schema_version: Literal["kf.operation-result-record.v1"]
+    schema_version: Literal["cf.operation-result-record.v1"]
     project_id: Id
     operation_key: Digest
     event_id: Id
@@ -151,7 +151,7 @@ class OperationResultRecord(WireModel):
         if self.previous_event_id == self.event_id:
             raise ValueError("operation event cannot follow itself")
         if any(
-            reference.artifact_schema != "kf.result.v1"
+            reference.artifact_schema != "cf.result.v1"
             for reference in (self.result_ref, self.selected_result_ref)
         ):
             raise ValueError("operation selection requires result manifests")
@@ -173,7 +173,7 @@ class ItemOutcome(WireModel):
         if self.status == "accepted" and self.revision_ref is None:
             raise ValueError("accepted outcome requires revision")
         if self.revision_ref is not None and (
-            self.revision_ref.artifact_schema != "kf.document-revision.v1"
+            self.revision_ref.artifact_schema != "cf.document-revision.v1"
         ):
             raise ValueError("invalid revision reference schema")
         return self
@@ -187,7 +187,7 @@ class CostSummary(WireModel):
 
 
 class RunReport(WireModel):
-    schema_version: Literal["kf.run-report.v1"]
+    schema_version: Literal["cf.run-report.v1"]
     project_id: Id
     run_id: Id
     batch_id: Id

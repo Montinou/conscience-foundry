@@ -60,7 +60,7 @@ VALID_QUALITY_JCS = (
 
 def limits(**changes: object) -> ContractLimits:
     return ContractLimits.model_validate({
-        "schemaVersion": "kf.contract-limits.v1", "version": "synthetic.identity.v1",
+        "schemaVersion": "cf.contract-limits.v1", "version": "synthetic.identity.v1",
         "maxJsonBytes": 65536, "maxStringScalars": 1024, "maxArrayItems": 128,
         "maxDepth": 16, "maxManifestItems": 4, "maxSourceBytes": 65536,
         "maxOutputBytes": 65536, "maxErrorMessageScalars": 80,
@@ -73,9 +73,9 @@ def digest(data: bytes) -> str:
 
 def ref(data: bytes, schema: str, location: str = "synthetic/a") -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1", project_id=PROJECT, digest=digest(data),
-        size_bytes=len(data), media_type="text/plain" if schema.startswith("kf.raw")
-        or schema == "kf.canonical-text.v1" else "application/json",
+        schema_version="cf.artifact-ref.v1", project_id=PROJECT, digest=digest(data),
+        size_bytes=len(data), media_type="text/plain" if schema.startswith("cf.raw")
+        or schema == "cf.canonical-text.v1" else "application/json",
         artifact_schema=schema,
         locations=(ArtifactLocation(store_id="synthetic", object_key=location),),
     )
@@ -102,9 +102,9 @@ def test_operation_domain_and_exact_projection() -> None:
         + '","profileId":"technical_minimal","profileVersion":"synthetic.v1",'
         + '"projectId":"' + PROJECT + '","sourceId":"' + SOURCE + '"}'
     ).encode()
-    assert operation_key(projection, limits=limits()) == digest(b"kf.operation.v1\n" + canonical)
+    assert operation_key(projection, limits=limits()) == digest(b"cf.operation.v1\n" + canonical)
     assert operation_key(projection, limits=limits()) != digest(
-        b"kf.operation.v1\\n" + canonical
+        b"cf.operation.v1\\n" + canonical
     )
     assert operation_key(replace(projection, asset_id=OTHER), limits=limits()) != operation_key(
         projection, limits=limits()
@@ -126,7 +126,7 @@ def test_limits_digest_set_is_canonical_but_inputs_are_not_deduplicated() -> Non
 
 def test_ordered_structure_and_revision_projection() -> None:
     sections = (Section(section_id="body", start=0, end=7),)
-    expected_structure = digest(b'kf.structure.v1\n[{"end":7,"sectionId":"body","start":0}]')
+    expected_structure = digest(b'cf.structure.v1\n[{"end":7,"sectionId":"body","start":0}]')
     assert structure_digest(sections, limits=limits()) == expected_structure
     inputs = RevisionInputs(
         project_id=PROJECT, source_id=SOURCE, original_digest="a" * 64,
@@ -139,7 +139,7 @@ def test_ordered_structure_and_revision_projection() -> None:
         + '","sourceId":"' + SOURCE + '","structureDigest":"' + expected_structure
         + '","textDigest":"' + "b" * 64 + '"}'
     ).encode()
-    expected = digest(b"kf.revision.v1\n" + canonical)
+    expected = digest(b"cf.revision.v1\n" + canonical)
     assert revision_id(inputs, limits=limits()) == expected
     for name in (
         "original_digest", "text_digest", "extraction_spec_digest", "structure_digest",
@@ -157,15 +157,15 @@ def processed():
     bound = limits()
     limits_bytes = bound.model_dump_json(by_alias=True).encode()
     recipe = ExtractionSpec(
-        schema_version="kf.extraction-spec.v1", processor_id="text.utf8.v1",
+        schema_version="cf.extraction-spec.v1", processor_id="text.utf8.v1",
         processor_version="synthetic.processor.v1", code_version="synthetic.code.v1",
-        image_digest="a" * 64, limits_ref=ref(limits_bytes, "kf.contract-limits.v1"),
+        image_digest="a" * 64, limits_ref=ref(limits_bytes, "cf.contract-limits.v1"),
         normalization="none", newline_policy="preserve", bom_policy="reject",
     )
     asset = SourceAsset(
-        schema_version="kf.source-asset.v1", project_id=PROJECT, asset_id=ASSET,
-        source_id=SOURCE, original_ref=ref(TEXT, "kf.raw-original.v1"),
-        admission_report_ref=ref(b"synthetic evidence", "kf.admission-report.v1"), metadata={},
+        schema_version="cf.source-asset.v1", project_id=PROJECT, asset_id=ASSET,
+        source_id=SOURCE, original_ref=ref(TEXT, "cf.raw-original.v1"),
+        admission_report_ref=ref(b"synthetic evidence", "cf.admission-report.v1"), metadata={},
     )
     output = process_text(
         asset, VerifiedBytes(TEXT, digest(TEXT)), recipe, limits=bound, limits_bytes=limits_bytes,
@@ -176,7 +176,7 @@ def processed():
 def test_retry_wrappers_compare_equal() -> None:
     bound = limits()
     asset, recipe, output = processed()
-    recipe_ref = ref(recipe.model_dump_json(by_alias=True).encode(), "kf.extraction-spec.v1")
+    recipe_ref = ref(recipe.model_dump_json(by_alias=True).encode(), "cf.extraction-spec.v1")
     map_bytes = output.origin_map.model_dump_json(by_alias=True).encode()
     quality_bytes = output.quality.model_dump_json(by_alias=True).encode()
     section_hash = structure_digest(output.sections, limits=bound)
@@ -195,11 +195,11 @@ def test_retry_wrappers_compare_equal() -> None:
         (ATTEMPT_A, "synthetic/a", "2026-10-25T00:00:00.000Z"),
         (ATTEMPT_B, "synthetic/b", "2026-10-25T00:01:00.000Z"),
     ):
-        text_ref = ref(output.text, "kf.canonical-text.v1", location)
-        map_ref = ref(map_bytes, "kf.origin-map.v1", location)
-        quality_ref = ref(quality_bytes, "kf.quality-report.v1", location)
+        text_ref = ref(output.text, "cf.canonical-text.v1", location)
+        map_ref = ref(map_bytes, "cf.origin-map.v1", location)
+        quality_ref = ref(quality_bytes, "cf.quality-report.v1", location)
         revision = DocumentRevision(
-            schema_version="kf.document-revision.v1", project_id=PROJECT, source_id=SOURCE,
+            schema_version="cf.document-revision.v1", project_id=PROJECT, source_id=SOURCE,
             asset_id=ASSET, revision_id=rev_hash, original_ref=asset.original_ref,
             text_ref=text_ref, extraction_spec_ref=recipe_ref, text_encoding="utf-8",
             offset_unit="unicode_scalar", sections=output.sections,
@@ -207,9 +207,9 @@ def test_retry_wrappers_compare_equal() -> None:
         )
         revision.validate_f1(len(output.text.decode()))
         revision_ref = ref(revision.model_dump_json(by_alias=True).encode(),
-                           "kf.document-revision.v1", location)
+                           "cf.document-revision.v1", location)
         wrapper = ResultManifest(
-            schema_version="kf.result.v1", project_id=PROJECT, plan_id=ASSET,
+            schema_version="cf.result.v1", project_id=PROJECT, plan_id=ASSET,
             operation_key=op_hash, attempt_id=attempt, input_digests=(asset.original_ref.digest,),
             status="succeeded", outputs=(revision_ref, quality_ref),
             document_revision_ref=revision_ref, quality_report_ref=quality_ref, errors=(),
@@ -240,7 +240,7 @@ def test_all_quality_checks_and_disposition_affect_identity() -> None:
     base = quality_projection_digest(report, limits=limits())
     extra = QualityCheck(check_id="synthetic_extra", outcome="pass")
     extended = QualityReport(
-        schema_version="kf.quality-report.v1", source_id=SOURCE,
+        schema_version="cf.quality-report.v1", source_id=SOURCE,
         checks=(*report.checks, extra), disposition="valid",
     )
     assert quality_projection_digest(extended, limits=limits()) != base
@@ -302,7 +302,7 @@ def test_quality_and_comparison_domains_match_literal_canonical_vectors() -> Non
     report = processed()[2].quality
 
     assert quality_projection_digest(report, limits=limits()) == digest(
-        b"kf.quality-projection.v1\n" + VALID_QUALITY_JCS
+        b"cf.quality-projection.v1\n" + VALID_QUALITY_JCS
     )
     projection = F1Comparison(
         project_id=PROJECT, asset_id=ASSET, source_id=SOURCE, operation_key="a" * 64,
@@ -319,7 +319,7 @@ def test_quality_and_comparison_domains_match_literal_canonical_vectors() -> Non
         + '","textDigest":"' + "d" * 64 + '"}'
     ).encode()
     assert comparison_digest(projection, limits=limits()) == digest(
-        b"kf.f1-comparison.v1\n" + canonical
+        b"cf.f1-comparison.v1\n" + canonical
     )
     for field in (
         "operation_key", "revision_id", "original_digest", "text_digest",
@@ -356,7 +356,7 @@ def test_quality_check_ids_use_explicit_utf16_order() -> None:
         QualityCheck(check_id="\U00010000", outcome="pass"),
     )
     extended = QualityReport(
-        schema_version="kf.quality-report.v1", source_id=SOURCE,
+        schema_version="cf.quality-report.v1", source_id=SOURCE,
         checks=(*report.checks, *extra), disposition="valid",
     )
     suffix = (
@@ -365,7 +365,7 @@ def test_quality_check_ids_use_explicit_utf16_order() -> None:
     ).encode()
     expected_bytes = VALID_QUALITY_JCS.replace(b'],"disposition"', suffix)
     assert quality_projection_digest(extended, limits=limits()) == digest(
-        b"kf.quality-projection.v1\n" + expected_bytes
+        b"cf.quality-projection.v1\n" + expected_bytes
     )
     forged = report.model_copy(update={"checks": (*report.checks, extra[0].model_copy(
         update={"check_id": "\ud800"}

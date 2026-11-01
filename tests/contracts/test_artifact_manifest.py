@@ -12,19 +12,19 @@ OTHER = "00000000-0000-0000-0000-000000000002"
 
 def ref(project: str = PROJECT) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": project,
         "digest": "a" * 64,
         "sizeBytes": 17,
         "mediaType": "text/plain",
-        "artifactSchema": "kf.raw-original.v1",
+        "artifactSchema": "cf.raw-original.v1",
         "locations": [{"storeId": "synthetic", "objectKey": "objects/synthetic"}],
     }
 
 
 def manifest(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-manifest.v1",
+        "schemaVersion": "cf.artifact-manifest.v1",
         "projectId": PROJECT,
         "artifact": ref(),
         "producer": {
@@ -43,7 +43,7 @@ def manifest(**updates: object) -> dict[str, object]:
 def test_artifact_manifest_exact_shape_and_audit_provenance() -> None:
     value = ArtifactManifest.model_validate(manifest())
     assert value.producer.processor_id == "text.utf8.v1"
-    assert tuple(edge.role for edge in edge_roles("kf.artifact-manifest.v1", value)) == (
+    assert tuple(edge.role for edge in edge_roles("cf.artifact-manifest.v1", value)) == (
         "audit",
         "audit",
     )

@@ -216,7 +216,7 @@ def ref_json(schema: str, payload: bytes = b"synthetic") -> str:
     from conscience_foundry.contracts.common import Ref
 
     return Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=PROJECT,
         digest=hashlib.sha256(payload).hexdigest(),
         size_bytes=len(payload),
@@ -411,7 +411,7 @@ def test_operator_grants_not_model_fields(
     # An authorization document may claim any actor or grant; it can only be checked, never obeyed.
     forged = json.dumps(
         {
-            "schemaVersion": "kf.run-authorization.v1",
+            "schemaVersion": "cf.run-authorization.v1",
             "authorizationId": "00000000-0000-0000-0000-0000000000b1",
             "projectId": PROJECT,
             "runId": "00000000-0000-0000-0000-000000000002",
@@ -590,7 +590,7 @@ def test_database_credential_reference_is_explicit_and_never_printed(
     env.assert_redacted(result)
     monkeypatch.delenv("PGHOST")
     # A real connection failure surfaces only a stable code, never the driver message.
-    evidence = env.input("evidence.json", ref_json("kf.control-evidence.v1"))
+    evidence = env.input("evidence.json", ref_json("cf.control-evidence.v1"))
     arguments = [
         evidence if value == "evidence-ref.json" else value for value in EFFECT_ARGS["pause"]
     ]
@@ -605,7 +605,7 @@ def test_validate_checks_registered_schemas_offline(env: Env, network: NetworkPr
     result = env.invoke(
         "validate",
         "--schema",
-        "kf.policy.v1",
+        "cf.policy.v1",
         "--input",
         good,
         "--limits",
@@ -613,12 +613,12 @@ def test_validate_checks_registered_schemas_offline(env: Env, network: NetworkPr
         config=False,
     )
     assert result.exit == 0 and result.payload["outcome"] == "ok"
-    assert result.payload["schema"] == "kf.policy.v1" and result.payload["valid"] is True
-    bad = env.input("bad.json", json.dumps({"schemaVersion": "kf.policy.v1", "extra": 1}))
+    assert result.payload["schema"] == "cf.policy.v1" and result.payload["valid"] is True
+    bad = env.input("bad.json", json.dumps({"schemaVersion": "cf.policy.v1", "extra": 1}))
     result = env.invoke(
         "validate",
         "--schema",
-        "kf.policy.v1",
+        "cf.policy.v1",
         "--input",
         bad,
         "--limits",
@@ -1034,7 +1034,7 @@ def admit_environment(
     schemas = dict.fromkeys(registered_schema_ids(), bound)
     policy = admission().evidence.pinned_policy
     policy_bytes = policy.model_dump_json(by_alias=True).encode()
-    policy_ref = reference(policy_bytes, "kf.policy.v1")
+    policy_ref = reference(policy_bytes, "cf.policy.v1")
     bundle = export_schemas(
         tmp_path / "schemas",
         project_id=PROJECT,
@@ -1044,7 +1044,7 @@ def admit_environment(
     )
     binding = technical_metadata_binding(bundle, project_id=PROJECT, limits_by_schema=schemas)
     profile = ProfileDescriptor(
-        schema_version="kf.profile.v1",
+        schema_version="cf.profile.v1",
         profile_id="technical_minimal",
         version="synthetic.profile.v1",
         metadata_schema_ref=binding.expected_schema_ref,
@@ -1053,15 +1053,15 @@ def admit_environment(
         export_adapters=(),
     )
     project = ProjectConfig(
-        schema_version="kf.project.v1",
+        schema_version="cf.project.v1",
         project_id=PROJECT,
         profile_id="technical_minimal",
         profile_version="synthetic.profile.v1",
         policy_ref=policy_ref,
-        limits_refs=(reference(b"{}", "kf.contract-limits.v1"),),
-        contract_set_ref=reference(encoded(bundle), "kf.contract-set.v1"),
-        storage_config_ref=reference(b"{}", "kf.storage-config.v1"),
-        execution_config_ref=reference(b"{}", "kf.execution-config.v1"),
+        limits_refs=(reference(b"{}", "cf.contract-limits.v1"),),
+        contract_set_ref=reference(encoded(bundle), "cf.contract-set.v1"),
+        storage_config_ref=reference(b"{}", "cf.storage-config.v1"),
+        execution_config_ref=reference(b"{}", "cf.execution-config.v1"),
     )
     env = Env(
         tmp_path,
@@ -1093,7 +1093,7 @@ def admit_environment(
 def intake(policy_ref: Any, files: list[tuple[str, str, str]]) -> str:
     return json.dumps(
         {
-            "schemaVersion": "kf.intake.v1",
+            "schemaVersion": "cf.intake.v1",
             "projectId": PROJECT,
             "batchId": BATCH,
             "profileId": "technical_minimal",
@@ -1124,7 +1124,7 @@ def test_admit_snapshots_registers_and_preserves_every_row(
     (root / "a.txt").write_bytes(b"a.txt")
     (root / "b.txt").write_bytes(b"b.txt")
     policy_bytes = admission().evidence.pinned_policy.model_dump_json(by_alias=True).encode()
-    policy_ref = reference(policy_bytes, "kf.policy.v1")
+    policy_ref = reference(policy_bytes, "cf.policy.v1")
     services = TrustedServices(clock=lambda: TIME)
     manifest = env.input(
         "manifest.json",
@@ -1151,7 +1151,7 @@ def test_admit_with_a_missing_source_reports_blocked_but_keeps_the_row(
     env, root = admit_environment(tmp_path, monkeypatch, ledger)
     (root / "a.txt").write_bytes(b"a.txt")
     policy_bytes = admission().evidence.pinned_policy.model_dump_json(by_alias=True).encode()
-    policy_ref = reference(policy_bytes, "kf.policy.v1")
+    policy_ref = reference(policy_bytes, "cf.policy.v1")
     manifest = env.input(
         "manifest.json",
         intake(
@@ -1217,7 +1217,7 @@ def test_review_and_build_release_are_private_local_steps(
     revision_ref = produced_revision(value)
     logical = json.loads(value.read(revision_ref, value.case.access, 65536).data)["revisionId"]
     review = RevisionReview(
-        schema_version="kf.revision-review.v1",
+        schema_version="cf.revision-review.v1",
         project_id=PROJECT,
         revision_id=logical,
         decision="accepted",
