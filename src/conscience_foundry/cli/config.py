@@ -76,7 +76,7 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "publication": frozenset({"publish"}),
         "activation": frozenset({"activate"}),
         "read": frozenset({"read-span"}),
-        "recovery": frozenset({"backup", "restore", "retention-report"}),
+        "recovery": frozenset({"backup", "restore", "retention-report", "restore-drill"}),
         "pilot": frozenset({"preflight", "run-pilot"}),
     }
 )

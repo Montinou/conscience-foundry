@@ -33,6 +33,8 @@ from conscience_foundry.cli.config import (
     resolve_dsn,
     resolve_r2_credentials,
 )
+from conscience_foundry.cli.drill import add_arguments as _drill_arguments
+from conscience_foundry.cli.drill import run_drill
 from conscience_foundry.contracts.admission import IntakeManifest
 from conscience_foundry.contracts.canonical import DocumentSpan, RevisionReview
 from conscience_foundry.contracts.common import (
@@ -798,6 +800,59 @@ def _restore(inv: Invocation) -> Outcome:
     return Outcome("ok", None, data)
 
 
+def _restore_drill(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    _, manifest = _document(rt, args.manifest, RecoveryManifest, "cf.library-release.v1")
+    # The evidence file is claimed first, so an existing path is refused before any restore.
+    descriptor = _private_output(args.evidence_output)
+    try:
+        result = run_drill(
+            rt,
+            manifest,
+            drill_config=args.drill_config,
+            valid_for_seconds=args.valid_for_seconds,
+            attest_independent=args.attest_independent,
+        )
+        if result.evidence is not None:
+            with os.fdopen(descriptor, "wb") as handle:
+                descriptor = -1
+                handle.write(result.evidence)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        _discard(args.evidence_output)
+        raise
+    report = result.report
+    data = {
+        "drillId": result.drill_id,
+        "verifiedRefs": len(report.verified_refs),
+        "missingRefs": [ref.digest for ref in report.missing_refs],
+        "dispatchBlocked": report.dispatch_blocked,
+        "independence": result.independence,
+        "independentlyVerified": False,
+    }
+    if result.evidence is None or result.report_ref is None:
+        # An incomplete recovery yields no evidence; the empty file made above is removed.
+        if descriptor >= 0:
+            os.close(descriptor)
+        _discard(args.evidence_output)
+        return Outcome("failed", "artifact_missing", data)
+    return _ok(
+        **data,
+        evidenceDigest=hashlib.sha256(result.evidence).hexdigest(),
+        restoreEvidenceDigest=result.report_ref.digest,
+        validUntil=result.valid_until,
+    )
+
+
+def _discard(path: str) -> None:
+    """Remove only the empty file this command just created; an existing path was refused."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def _retention_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--policy", required=True, help="retention policy document")
 
@@ -948,6 +1003,13 @@ COMMANDS: tuple[Command, ...] = (
         _manifest_argument,
         _restore,
         (DATABASE, BACKUP_STORE),
+    ),
+    Command(
+        "restore-drill",
+        "restore a backup into a fresh target and write independent-backup evidence",
+        _drill_arguments,
+        _restore_drill,
+        (BACKUP_STORE,),
     ),
     Command(
         "retention-report",
