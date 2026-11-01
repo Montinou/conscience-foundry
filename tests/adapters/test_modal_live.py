@@ -809,6 +809,8 @@ def test_exception_mapping(
         record = session.records[call_id]
         assert record.completed is (state == "completed")
         assert record.cancelled is (state == "cancelled")
+        # only an error that proves no result was published is kept as a refusal
+        assert record.remote_error is (state == "remote_error")
 
 
 @pytest.mark.parametrize(
@@ -832,6 +834,7 @@ def test_ambiguous_worker_failures_are_unknown_not_remote_errors(
             session.poll(call_id)
         assert unknown.value.code == "unavailable"
         assert session.records[call_id].completed is False
+        assert session.records[call_id].remote_error is False
         # waiting for the end reports it the same way: never a failed attempt
         with pytest.raises(ContractError) as waited:
             session.poll_until_terminal(call_id, no_callback)

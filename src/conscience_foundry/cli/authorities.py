@@ -350,7 +350,7 @@ class LocalEvidenceAuthority:
         record = self._record(call_id)
         state: AttemptState = "unknown_outcome"
         confirmed = False
-        if record is not None and claimed.state in _supported(record):
+        if record is not None and claimed.state in _supported(record, attempt.state):
             state = claimed.state
             # Only an ended call is confirmed ended; unknown or pending states confirm nothing.
             confirmed = state in ("succeeded", "failed", "cancelled")
@@ -461,17 +461,29 @@ def checked_billing(reported: object, proof: BudgetProof) -> BillingFacts:
     return replace(reported, binding=proof.binding)
 
 
-def _supported(record: CallRecord) -> frozenset[str]:
-    """The attempt states a session's record of one call can stand behind, besides unknown."""
+def _supported(record: CallRecord, attempt_state: str) -> frozenset[str]:
+    """The attempt states a session's record of one call can stand behind, besides unknown.
+
+    These are the states the executor derives from the same SDK answers the record keeps:
+    ``failed`` for a call that ended with a proven no-result error (the executor has read the
+    lease from the store before it says so), and a ``cancel_requested`` that the ledger already
+    holds, which every answer short of the provider's cancelled or ended keeps on record (an
+    undelivered cancel, an unresolved result). Neither is a new assertion: a request the ledger
+    holds is kept, and no state is ever attested as more than the record supports.
+    """
     supported = {"unknown_outcome"}
     if record.completed:
         supported |= {"succeeded", "failed"}
+    elif record.remote_error:
+        supported.add("failed")
     elif record.cancelled and record.terminated:
         supported.add("cancelled")
     elif record.terminated:
         supported.add("cancel_requested")
     elif not record.cancelled:
         supported.add("running")
+    if attempt_state == "cancel_requested":
+        supported.add("cancel_requested")
     return frozenset(supported)
 
 

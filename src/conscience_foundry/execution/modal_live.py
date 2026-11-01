@@ -455,13 +455,17 @@ class CallRecord:
     """What this session has seen of one call it spawned; it never describes another's.
 
     ``completed``: the SDK returned a value. ``terminated``: a cancel that also terminates the
-    containers was accepted. ``cancelled``: the SDK reported the call cancelled.
+    containers was accepted. ``cancelled``: the SDK reported the call cancelled. ``remote_error``:
+    the call ended with an error that proves it published no result (a ``RemoteError``, or a
+    worker refusal decided before any store answer); whether the worker also claimed the lease is
+    not known here, and the executor reads it from the store before it calls the attempt failed.
     """
 
     spawned_at: Instant
     completed: bool = False
     terminated: bool = False
     cancelled: bool = False
+    remote_error: bool = False
 
 
 # Worker failures that are decided before or independently of any store answer: the result pointer
@@ -690,9 +694,11 @@ class LiveModalSession:
             # matched above, so what is left is "not finished yet".
             return ModalPoll("pending")
         except errors.RemoteError:
+            self._update(call_id, remote_error=True)
             return ModalPoll("remote_error")
         except ContractError as error:
             if error.code in _PROVEN_NO_RESULT:
+                self._update(call_id, remote_error=True)
                 return ModalPoll("remote_error")
             # Anything else (a storage put that timed out, a lease that may be held) may have
             # published the result: unknown, never failed.

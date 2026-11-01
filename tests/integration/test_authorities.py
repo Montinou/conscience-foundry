@@ -507,6 +507,45 @@ def test_failed_observation_follows_the_record() -> None:
     assert unsupported.confirmed_termination is False
 
 
+def test_observation_agrees_with_what_the_adapter_reports_for_unfinished_calls() -> None:
+    """A state the executor derives from the same SDK answers must be one the record stands behind.
+
+    Otherwise the control side sees the authority's facts disagree with the observation and
+    refuses the reconcile, leaving the attempt as it was.
+    """
+    # a worker refusal that proved no result ends the call: the executor says failed (no lease)
+    refused = Rig(session=make_session({CALL: CallRecord(NOW, remote_error=True)}))
+    failed = refused.authority.observation(refused.observation_proof("failed"))
+    assert failed.state == "failed" and failed.confirmed_termination is True
+    assert failed.result_digest is None and failed.no_external_effect is False
+    # the refusal proves no manifest, and nothing else: it is no success and no cancellation
+    for claimed in ("succeeded", "cancelled", "running"):
+        assert refused.authority.observation(refused.observation_proof(claimed)).state == (
+            "unknown_outcome"
+        )
+    # a call that showed no refusal cannot be attested failed
+    quiet = Rig(session=make_session({CALL: CallRecord(NOW)}))
+    assert quiet.authority.observation(quiet.observation_proof("failed")).state == "unknown_outcome"
+
+    # a cancel that was recorded in the ledger but never delivered stays a standing request
+    standing = quiet.authority.observation(
+        quiet.observation_proof("cancel_requested", attempt_state="cancel_requested")
+    )
+    assert standing.state == "cancel_requested" and standing.confirmed_termination is False
+    assert standing.result_digest is None and standing.no_external_effect is False
+    # ... for a refused call too, whose lease may be held (the request is kept, not settled)
+    kept = refused.authority.observation(
+        refused.observation_proof("cancel_requested", attempt_state="cancel_requested")
+    )
+    assert kept.state == "cancel_requested"
+    # but a cancel nobody recorded is never attested, and neither is a call the session never saw
+    unrequested = quiet.observation_proof("cancel_requested", attempt_state="running")
+    assert quiet.authority.observation(unrequested).state == "unknown_outcome"
+    stranger = Rig(session=make_session({OTHER_CALL: CallRecord(NOW)}))
+    unseen = stranger.observation_proof("cancel_requested", attempt_state="cancel_requested")
+    assert stranger.authority.observation(unseen).state == "unknown_outcome"
+
+
 # -- budget -------------------------------------------------------------------------------------
 
 

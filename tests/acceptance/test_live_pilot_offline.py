@@ -1001,6 +1001,79 @@ def test_interrupt_falls_back_to_unknown_outcome_when_cancel_fails(
     assert_clean(pilot, result)
 
 
+# -- a live call whose state the authority must be able to attest -------------------------------
+
+
+def refusing_worker(pilot: Pilot, skew: timedelta) -> None:
+    """The worker runs the production entry on a clock that is ahead of the control side's.
+
+    Like the real SDK, the call fails when it is read (not when it is spawned): the worker
+    refuses with ``authorization_expired`` before it claims the lease or writes anything.
+    """
+    ahead = Clock()
+    ahead.moment = pilot.clock.moment + skew
+    pilot.mp.setattr(modal_live, "_container_clock", lambda: ahead)
+
+    def spawn(function: Any, payload: bytes) -> Any:
+        world = function.world
+        world.spawned.append(payload)
+        call_id = f"synthetic-call-{len(world.spawned)}"
+        try:
+            function.entry(payload)
+        except ContractError as error:
+            world.outcomes[call_id] = [error] * 16
+        return fake_modal.FakeCall(world, call_id)
+
+    pilot.mp.setattr(fake_modal.FakeFunction, "spawn", spawn)
+
+
+def reconcile_step(result: cli_case.Result) -> dict[str, Any]:
+    return result.payload["steps"][-1]
+
+
+@pytest.mark.database
+def test_expired_worker_credentials_reconcile_without_leaving_running(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pilot = Pilot(ledger, tmp_path, monkeypatch, run_entry=False)
+    refusing_worker(pilot, timedelta(days=365))
+    result = pilot.run_pilot()
+    ((_, state, call_id),) = pilot.attempts()
+    # the worker refused before it claimed the lease: a proven failure, never left running
+    assert state == "failed", (state, result.raw)
+    assert call_id == "synthetic-call-1" and pilot.world.cancel_calls == []
+    # the reconcile step observed and recorded the call: the pilot reports the failed attempt
+    # as such, and the step is not blocked by the authority's facts disagreeing with it
+    assert reconcile_step(result)["command"] == "reconcile"
+    assert reconcile_step(result)["outcome"] != "blocked", result.raw
+    assert result.code == "failed", result.raw
+    assert_clean(pilot, result)
+
+
+@pytest.mark.database
+def test_undelivered_deadline_cancel_reconciles_without_leaving_running(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pilot = Pilot(ledger, tmp_path, monkeypatch, run_entry=False)
+    real = fake_modal.FakeCall.get
+
+    def get(call: Any, timeout: float | None = None, *, index: int = 0) -> Any:
+        if timeout:
+            pilot.clock.advance(timeout)  # the call never finishes: time runs out
+        return real(call, timeout, index=index)
+
+    monkeypatch.setattr(fake_modal.FakeCall, "get", get)
+    pilot.world.cancel_error = RuntimeError("synthetic cancel failure")
+    result = pilot.run_pilot()
+    ((_, state, call_id),) = pilot.attempts()
+    # the cancel was recorded but could not be delivered: it stays requested, never running
+    assert state in {"cancel_requested", "unknown_outcome"}, (state, result.raw)
+    assert pilot.world.cancel_calls and {c for c, _ in pilot.world.cancel_calls} == {call_id}
+    assert result.code != "forbidden", result.raw
+    assert reconcile_step(result)["outcome"] == "ok", result.raw
+    assert_clean(pilot, result)
+
+
 # -- the evidence label ----------------------------------------------------------------------------
 
 LIVE_STEPS = {"dispatch", "reconcile"}
