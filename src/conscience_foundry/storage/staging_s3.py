@@ -117,6 +117,24 @@ def _attempt_object_key(prefix: str, project_id: str, attempt_id: str, digest: s
     return f"{_attempt_prefix(prefix, project_id, attempt_id)}sha256/{digest[:2]}/{digest}"
 
 
+def _shared_key(prefix: str, project_id: str, digest: str) -> str:
+    return f"{prefix}/{project_id}/sha256/{digest[:2]}/{digest}"
+
+
+def credential_scopes(
+    prefix: str, plan: ExecutionPlan, attempt_id: str
+) -> tuple[tuple[str, ...], str]:
+    """The exact keys a worker reads and the one prefix it writes, for one plan and attempt.
+
+    The single computation behind both the credential request ``grant_transport`` makes and the
+    scopes an issuer reports for attestation, so what is probed is what is minted.
+    """
+    return (
+        tuple(_shared_key(prefix, ref.project_id, ref.digest) for ref in readable_refs(plan)),
+        _attempt_prefix(prefix, plan.project_id, attempt_id),
+    )
+
+
 _LEASE_OBJECT = "lease"
 _RESULT_OBJECT = "result"
 
@@ -215,6 +233,10 @@ class StagingConfig:
     are resolved by whoever builds the injected client and credential issuer.
     ``max_attempts`` is fixed at one transport attempt: the SDK client must be
     built with ``client_options()`` so it never retries paid requests itself.
+
+    ``checksum_mode`` is required, there is no default: ``sha256_header`` sends ``ChecksumSHA256``
+    with every write and asks ``head_object`` for the stored one; ``readback`` sends neither and
+    verifies every write by a bounded read-back hash (for a provider that rejects the headers).
     """
 
     destination_id: str
@@ -229,6 +251,7 @@ class StagingConfig:
     max_read_resumes: int
     max_parts: int
     grant_ttl_seconds: int
+    checksum_mode: Literal["sha256_header", "readback"]
     request_timeout_seconds: int = 30
     max_attempts: int = 1
     max_grant_pieces: int = 8
@@ -259,6 +282,8 @@ class StagingConfig:
             raise ContractError("invalid_schema")
         if self.max_attempts != 1:
             raise ContractError("unsupported_capability")
+        if self.checksum_mode not in ("sha256_header", "readback"):
+            raise ContractError("invalid_schema")
 
     @classmethod
     def resolve(
@@ -280,6 +305,7 @@ class StagingConfig:
             "max_read_resumes",
             "max_parts",
             "grant_ttl_seconds",
+            "checksum_mode",
         }
         optional = {"request_timeout_seconds", "max_grant_pieces", "max_grant_material_bytes"}
         if not names <= set(entry):
@@ -382,7 +408,7 @@ class S3StagingStore:
 
     def _key(self, ref: Ref) -> str:
         """Derived only from project and digest; ref.locations are untrusted and ignored."""
-        return f"{self.config.prefix}/{ref.project_id}/sha256/{ref.digest[:2]}/{ref.digest}"
+        return _shared_key(self.config.prefix, ref.project_id, ref.digest)
 
     def _attempt_key(self, ref: Ref) -> str:
         """Where an attempt-bound store keeps its own objects: under the credential's prefix."""
@@ -535,12 +561,12 @@ class S3StagingStore:
         for ref in readable:
             self._check(ref, context, "read")
             self._reserved(ref, context)
-        prefix = _attempt_prefix(self.config.prefix, plan.project_id, attempt.attempt_id)
+        read_keys, prefix = credential_scopes(self.config.prefix, plan, attempt.attempt_id)
         request = CredentialRequest(
             credential_source=self.config.credential_source,
             region=self.config.region,
             bucket=self.config.bucket,
-            read_keys=tuple(self._key(ref) for ref in readable),
+            read_keys=read_keys,
             write_prefix=prefix,
             expires_at=expires_at,
         )
@@ -613,7 +639,7 @@ class S3StagingStore:
                 ContentLength=len(data),
                 ContentType=media_type or "application/octet-stream",
                 IfNoneMatch="*",
-                ChecksumSHA256=base64.b64encode(hashlib.sha256(data).digest()).decode("ascii"),
+                **self._checksum_header(data),
             )
             self._verify_written(expected, key)
         except ContractError as error:
@@ -633,13 +659,19 @@ class S3StagingStore:
         self._unresolved.discard(key)
         return expected
 
+    def _checksum_header(self, data: bytes) -> dict[str, str]:
+        if self.config.checksum_mode != "sha256_header":
+            return {}
+        return {"ChecksumSHA256": base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")}
+
     def _verify_written(self, expected: Ref, key: str) -> None:
         """Confirm the stored object by hash: the provider's checksum, else a bounded read-back.
 
         The read-back is bounded by ``max_object_bytes`` and ``max_read_resumes`` and
         runs inside the put the storage reservation already covers.
         """
-        head = self.client.head_object(Bucket=self.config.bucket, Key=key, ChecksumMode="ENABLED")
+        extra = {"ChecksumMode": "ENABLED"} if self.config.checksum_mode == "sha256_header" else {}
+        head = self.client.head_object(Bucket=self.config.bucket, Key=key, **extra)
         if head.get("ContentLength") != expected.size_bytes:
             raise ContractError("hash_mismatch")
         checksum = head.get("ChecksumSHA256")
@@ -726,7 +758,7 @@ class S3StagingStore:
                 ContentLength=len(data),
                 ContentType="application/octet-stream",
                 IfNoneMatch="*",
-                ChecksumSHA256=base64.b64encode(hashlib.sha256(data).digest()).decode("ascii"),
+                **self._checksum_header(data),
             )
         except Exception as error:
             outcome = _classify(error)

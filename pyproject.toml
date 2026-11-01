@@ -21,6 +21,7 @@ cfoundry = "conscience_foundry.cli.main:run"
 
 [project.optional-dependencies]
 orchestration = ["dagster>=1.13,<1.14"]
+live = ["modal>=1.2.3,<2", "boto3>=1.43.123,<2"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2", "dagster>=1.13,<1.14"]
@@ -54,3 +55,7 @@ strict = true
 namespace_packages = true
 explicit_package_bases = true
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*", "modal.*"]
+ignore_missing_imports = true

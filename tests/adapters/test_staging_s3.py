@@ -158,6 +158,7 @@ def config(**overrides: Any) -> StagingConfig:
         "max_read_resumes": 2,
         "max_parts": 4,
         "grant_ttl_seconds": 300,
+        "checksum_mode": "sha256_header",
     }
     return StagingConfig(**(values | overrides))
 
@@ -639,6 +640,7 @@ def test_staging_config_resolves_only_registered_destinations() -> None:
         "max_read_resumes": 1,
         "max_parts": 4,
         "grant_ttl_seconds": 60,
+        "checksum_mode": "sha256_header",
     }
     registered = {"synthetic.destination": entry}
     resolved = StagingConfig.resolve("synthetic.destination", registered)
