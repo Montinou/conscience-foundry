@@ -2,11 +2,11 @@
 
 Operator-supplied schema documents are untrusted input. Only a closed JSON-Schema-shaped subset is
 admitted: one object (`additionalProperties: false`) whose properties are bounded strings
-(`maxLength` <= 1024, optional `pattern`/`enum`), integers (optional `minimum`/`maximum`),
-booleans, or one nested object of the same form (depth <= 2). `$ref`, `$id`, `format`, arrays,
-numbers and every other keyword are outside the subset and refused as `invalid_schema`. The
-interpreter evaluates metadata against the parsed document; it never loads code or resolves
-references.
+(`maxLength` <= 1024, optional `pattern`/`enum`), integers (optional `minimum`/`maximum`, signed
+and within +/-(2^53-1)), booleans, or one nested object of the same form (depth <= 2). `$ref`,
+`$id`, `format`, arrays, numbers and every other keyword are outside the subset and refused as
+`invalid_schema`. The interpreter evaluates metadata against the parsed document; it never loads
+code or resolves references.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
-from typing import Annotated, Literal, Self
+from typing import Annotated, ClassVar, Literal, Self
 
 from pydantic import BeforeValidator, Field, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -39,6 +39,23 @@ _ANY = "[^\\n\\r\\u2028\\u2029]"
 _QUANTIFIER = re.compile(r"\{(\d+)(?:,(\d*))?\}")
 
 
+class _Group:
+    """An open or just-closed group: whether it contains a quantifier and where its branches lie."""
+
+    def __init__(self, branches: list[int]) -> None:
+        self.branches = branches  # [start, end, start, end, ...] offsets into the output pieces
+        self.quantified = False
+
+    def overlapping(self, out: list[str]) -> bool:
+        spans = list(zip(self.branches[0::2], self.branches[1::2], strict=False))
+        texts = ["".join(out[start:end]) for start, end in spans]
+        return any(
+            first.startswith(second) or second.startswith(first)
+            for number, first in enumerate(texts)
+            for second in texts[number + 1 :]
+        )
+
+
 def translate_pattern(pattern: str) -> str:
     """Rewrite a pattern of the dialect shared by ECMAScript (`u` flag) and Python `re`.
 
@@ -47,14 +64,20 @@ def translate_pattern(pattern: str) -> str:
     dialects read differently is refused: only literals, `.`, `^`, `$`, `\\d \\D \\w \\W \\b \\B`,
     escaped syntax characters, `\\n \\r \\t`, plain and `(?:` groups, `|`, bracket classes and
     greedy or lazy quantifiers are admitted. Raises `ValueError` outside that dialect.
+
+    Python `re` backtracks, so a quantified group that contains a quantifier, or whose alternatives
+    overlap (one is a prefix of another), can take exponential time on a short input; both are
+    refused rather than admitted behind a timeout.
     """
     out: list[str] = []
-    depth = 0
+    groups: list[_Group] = []
+    closed: _Group | None = None  # the group ending right before the current token
     index = 0
     atom = False  # the previous token can take a quantifier
     while index < len(pattern):
         char = pattern[index]
         index += 1
+        previous, closed = closed, None
         if char == "\\":
             if index >= len(pattern):
                 raise ValueError("dangling escape")
@@ -87,16 +110,22 @@ def translate_pattern(pattern: str) -> str:
                 out.append("(?:")
             else:
                 out.append("(")
-            depth += 1
+            groups.append(_Group([len(out)]))
             atom = False
         elif char == ")":
-            if depth == 0:
+            if not groups:
                 raise ValueError("unbalanced group")
-            depth -= 1
+            closed = groups.pop()
+            closed.branches.append(len(out))
             out.append(")")
+            if groups and closed.quantified:
+                groups[-1].quantified = True
             atom = True
         elif char == "|":
             out.append("|")
+            if groups:
+                groups[-1].branches.append(len(out) - 1)
+                groups[-1].branches.append(len(out))
             atom = False
         elif char in "^$":
             out.append("^" if char == "^" else "\\Z")
@@ -107,6 +136,10 @@ def translate_pattern(pattern: str) -> str:
         elif char in "*+?" or char == "{":
             if not atom:
                 raise ValueError("nothing to repeat")
+            if previous is not None and (previous.quantified or previous.overlapping(out)):
+                raise ValueError("ambiguous repetition")
+            if groups:
+                groups[-1].quantified = True
             if char == "{":
                 match = _QUANTIFIER.match(pattern, index - 1)
                 if match is None:
@@ -124,7 +157,7 @@ def translate_pattern(pattern: str) -> str:
         else:
             out.append(char)
             atom = True
-    if depth:
+    if groups:
         raise ValueError("unbalanced group")
     return "".join(out)
 
@@ -166,7 +199,13 @@ def _array(value: object) -> object:
     return tuple(value) if isinstance(value, list) else value
 
 
-class StringRule(WireModel):
+class _SubsetModel(WireModel):
+    """Subset documents may carry signed integer bounds; no other contract does."""
+
+    signed_integers: ClassVar[bool] = True
+
+
+class StringRule(_SubsetModel):
     type: Literal["string"]
     max_length: Annotated[int, Field(strict=True, ge=0, le=MAX_STRING_LENGTH)]
     pattern: ScalarString | SkipJsonSchema[None] = Field(
@@ -191,13 +230,15 @@ class StringRule(WireModel):
         return self
 
 
-class IntegerRule(WireModel):
+class IntegerRule(_SubsetModel):
     type: Literal["integer"]
     minimum: (
-        Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)] | SkipJsonSchema[None]
+        Annotated[int, Field(strict=True, ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
+        | SkipJsonSchema[None]
     ) = Field(default=None, exclude_if=lambda value: value is None)
     maximum: (
-        Annotated[int, Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)] | SkipJsonSchema[None]
+        Annotated[int, Field(strict=True, ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
+        | SkipJsonSchema[None]
     ) = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
@@ -207,11 +248,11 @@ class IntegerRule(WireModel):
         return self
 
 
-class BooleanRule(WireModel):
+class BooleanRule(_SubsetModel):
     type: Literal["boolean"]
 
 
-class _ObjectRule(WireModel):
+class _ObjectRule(_SubsetModel):
     type: Literal["object"]
     additional_properties: Literal[False]
     required: Annotated[

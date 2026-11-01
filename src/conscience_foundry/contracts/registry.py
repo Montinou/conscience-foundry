@@ -61,6 +61,7 @@ from conscience_foundry.contracts.extensions import (
     EnrichmentResult,
     EnrichmentSpec,
 )
+from conscience_foundry.contracts.intake import IntakeDiff, WithdrawalList
 from conscience_foundry.contracts.project import (
     PolicyArtifact,
     ProfileDescriptor,
@@ -187,6 +188,8 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.activation.v1": ActivationRecord,
         "cf.contract-set.v1": ContractSet,
         "cf.metadata-schema.v1": MetadataSchemaDocument,
+        "cf.withdrawal-list.v1": WithdrawalList,
+        "cf.intake-diff.v1": IntakeDiff,
         "cf.enrichment-spec.v1": EnrichmentSpec,
         "cf.enrichment-request.v1": EnrichmentRequest,
         "cf.enrichment-result.v1": EnrichmentResult,
@@ -242,6 +245,8 @@ def _array_bounds(node: object) -> None:
             _array_bounds(child)
 
 
+# Exported schemas are exact installed bytes and may state signed bounds (`cf.metadata-schema.v1`),
+# so only the JSON-Schema role is read with signed integers; every instance contract stays unsigned.
 def _schema_bytes(schema_id: str) -> bytes:
     if schema_id in SCHEMA_MODELS:
         schema = SCHEMA_MODELS[schema_id].model_json_schema(by_alias=True)
@@ -319,7 +324,7 @@ def export_schemas(
         _check_byte_ceiling(
             semantic_data, SEMANTIC_RULES_ID, _limits(SEMANTIC_RULES_ID, limits_by_schema)
         )
-        load_json(schema_data, _limits(JSON_SCHEMA_ID, limits_by_schema))
+        load_json(schema_data, _limits(JSON_SCHEMA_ID, limits_by_schema), signed=True)
         SemanticRulesDescriptor.from_wire(
             semantic_data, _limits(SEMANTIC_RULES_ID, limits_by_schema)
         )
@@ -375,7 +380,7 @@ def validate_contract_set(
         ):
             _check_byte_ceiling(data, role, _limits(role, limits_by_schema))
             if role == JSON_SCHEMA_ID:
-                load_json(data, _limits(JSON_SCHEMA_ID, limits_by_schema))
+                load_json(data, _limits(JSON_SCHEMA_ID, limits_by_schema), signed=True)
             else:
                 SemanticRulesDescriptor.from_wire(
                     data, _limits(SEMANTIC_RULES_ID, limits_by_schema)
@@ -437,7 +442,7 @@ def validate_artifact(
     if artifact.media_type != "application/json":
         raise ContractError("unsupported_format")
     if schema_id == JSON_SCHEMA_ID:
-        parsed = load_json(data, limits)
+        parsed = load_json(data, limits, signed=True)
         if data not in {_schema_bytes(key) for key in registered_schema_ids()}:
             raise ContractError("unsupported_schema")
         return parsed

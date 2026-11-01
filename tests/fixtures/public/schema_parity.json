@@ -1590,6 +1590,473 @@
         }
       },
       "note": "pattern that does not compile"
+    },
+    {
+      "caseId": "metadata-schema-valid-negative-bounds",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "valid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": -1
+          }
+        }
+      },
+      "note": "signed integer bounds within +/-(2^53-1)"
+    },
+    {
+      "caseId": "metadata-schema-negative-bound-too-low",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": -9007199254740992
+          }
+        }
+      },
+      "note": "minimum below -(2^53-1)"
+    },
+    {
+      "caseId": "metadata-schema-negative-max-length",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": -1
+          }
+        }
+      },
+      "note": "maxLength stays non-negative"
+    },
+    {
+      "caseId": "withdrawal-list-valid",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": [
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a1",
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "cause": "changed",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_changed",
+              "message": "synthetic withdrawal"
+            }
+          },
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a2",
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "cause": "missing",
+            "decisionId": "00000000-0000-4000-8000-0000000000c2",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          }
+        ]
+      },
+      "note": "changed and missing entries"
+    },
+    {
+      "caseId": "withdrawal-list-empty-entries",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": []
+      },
+      "note": "entries are nonempty (minItems)"
+    },
+    {
+      "caseId": "withdrawal-list-extra-field",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": [
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a1",
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "cause": "changed",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_changed",
+              "message": "synthetic withdrawal"
+            }
+          },
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a2",
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "cause": "missing",
+            "decisionId": "00000000-0000-4000-8000-0000000000c2",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          }
+        ],
+        "extra": 1
+      },
+      "note": "closed object"
+    },
+    {
+      "caseId": "withdrawal-list-unknown-cause",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": [
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a1",
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "cause": "gone",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_changed",
+              "message": "synthetic withdrawal"
+            }
+          },
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a2",
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "cause": "missing",
+            "decisionId": "00000000-0000-4000-8000-0000000000c2",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          }
+        ]
+      },
+      "note": "cause is changed or missing"
+    },
+    {
+      "caseId": "withdrawal-list-cause-code-mismatch",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": [
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a1",
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "cause": "changed",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          },
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a2",
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "cause": "missing",
+            "decisionId": "00000000-0000-4000-8000-0000000000c2",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          }
+        ]
+      },
+      "note": "reason code must match the cause"
+    },
+    {
+      "caseId": "withdrawal-list-duplicate-decision",
+      "schemaId": "cf.withdrawal-list.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.withdrawal-list.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "byBatchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "diffReportDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "entries": [
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a1",
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "cause": "changed",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_changed",
+              "message": "synthetic withdrawal"
+            }
+          },
+          {
+            "batchId": "00000000-0000-4000-8000-000000000002",
+            "assetId": "00000000-0000-4000-8000-0000000000a2",
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "cause": "missing",
+            "decisionId": "00000000-0000-4000-8000-0000000000c1",
+            "reason": {
+              "code": "source_missing",
+              "message": "synthetic withdrawal"
+            }
+          }
+        ]
+      },
+      "note": "decisionId is unique within the list"
+    },
+    {
+      "caseId": "intake-diff-valid",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "ready",
+        "classes": {
+          "new": [
+            "n/1.txt"
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "moved": [],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "intakeDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "note": "ready diff"
+    },
+    {
+      "caseId": "intake-diff-valid-no-intake",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "policy_revision_needed",
+        "classes": {
+          "new": [
+            "n/1.txt"
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "moved": [],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "note": "intakeDigest is absent when there is no intake"
+    },
+    {
+      "caseId": "intake-diff-unknown-status",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "done",
+        "classes": {
+          "new": [
+            "n/1.txt"
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "moved": [],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "intakeDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "note": "status is ready or policy_revision_needed"
+    },
+    {
+      "caseId": "intake-diff-withdrawal-digest",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "ready",
+        "classes": {
+          "new": [
+            "n/1.txt"
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "moved": [],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "intakeDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "withdrawalListDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "note": "the diff holds no digest of the withdrawal list"
+    },
+    {
+      "caseId": "intake-diff-missing-class",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "ready",
+        "classes": {
+          "new": [
+            "n/1.txt"
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "intakeDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "note": "every class is present"
+    },
+    {
+      "caseId": "intake-diff-empty-source-key",
+      "schemaId": "cf.intake-diff.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.intake-diff.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-2",
+        "batchDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previousBatchDigests": [
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "status": "ready",
+        "classes": {
+          "new": [
+            ""
+          ],
+          "unchanged": [
+            "u/1.txt"
+          ],
+          "changed": [
+            "c/1.txt"
+          ],
+          "moved": [],
+          "returned": [],
+          "missing": [
+            "m/1.txt"
+          ]
+        },
+        "assumedAdmittedBatchIds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "intakeDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "note": "sourceKey is nonempty"
     }
   ],
   "unicodeCases": [

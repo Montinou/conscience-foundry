@@ -281,3 +281,22 @@ def test_database_guard_permits_only_approved_private_socket(tmp_path: Path) -> 
             assert connections == [address, address]
         finally:
             guard.close()
+
+
+def test_signed_integers_are_opt_in_and_bounded() -> None:
+    bound = 9007199254740991
+    for data in (b'{"n":-1}', b'{"n":[-1]}', b'{"n":-9}'):
+        with pytest.raises(ContractError) as error:
+            load_json(data, limits())
+        assert error.value.code == "invalid_schema"
+    assert load_json(b'{"n":-1,"m":[-2]}', limits(), signed=True) == {"n": -1, "m": [-2]}
+    assert load_json(b'{"n":-%d}' % bound, limits(), signed=True) == {"n": -bound}
+    for data in (
+        b'{"n":-%d}' % (bound + 1),
+        b'{"n":%d}' % (bound + 1),
+        b'{"n":--1}',
+        b'{"n":-1.0}',
+    ):
+        with pytest.raises(ContractError) as error:
+            load_json(data, limits(), signed=True)
+        assert error.value.code == "invalid_schema"

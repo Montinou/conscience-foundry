@@ -212,6 +212,69 @@ def test_invalid_metadata_refuses_manifest(
     assert nothing_admitted(ledger)
 
 
+SIGNED_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["delta"],
+    "properties": {"delta": {"type": "integer", "minimum": -5, "maximum": 5}},
+}
+SIGNED_BYTES = json.dumps(SIGNED_SCHEMA, separators=(",", ":")).encode()
+SAFE_BOUND = 9007199254740991
+
+
+def signed_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ledger: Ledger
+) -> tuple[Env, Path]:
+    return profile_environment(
+        tmp_path,
+        monkeypatch,
+        ledger,
+        schema_file=SIGNED_BYTES,
+        profile_ref=reference(SIGNED_BYTES, SCHEMA_ID),
+    )
+
+
+@pytest.mark.database
+@pytest.mark.parametrize("delta", [-5, -1, 0, 5], ids=["lower_bound", "negative", "zero", "upper"])
+def test_negative_metadata_within_signed_bounds_is_admitted(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delta: int
+) -> None:
+    env, root = signed_profile(tmp_path, monkeypatch, ledger)
+    result = admit(env, root, {"delta": delta})
+    assert result.exit == 0, result.raw
+    assert [row["status"] for row in result.payload["entries"]] == ["admitted"]
+    assert count(ledger, "admission_entries") == 1 and count(ledger, "assets") == 1
+
+
+@pytest.mark.database
+@pytest.mark.parametrize(
+    "delta",
+    [-6, 6, -SAFE_BOUND, SAFE_BOUND, -SAFE_BOUND - 1, SAFE_BOUND + 1],
+    ids=["below", "above", "min_safe", "max_safe", "beyond_min_safe", "beyond_max_safe"],
+)
+def test_metadata_outside_bounds_or_wire_range_is_refused(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delta: int
+) -> None:
+    env, root = signed_profile(tmp_path, monkeypatch, ledger)
+    result = admit(env, root, {"delta": delta})
+    assert result.exit != 0 and result.code == "invalid_schema", result.raw
+    assert nothing_admitted(ledger)
+
+
+@pytest.mark.database
+def test_negative_non_metadata_integer_is_still_refused(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env, root = signed_profile(tmp_path, monkeypatch, ledger)
+    (root / "a.txt").write_bytes(b"a.txt")
+    document = json.loads(shelf_manifest({"delta": -1}))
+    document["items"][0]["sizeBytes"] = -1
+    manifest = env.input("manifest.json", json.dumps(document))
+    result = env.invoke("admit", "--manifest", manifest, "--execute", services=SERVICES)
+    assert result.exit != 0 and result.code == "invalid_schema", result.raw
+    assert nothing_admitted(ledger)
+
+
 @pytest.mark.database
 def test_schema_file_digest_mismatch_refused(
     ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -298,7 +361,31 @@ def test_technical_ref_is_accepted_even_with_a_configured_path(
     assert [row["status"] for row in result.payload["entries"]] == ["admitted"]
 
 
-def test_source_asset_carries_metadata(tmp_path: Path) -> None:
+@pytest.mark.parametrize("delta", [-5, 5], ids=["negative", "positive"])
+def test_run_preparation_opens_a_source_asset_for_signed_metadata(delta: int) -> None:
+    """prepare-run's source_asset copies the admitted item's metadata verbatim."""
+    from test_budget import case
+
+    from conscience_foundry.contracts.admission import IntakeManifest
+    from conscience_foundry.execution.evidence import source_asset
+
+    c = case()
+    document = json.loads(c.data.evidence.manifest_bytes)
+    document["items"][0]["metadata"] = {"delta": delta}
+    manifest = IntakeManifest.from_wire(json.dumps(document).encode(), limits())
+    asset = source_asset(c.plan, manifest, c.data.report, c.context)
+    assert asset.metadata == {"delta": delta}
+    assert asset.model_dump(by_alias=True)["metadata"] == {"delta": delta}
+
+
+@pytest.mark.parametrize(
+    ("schema_bytes", "metadata"),
+    [(SHELF_BYTES, VALID_METADATA), (SIGNED_BYTES, {"delta": -5}), (SIGNED_BYTES, {"delta": 5})],
+    ids=["shelf", "negative", "positive"],
+)
+def test_source_asset_carries_metadata(
+    tmp_path: Path, schema_bytes: bytes, metadata: dict[str, Any]
+) -> None:
     from conscience_foundry.contracts.admission import IntakeManifest
     from conscience_foundry.contracts.common import ContractLimits
     from conscience_foundry.contracts.project import PolicyArtifact, ProfileMetadataBinding
@@ -313,7 +400,7 @@ def test_source_asset_carries_metadata(tmp_path: Path) -> None:
     schemas = dict.fromkeys(registered_schema_ids(), bound)
     policy: PolicyArtifact = admission().evidence.pinned_policy
     policy_bytes = encoded(policy)
-    pinned = reference(SHELF_BYTES, SCHEMA_ID)
+    pinned = reference(schema_bytes, SCHEMA_ID)
     profile = Profile(
         schema_version="cf.profile.v1",
         profile_id=PROFILE_ID,
@@ -334,7 +421,7 @@ def test_source_asset_carries_metadata(tmp_path: Path) -> None:
         storage_config_ref=reference(b"{}", "cf.storage-config.v1"),
         execution_config_ref=reference(b"{}", "cf.execution-config.v1"),
     )
-    manifest_bytes = shelf_manifest(VALID_METADATA).encode()
+    manifest_bytes = shelf_manifest(metadata).encode()
     manifest = IntakeManifest.from_wire(manifest_bytes, bound)
     source_root, target_root = tmp_path / "source", tmp_path / "target"
     source_root.mkdir()
@@ -345,7 +432,7 @@ def test_source_asset_carries_metadata(tmp_path: Path) -> None:
         "00000000-0000-0000-0000-000000000002",
         frozenset({"read", "extract", "auditMetadataRead"}),
     )
-    binding = ProfileMetadataBinding(pinned, MetadataSchema.parse(SHELF_BYTES, bound))
+    binding = ProfileMetadataBinding(pinned, MetadataSchema.parse(schema_bytes, bound))
 
     def authorize(ref: ArtifactRef, actor: AccessContext, effect: str) -> None:
         return None
@@ -381,5 +468,5 @@ def test_source_asset_carries_metadata(tmp_path: Path) -> None:
             context=context,
             current_policy=policy,
         )
-    assert asset.model_dump(by_alias=True)["metadata"] == VALID_METADATA
+    assert asset.model_dump(by_alias=True)["metadata"] == metadata
     assert asset.metadata == manifest.items[0].metadata

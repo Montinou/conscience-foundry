@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import partial
 from typing import Any, NoReturn, cast
 
 import rfc8785
@@ -22,11 +23,12 @@ def _reject_number(value: str) -> NoReturn:
     raise ContractError("invalid_schema")
 
 
-def _integer(value: str) -> int:
-    if value.startswith("-") or len(value) > 16:
+def _integer(value: str, *, signed: bool = False) -> int:
+    digits = value[1:] if signed and value.startswith("-") else value
+    if digits.startswith("-") or len(digits) > 16:
         raise ContractError("invalid_schema")
     result = int(value)
-    if result > MAX_SAFE_INTEGER:
+    if abs(result) > MAX_SAFE_INTEGER:
         raise ContractError("invalid_schema")
     return result
 
@@ -63,8 +65,11 @@ def _check_depth(data: bytes, maximum: int) -> None:
             depth -= 1
 
 
-def load_json(data: bytes, limits: ContractLimits) -> dict[str, object]:
-    """Decode one object with byte/depth admission before object construction."""
+def load_json(data: bytes, limits: ContractLimits, *, signed: bool = False) -> dict[str, object]:
+    """Decode one object with byte/depth admission before object construction.
+
+    Integers are non-negative unless `signed`, which only a contract that needs them requests.
+    """
     if not isinstance(limits, ContractLimits):
         raise ContractError("limits_missing")
     if type(data) is not bytes:
@@ -76,14 +81,14 @@ def load_json(data: bytes, limits: ContractLimits) -> dict[str, object]:
         text = data.decode("utf-8")
         value = json.loads(
             text,
-            parse_int=_integer,
+            parse_int=partial(_integer, signed=signed),
             parse_float=_reject_number,
             parse_constant=_reject_number,
             object_pairs_hook=_object,
         )
         if not isinstance(value, dict):
             raise ContractError("invalid_schema")
-        validate_wire_value(value, allow_null=True)
+        validate_wire_value(value, allow_null=True, allow_negative=signed)
         pending: list[object] = [value]
         while pending:
             item = pending.pop()
