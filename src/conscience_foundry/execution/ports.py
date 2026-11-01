@@ -265,6 +265,12 @@ class ControlContext:
     output_store_id: str
     store: ObjectStore = field(repr=False)
     transport_limits: ContractLimits = field(repr=False)
+    staged_reader: Callable[[Id, Id], ObjectStore] | None = field(default=None, repr=False)
+    """Read-only view of one (project, attempt) staging prefix; None keeps local-only results."""
+    stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = field(
+        default=None, repr=False
+    )
+    """Puts every object the worker reads at its staging key, before any grant is minted."""
 
 
 @dataclass(frozen=True)

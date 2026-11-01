@@ -49,7 +49,7 @@ from conscience_foundry.execution.ports import (
 from conscience_foundry.ledger.db import Connection, Ledger
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.release.context import ReleaseAuthority, ReleaseContext, TrustedReleasePin
-from conscience_foundry.storage.local import LocalObjectStore
+from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
 
 CONFIG_MAX_BYTES = 1 << 20
@@ -237,6 +237,8 @@ class TrustedServices:
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
     pilot_gates_closed: frozenset[str] = frozenset()
+    staged_reader: Callable[[Id, Id], ObjectStore] | None = None
+    stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = None
 
 
 class _Refusing:
@@ -482,6 +484,8 @@ class Runtime:
             output_store_id=settings.store_id,
             store=self.store,
             transport_limits=self.config.transport_limits,
+            staged_reader=self.services.staged_reader,
+            stage_inputs=self.services.stage_inputs,
         )
 
     @property

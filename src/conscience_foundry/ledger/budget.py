@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal, localcontext
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from psycopg import sql
@@ -49,8 +49,11 @@ from conscience_foundry.ledger._budget_inputs import (
     _proof,
     _stored_ref,
 )
-from conscience_foundry.ledger.db import AdmissionRegistrationEvidence, LedgerTxn
-from conscience_foundry.policy.access import require_permission
+from conscience_foundry.ledger.db import AdmissionRegistrationEvidence, Ledger, LedgerTxn
+from conscience_foundry.policy.access import AccessContext, require_permission
+
+if TYPE_CHECKING:  # staging imports the execution ports, which import this module
+    from conscience_foundry.storage.staging_s3 import StorageReservationGate
 
 
 def _json(ref: Ref) -> Jsonb:
@@ -670,6 +673,36 @@ def reserve_storage(
         _reservation(tx, project, run_id, amount, evidence, reservation, None, installed[0])
         _reserve_event(tx, context, run_id, reservation, amount, evidence, None)
         return reservation
+
+
+def ledger_storage_gate(ledger: Ledger, run_id: Id) -> StorageReservationGate:
+    """Control-side gate: true only while the run holds an open ``run_storage`` reservation.
+
+    Open means a ``reserve_storage`` row that is neither finally billed nor released, so staging
+    stops the moment the funded horizon is closed. It answers for the run's project only and
+    reads the ledger on every call; an unreadable ledger raises, which the store treats as a
+    refusal.
+    """
+    TypeAdapter(Id).validate_python(run_id)
+
+    def gate(ref: Ref, context: AccessContext) -> bool:
+        if (
+            type(ref) is not Ref
+            or type(context) is not AccessContext
+            or ref.project_id != context.project_id
+        ):
+            return False
+        with ledger.transaction() as tx:
+            row = tx.connection.execute(
+                sql.SQL(
+                    "SELECT EXISTS(SELECT 1 FROM {} WHERE project_id=%s AND run_id=%s "
+                    "AND scope='run_storage' AND NOT final_billing AND released_usd<reserved_usd)"
+                ).format(tx.table("reservations")),
+                (context.project_id, run_id),
+            ).fetchone()
+        return row is not None and row[0] is True
+
+    return gate
 
 
 def _reservation_row(tx: LedgerTxn, project: Id, run: Id, reservation: Id) -> tuple[Any, ...]:
