@@ -69,7 +69,17 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "admission": frozenset({"admit"}),
         "execution": frozenset(
-            {"prepare-run", "authorize-run", "dispatch", "reconcile", "cancel", "pause", "resume"}
+            {
+                "prepare-run",
+                "authorize-run",
+                "reserve-storage",
+                "dispatch",
+                "reconcile",
+                "cancel",
+                "pause",
+                "resume",
+                "record-billing",
+            }
         ),
         "review": frozenset({"review"}),
         "release": frozenset({"build-release", "import-release"}),
@@ -84,10 +94,12 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
 
 # Library control actions (including budget-evidence purposes) and the only CLI commands whose
 # grant may perform them. Cancellation observes and settles through the reconcile path, so it may
-# perform those internal actions. Nothing else is reachable: storage reservations, billing
-# corrections, manual unknown-outcome marks, budget reconciliation and control reads have no CLI
-# command in this task, so no grant can authorize them here.
+# perform those internal actions; `record-billing` alone adds the final settlement of an attempt
+# from the operator's billing document. Nothing else is reachable: corrections to a recorded
+# settlement, manual unknown-outcome marks, budget reconciliation and control reads still have
+# no CLI command, so no grant can authorize them.
 _SETTLEMENT = frozenset({"reconcile", "cancel"})
+_BILLING = _SETTLEMENT | {"record-billing"}
 ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "install_run_authorization": frozenset({"authorize-run"}),
@@ -96,9 +108,10 @@ ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "reserve": frozenset({"dispatch"}),
         "manual_retry": frozenset({"dispatch"}),
         "reconcile": _SETTLEMENT,
-        "apply_budget_event": _SETTLEMENT,
+        "reserve_storage": frozenset({"reserve-storage"}),
+        "apply_budget_event": _BILLING,
         "record_usage": _SETTLEMENT,
-        "final_billing": _SETTLEMENT,
+        "final_billing": _BILLING,
         "release_unspent": _SETTLEMENT,
         "final_no_effect": _SETTLEMENT,
         "cancel_attempt": frozenset({"cancel"}),

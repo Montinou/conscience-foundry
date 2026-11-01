@@ -62,7 +62,9 @@ from conscience_foundry.contracts.registry import (
 )
 from conscience_foundry.contracts.release import ReleaseSource
 from conscience_foundry.execution.ports import Observation
+from conscience_foundry.ledger.budget import ledger_storage_gate
 from conscience_foundry.ledger.db import Ledger, register_admission
+from conscience_foundry.operator.packet import PILOT_STEP_COMMANDS, pilot_step_order_ok
 
 SECRET = "SECRETMARK"
 ATTEMPT = "00000000-0000-0000-0000-0000000000a1"
@@ -79,6 +81,8 @@ ALL_GRANTS: dict[str, list[str]] = {
         "cancel",
         "pause",
         "resume",
+        "reserve-storage",
+        "record-billing",
     ],
     "review": ["review"],
     "release": ["build-release", "import-release"],
@@ -133,6 +137,22 @@ EFFECT_ARGS: dict[str, list[str]] = {
         "--reason-message",
         "operator resume",
         "--evidence-ref",
+        "evidence-ref.json",
+    ],
+    "reserve-storage": [
+        "--run-id",
+        RUN,
+        "--amount",
+        "3",
+        "--evidence",
+        "evidence-ref.json",
+    ],
+    "record-billing": [
+        "--attempt-id",
+        ATTEMPT,
+        "--amount",
+        "2",
+        "--evidence",
         "evidence-ref.json",
     ],
     "review": [
@@ -677,8 +697,15 @@ def test_control_actions_follow_only_the_running_and_granted_command(
     assert not allowed(path, "dispatch", "record_usage")
     assert not allowed(path, "reconcile", "cancel_attempt")
     assert not allowed(path, "resume", "pause") and not allowed(path, "pause", "resume")
+    assert allowed(path, "reserve-storage", "reserve_storage")
+    assert allowed(path, "record-billing", "final_billing")
+    assert allowed(path, "record-billing", "apply_budget_event")
+    assert not allowed(path, "record-billing", "reserve_storage")
+    assert not allowed(path, "reserve-storage", "final_billing")
+    assert not allowed(path, "reserve-storage", "apply_budget_event")
+    assert not allowed(path, "dispatch", "reserve_storage")
+    assert not allowed(path, "reconcile", "reserve_storage")
     for action in (
-        "reserve_storage",
         "mark_unknown_outcome",
         "reconcile_budget",
         "control_read",
@@ -1387,3 +1414,270 @@ def test_import_publish_activate_and_read_each_need_their_own_grant(
         "read-span", "--release-digest", lib.digest, "--span", span_path, services=services
     )
     assert unpinned.exit == 3 and unpinned.code == "pin_missing"
+
+
+# --- reserve-storage and record-billing ----------------------------------------------------------
+
+
+def budget_records(ledger: Ledger) -> list[dict[str, Any]]:
+    with ledger.transaction() as tx:
+        rows = tx.connection.execute(
+            sql.SQL("SELECT record_bytes FROM {} WHERE project_id=%s").format(
+                tx.table("budget_events")
+            ),
+            (PROJECT,),
+        ).fetchall()
+    return [json.loads(bytes(row[0])) for row in rows]
+
+
+def attempt_reservation(ledger: Ledger) -> tuple[Any, ...]:
+    with ledger.transaction() as tx:
+        row = tx.connection.execute(
+            sql.SQL(
+                "SELECT settled_usd::text,final_billing,outstanding_usd::text FROM {} "
+                "WHERE project_id=%s AND run_id=%s AND scope='attempt'"
+            ).format(tx.table("reservations")),
+            (PROJECT, RUN),
+        ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def finished_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ledger: Ledger
+) -> tuple[Prepared, SimpleNamespace]:
+    run = Prepared(tmp_path, monkeypatch, ledger)
+    attempt = run.attempt(run.dispatch())
+    run.executor.success(attempt)
+    done = run.run("reconcile", "--attempt-id", attempt.attempt_id, "--execute")
+    assert done.exit == 0 and done.payload["attempt"]["state"] == "succeeded", done.raw
+    return run, attempt
+
+
+def billing_argv(run: Prepared, attempt: SimpleNamespace, amount: str = "2") -> list[str]:
+    """A billing document the independent authority attests as final and actual."""
+    proof = run.case.proof()
+    run.case.authority.billings[proof.digest] = ("actual", amount, True, True, False)
+    document = ref_file(run.env, f"billing-{proof.digest[:8]}.json", proof)
+    return [
+        "record-billing",
+        "--attempt-id",
+        attempt.attempt_id,
+        "--amount",
+        amount,
+        "--evidence",
+        document,
+    ]
+
+
+@pytest.mark.database
+def test_record_billing_moves_estimated_to_actual(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    before = budget_records(ledger)
+    assert ("reserve", "estimated") in {(r["eventType"], r["costStatus"]) for r in before}
+    assert all(r["costStatus"] != "actual" for r in before)  # nothing is billed yet
+    assert attempt_reservation(ledger) == ("0", False, "4")
+    result = run.run(*billing_argv(run, attempt), "--execute")
+    assert result.exit == 0, result.raw
+    assert result.payload["costStatus"] == "actual" and result.payload["amountUsd"] == "2"
+    settles = [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+    assert len(settles) == 1
+    assert settles[0]["costStatus"] == "actual" and settles[0]["amountUsd"] == "2"
+    assert settles[0]["scope"] == "attempt" and settles[0]["attemptId"] == attempt.attempt_id
+    assert attempt_reservation(ledger) == ("2", True, "0")
+    run.env.assert_redacted(result)
+
+
+@pytest.mark.database
+def test_record_billing_refuses_second_settlement(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    assert run.run(*billing_argv(run, attempt), "--execute").exit == 0
+    again = run.run(*billing_argv(run, attempt, "3"), "--execute")
+    assert again.exit == 1 and again.code == "determinism_conflict", again.raw
+    settles = [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+    assert [r["amountUsd"] for r in settles] == ["2"]  # a correction has no command
+    assert attempt_reservation(ledger)[0] == "2"
+
+
+@pytest.mark.database
+def test_record_billing_passes_apply_budget_event_check(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from conscience_foundry.cli import commands
+    from conscience_foundry.contracts.accounting import BudgetEvent
+    from conscience_foundry.ledger import budget
+
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    applied: list[BudgetEvent] = []
+    real = budget.apply_budget_event
+
+    def spy(event: BudgetEvent, *args: Any, **kwargs: Any) -> None:
+        applied.append(event)
+        real(event, *args, **kwargs)
+
+    monkeypatch.setattr(commands, "apply_budget_event", spy)
+    # Only the final-settlement path exists: a billing adjustment is never reachable here.
+    assert not hasattr(commands, "apply_billing_adjustment")
+    assert run.run(*billing_argv(run, attempt), "--execute").exit == 0
+    assert [(e.event_type, e.cost_status, e.scope) for e in applied] == [
+        ("settle", "actual", "attempt")
+    ]
+    assert applied[0].attempt_id == attempt.attempt_id and applied[0].reservation_id
+    assert run.case.authority.claims[-1].purpose == "final_billing"
+
+
+@pytest.mark.database
+def test_record_billing_keeps_the_ledger_guards_for_a_running_attempt(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Prepared(tmp_path, monkeypatch, ledger)
+    attempt = run.attempt(run.dispatch())  # still running: its funds may still be spent remotely
+    blocked = run.run(*billing_argv(run, attempt), "--execute")
+    assert blocked.exit == 3 and blocked.code == "dispatch_unknown", blocked.raw
+    assert not [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+    assert attempt_reservation(ledger) == ("0", False, "4")
+
+
+@pytest.mark.database
+def test_record_billing_requires_grant(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    argv = [*billing_argv(run, attempt), "--execute"]
+    claims = len(run.case.authority.claims)
+    # One grant class never implies another, and a sibling execution command is not this one.
+    for grants in (
+        {"execution": [n for n in ALL_GRANTS["execution"] if n != "record-billing"]},
+        {"recovery": ["backup", "restore"], "release": ["build-release"]},
+        {},
+    ):
+        run.env.grants = grants
+        run.env.write_config()
+        refused = run.run(*argv)
+        assert refused.exit == 3 and refused.code == "grant_missing", grants
+    assert len(run.case.authority.claims) == claims
+    assert not [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+    run.env.grants = ALL_GRANTS
+    run.env.write_config()
+    assert run.run(*argv).exit == 0
+
+
+@pytest.mark.database
+def test_record_billing_dry_run(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    claims = len(run.case.authority.claims)
+    dry = run.run(*billing_argv(run, attempt))
+    assert (
+        dry.exit == 0 and dry.payload["outcome"] == "dry_run" and dry.payload["executed"] is False
+    )
+    assert len(run.case.authority.claims) == claims
+    assert not [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+    assert attempt_reservation(ledger) == ("0", False, "4")
+
+
+@pytest.mark.database
+def test_record_billing_rejects_an_invalid_amount_before_any_ledger_write(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, attempt = finished_attempt(tmp_path, monkeypatch, ledger)
+    for amount in ("-1", "1e3", "abc", ""):
+        bad = billing_argv(run, attempt)
+        bad[bad.index("--amount") + 1] = amount
+        result = run.run(*bad, "--execute")
+        assert result.exit == 1 and result.code == "invalid_schema", amount
+    assert not [r for r in budget_records(ledger) if r["eventType"] == "settle"]
+
+
+@pytest.mark.database
+def test_reserve_storage_opens_reservation(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Prepared(tmp_path, monkeypatch, ledger)
+    gate = ledger_storage_gate(ledger, RUN)
+    assert gate(run.case.plan_ref, run.case.access) is False  # nothing is funded yet
+    proof = run.case.proof()
+    run.case.authority.storage_estimates[proof.digest] = (
+        "3",
+        (run.case.plan_ref,),
+        (run.case.authority.estimates[run.case.estimate.digest][1],),
+    )
+    argv = [
+        "reserve-storage",
+        "--run-id",
+        RUN,
+        "--amount",
+        "3",
+        "--evidence",
+        ref_file(run.env, "storage-estimate.json", proof),
+    ]
+    dry = run.run(*argv)
+    assert dry.payload["outcome"] == "dry_run" and gate(run.case.plan_ref, run.case.access) is False
+    result = run.run(*argv, "--execute")
+    assert result.exit == 0, result.raw
+    assert result.payload["runId"] == RUN and result.payload["costStatus"] == "estimated"
+    assert gate(run.case.plan_ref, run.case.access) is True
+    stored = [r for r in budget_records(ledger) if r["scope"] == "run_storage"]
+    assert [(r["eventType"], r["costStatus"], r["amountUsd"]) for r in stored] == [
+        ("reserve", "estimated", "3")
+    ]
+    run.env.assert_redacted(result)
+
+
+@pytest.mark.database
+def test_reserve_storage_is_refused_without_its_own_grant_or_attested_estimate(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Prepared(tmp_path, monkeypatch, ledger)
+    proof = run.case.proof()  # the authority never attested a storage estimate for it
+    argv = [
+        "reserve-storage",
+        "--run-id",
+        RUN,
+        "--amount",
+        "3",
+        "--evidence",
+        ref_file(run.env, "storage-estimate.json", proof),
+        "--execute",
+    ]
+    unattested = run.run(*argv)
+    assert unattested.exit != 0 and unattested.payload["outcome"] in {"blocked", "failed"}
+    run.env.grants = {"execution": [n for n in ALL_GRANTS["execution"] if n != "reserve-storage"]}
+    run.env.write_config()
+    refused = run.run(*argv)
+    assert refused.exit == 3 and refused.code == "grant_missing"
+    gate = ledger_storage_gate(ledger, RUN)
+    assert gate(run.case.plan_ref, run.case.access) is False
+    assert not [r for r in budget_records(ledger) if r["scope"] == "run_storage"]
+
+
+def test_reserve_storage_pilot_step_order() -> None:
+    assert "reserve-storage" in PILOT_STEP_COMMANDS
+    assert "record-billing" not in PILOT_STEP_COMMANDS  # billing is never a pilot step
+    for good in (
+        ("prepare-run", "authorize-run", "reserve-storage", "dispatch", "reconcile"),
+        ("authorize-run", "reserve-storage", "dispatch"),
+    ):
+        assert pilot_step_order_ok(good), good
+    for bad in (
+        ("prepare-run", "authorize-run", "dispatch", "reserve-storage"),
+        ("prepare-run", "authorize-run", "dispatch", "reserve-storage", "reconcile"),
+        ("reserve-storage", "authorize-run", "dispatch"),
+        ("prepare-run", "reserve-storage", "dispatch"),
+        ("authorize-run", "reserve-storage"),
+        ("reserve-storage",),
+    ):
+        assert not pilot_step_order_ok(bad), bad
+
+
+def test_project_cap_and_deadline_refusals_are_blocked_not_failed() -> None:
+    from conscience_foundry.cli.commands import classify
+    from conscience_foundry.contracts.common import ContractError
+
+    for code in ("project_concurrency_limit", "limit_exceeded"):
+        assert classify(ContractError(code)).status == "blocked", code

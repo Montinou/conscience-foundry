@@ -18,6 +18,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
+from uuid import uuid4
 
 import psycopg
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
@@ -35,6 +36,7 @@ from conscience_foundry.cli.config import (
 )
 from conscience_foundry.cli.drill import add_arguments as _drill_arguments
 from conscience_foundry.cli.drill import run_drill
+from conscience_foundry.contracts.accounting import BudgetEvent
 from conscience_foundry.contracts.admission import IntakeManifest
 from conscience_foundry.contracts.canonical import DocumentSpan, RevisionReview
 from conscience_foundry.contracts.common import (
@@ -43,6 +45,7 @@ from conscience_foundry.contracts.common import (
     Digest,
     ErrorCode,
     Id,
+    Money,
     Reason,
     Ref,
     WireModel,
@@ -76,7 +79,11 @@ from conscience_foundry.execution.evidence import (
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
 from conscience_foundry.ledger.attempts import load_attempt
-from conscience_foundry.ledger.budget import install_run_authorization
+from conscience_foundry.ledger.budget import (
+    apply_budget_event,
+    install_run_authorization,
+    reserve_storage,
+)
 from conscience_foundry.ledger.db import (
     AdmissionRegistrationEvidence,
     PauseState,
@@ -121,6 +128,8 @@ BLOCKED_CODES = frozenset(
         "unsupported_schema",
         "limits_missing",
         "admission_blocked",
+        "project_concurrency_limit",
+        "limit_exceeded",
     }
 )
 """Deliberate refusals; anything else is a failure of the work itself."""
@@ -177,6 +186,13 @@ def _id(value: object) -> Id:
 def _digest(value: object) -> Digest:
     try:
         return TypeAdapter(Digest).validate_python(value)
+    except ValidationError:
+        raise ContractError("invalid_schema") from None
+
+
+def _money(value: object) -> Money:
+    try:
+        return TypeAdapter(Money).validate_python(value)
     except ValidationError:
         raise ContractError("invalid_schema") from None
 
@@ -408,6 +424,27 @@ def _authorize_run(inv: Invocation) -> Outcome:
     )
 
 
+def _reserve_storage_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--amount", required=True, help="USD of the reviewed storage estimate")
+    parser.add_argument(
+        "--evidence", required=True, help="reference of the reviewed estimate's storage line"
+    )
+
+
+def _reserve_storage(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    run_id, amount = _id(args.run_id), _money(args.amount)
+    evidence = _ref_file(rt, args.evidence)
+    control = rt.control
+    with rt.ledger.transaction() as tx:
+        # The ledger asks the evidence authority to attest the estimate before it funds anything.
+        reservation = reserve_storage(
+            run_id, amount, evidence, tx, context=budget_context(control, tx=tx)
+        )
+    return _ok(runId=run_id, reservationId=reservation, amountUsd=amount, costStatus="estimated")
+
+
 # --- dispatch / reconcile / cancel / pause / resume -------------------------------------------
 
 
@@ -496,6 +533,51 @@ def _reconcile(inv: Invocation) -> Outcome:
     selected = reconcile(attempt_id, rt.ledger, executor, rt.store, control=rt.control)
     return _attempt_outcome(
         _attempt(rt, attempt_id), selection=_dump(selected) if selected is not None else None
+    )
+
+
+def _record_billing_arguments(parser: argparse.ArgumentParser) -> None:
+    _attempt_argument(parser)
+    parser.add_argument("--amount", required=True, help="USD actually billed for the attempt")
+    parser.add_argument(
+        "--evidence", required=True, help="reference of the operator's billing document"
+    )
+
+
+def _record_billing(inv: Invocation) -> Outcome:
+    """Record the one final settlement of an attempt; a recorded settlement is never revised."""
+    rt, args = inv.rt, inv.args
+    attempt_id, amount = _id(args.attempt_id), _money(args.amount)
+    evidence = _ref_file(rt, args.evidence)
+    control = rt.control
+    with rt.ledger.transaction() as tx:
+        reference, run_id, _, _ = load_attempt(tx, rt.config.project_id, attempt_id)
+        reservation_id = read_model(reference, StageAttempt, control)[1].reservation_id
+        event = BudgetEvent(
+            schema_version="cf.budget-event.v1",
+            project_id=rt.config.project_id,
+            run_id=run_id,
+            reservation_id=reservation_id,
+            scope="attempt",
+            attempt_id=attempt_id,
+            event_id=str(uuid4()),
+            event_type="settle",
+            amount_usd=amount,
+            cost_status="actual",
+            evidence_ref=evidence,
+            created_at=rt.clock(),
+        )
+        # The ledger asks the evidence authority to attest the billing facts (purpose
+        # `final_billing`) and refuses an attempt that may still be executing remotely.
+        apply_budget_event(
+            event, tx, event_bytes=encoded(event), context=budget_context(control, tx=tx)
+        )
+    return _ok(
+        attemptId=attempt_id,
+        runId=run_id,
+        reservationId=reservation_id,
+        amountUsd=amount,
+        costStatus="actual",
     )
 
 
@@ -923,6 +1005,13 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE, EVIDENCE),
     ),
     Command(
+        "reserve-storage",
+        "reserve the reviewed storage estimate for a run before any upload",
+        _reserve_storage_arguments,
+        _reserve_storage,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
         "dispatch",
         "claim and submit one attempt through the ledger",
         _dispatch_arguments,
@@ -942,6 +1031,13 @@ COMMANDS: tuple[Command, ...] = (
         _cancel_arguments,
         _cancel,
         (DATABASE, EVIDENCE, EXECUTOR),
+    ),
+    Command(
+        "record-billing",
+        "record the final actual billing of an attempt from the operator's billing document",
+        _record_billing_arguments,
+        _record_billing,
+        (DATABASE, EVIDENCE),
     ),
     Command("pause", "set a durable pause barrier", _pause_arguments, _pause, (DATABASE, EVIDENCE)),
     Command(

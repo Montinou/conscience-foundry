@@ -796,6 +796,18 @@ def test_grant_is_bound_to_actor_window_and_a_ready_report() -> None:
     )
     unknown_command = grant_blockers(case, grant_for(case, commands=("restore",)))
     assert any("grant:command" in reason.message for reason in unknown_command)
+    storage = ("prepare-run", "authorize-run", "reserve-storage", "dispatch", "reconcile")
+    assert grant_blockers(case, grant_for(case, commands=storage)) == []
+    late = (*storage[:3], "dispatch", "reserve-storage")  # storage is funded before the spend
+    assert any(
+        "grant:step_order" in reason.message
+        for reason in grant_blockers(case, grant_for(case, commands=late))
+    )
+    unauthorized = ("prepare-run", "reserve-storage", "dispatch")
+    assert any(
+        "grant:step_order" in reason.message
+        for reason in grant_blockers(case, grant_for(case, commands=unauthorized))
+    )
 
 
 def test_packet_expiry_is_a_blocker() -> None:
