@@ -8,6 +8,7 @@ no independent media; that is a separate live gate.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -24,7 +25,15 @@ from test_import_publication import Library, b_content_reads, build_library, spa
 from test_ledger_db import ACTOR, ASSET, BATCH, PROJECT, TIME
 from test_release_build import B_ASSET, B_SOURCE, approval_request, deny_b, make_case
 
-from conscience_foundry.cli.config import TrustedServices
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "adapters"))
+from test_staging_s3 import BUCKET, FakeS3  # noqa: E402
+
+from conscience_foundry.cli.config import (  # noqa: E402
+    LocalStoreSettings,
+    R2StoreSettings,
+    TrustedServices,
+    load_config,
+)
 from conscience_foundry.contracts.common import ContractError, Reason, Ref
 from conscience_foundry.contracts.execution import ResultManifest
 from conscience_foundry.contracts.release import RetentionPolicy
@@ -58,13 +67,14 @@ from conscience_foundry.recovery.retention import (
 from conscience_foundry.release.build import record_admission_withdrawal
 from conscience_foundry.release.importer import import_release
 from conscience_foundry.release.read import resolve_span
-from conscience_foundry.storage.local import LocalObjectStore
+from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
+from conscience_foundry.storage.r2 import R2ObjectStore
 
 pytestmark = pytest.mark.database
 REVOKED = "2026-10-26T00:00:00.000Z"
 POLICY = RetentionPolicy(
-    schema_version="kf.retention.v1",
+    schema_version="cf.retention.v1",
     policy_version="synthetic.v1",
     min_staging_age_seconds=60,
     funded_staging_horizon_seconds=3600,
@@ -130,7 +140,7 @@ def verified(library: Library) -> None:
     assert library.row()[0] is True
 
 
-def take(library: Library, destination: LocalObjectStore, **overrides: Any) -> RecoveryManifest:
+def take(library: Library, destination: ObjectStore, **overrides: Any) -> RecoveryManifest:
     arguments: dict[str, Any] = {"release": library.value.release, **overrides}
     store = library.value.release.store
     return backup(library.access, library.ledger, store, destination, **arguments)
@@ -139,7 +149,7 @@ def take(library: Library, destination: LocalObjectStore, **overrides: Any) -> R
 def put_back(
     library: Library,
     manifest: RecoveryManifest,
-    source: LocalObjectStore,
+    source: ObjectStore,
     target: LocalObjectStore,
     ledger: Ledger,
 ) -> RecoveryReport:
@@ -549,19 +559,19 @@ def test_backup_survives_a_verified_release_that_is_no_longer_eligible(
 def test_backup_refuses_a_manifest_the_restore_limits_would_refuse(
     library: Library, backup_store: LocalObjectStore, tmp_path: Path, cap: dict[str, int]
 ) -> None:
-    """The manifest is decoded at restore under kf.library-release.v1 limits; backup must agree."""
+    """The manifest is decoded at restore under cf.library-release.v1 limits; backup must agree."""
     lib = library
     verified(lib)
     release = lib.value.release
     # The caps stay above what loading the release itself needs, so only the manifest trips them.
     tight = dict(release.limits_by_schema)
-    tight["kf.library-release.v1"] = tight["kf.library-release.v1"].model_copy(update=cap)
+    tight["cf.library-release.v1"] = tight["cf.library-release.v1"].model_copy(update=cap)
     with pytest.raises(ContractError) as error:
         take(lib, backup_store, release=replace(release, limits_by_schema=tight))
     assert error.value.code == "limit_exceeded"
     assert object_files(tmp_path / "backup") == set()  # nothing was copied before the refusal
     manifest = take(lib, backup_store)  # the same recovery point under the normal limits is fine
-    normal = release.limits_by_schema["kf.library-release.v1"]
+    normal = release.limits_by_schema["cf.library-release.v1"]
     assert RecoveryManifest.from_wire(manifest_wire(manifest), normal) == manifest
 
 
@@ -676,10 +686,10 @@ def result_outputs(lib: Library) -> tuple[Ref, ...]:
     """The outputs the staged result manifest lists, read the way the retention report reads it."""
     (entry,) = retention(lib, "2026-10-25T00:10:00.000Z").entries
     raw = lib.value.release.store.read_verified(entry.ref, lib.access, entry.ref.size_bytes).data
-    manifest = ResultManifest.from_wire(raw, limits_for(lib.value.release, "kf.result.v1"))
+    manifest = ResultManifest.from_wire(raw, limits_for(lib.value.release, "cf.result.v1"))
     assert {ref.artifact_schema for ref in manifest.outputs} >= {
-        "kf.document-revision.v1",
-        "kf.quality-report.v1",
+        "cf.document-revision.v1",
+        "cf.quality-report.v1",
     }
     return manifest.outputs
 
@@ -999,3 +1009,167 @@ def test_cli_backup_and_restore_report_the_excluded_releases(
     )
     assert restored.exit == 0, restored.raw
     assert restored.payload["excludedReleases"] == [lib.digest]
+
+
+# --- R2 backup store ---------------------------------------------------------------------------
+
+KEY_ENV = "CF_TEST_R2_ACCESS_KEY"
+SECRET_ENV = "CF_TEST_R2_SECRET_KEY"
+KEY_VALUE = "synthetic-r2-access-key-id"
+SECRET_VALUE = "synthetic-r2-secret-access-key"
+
+
+def r2_store(library: Library, client: FakeS3) -> R2ObjectStore:
+    access = library.value.case.access
+
+    def authority(ref: Ref, context: AccessContext, effect: str) -> None:
+        if ref.project_id != PROJECT or context != access:
+            raise ContractError("forbidden")
+
+    return R2ObjectStore(
+        client, BUCKET, "backup", authorize=authority, limits=library.value.case.bound
+    )
+
+
+def r2_settings(env: Env) -> dict[str, Any]:
+    return {
+        "kind": "r2",
+        "storeId": "backup",
+        "accountId": "synthetic-account-id",
+        "bucket": BUCKET,
+        "accessKeyEnv": KEY_ENV,
+        "secretEnv": SECRET_ENV,
+        "limits": env.bound.model_dump(by_alias=True),
+    }
+
+
+def test_backup_restore_roundtrip_r2(
+    library: Library,
+    target_ledger: Ledger,
+    restore_store: LocalObjectStore,
+) -> None:
+    lib = library
+    verified(lib)
+    fake = FakeS3()
+    remote = r2_store(lib, fake)
+    manifest = take(lib, remote)
+    refs = (manifest.ledger_snapshot_ref, *manifest.content_refs, *manifest.audit_refs)
+    assert refs and set(fake.objects) == {f"sha256/{r.digest[:2]}/{r.digest}" for r in refs}
+    assert all(key.startswith("sha256/") for key in fake.objects)
+
+    report = put_back(lib, manifest, remote, restore_store, target_ledger)
+
+    assert report.missing_refs == () and report.dispatch_blocked is True
+    assert {r.digest for r in report.verified_refs} >= ref_digests(manifest.content_refs)
+    assert pause_rows(target_ledger) == [(True, 1, BARRIER_REASON)]
+    assert_unverified(target_ledger)
+    again = take(lib, remote)  # content-addressed and conditional: a second backup is idempotent
+    assert again.content_refs == manifest.content_refs
+    assert len(fake.objects) == len(set(fake.objects))
+
+
+def test_object_store_refuses_r2_kind(env: Env) -> None:
+    env.extra["objectStore"] = r2_settings(env)
+    env.write_config()
+    with pytest.raises(ContractError) as refused:
+        load_config(env.config_path)
+    assert refused.value.code == "config_invalid"
+    blocked = env.invoke("backup", "--manifest-output", str(env.tmp / "never.json"))
+    assert blocked.code == "config_invalid" and blocked.exit == 3
+
+
+def test_legacy_store_settings_are_local(env: Env, tmp_path: Path) -> None:
+    env.extra["backupStore"] = {
+        "storeId": "backup",
+        "rootPath": str(tmp_path / "somewhere"),
+        "limits": env.bound.model_dump(by_alias=True),
+    }
+    env.write_config()
+    config = load_config(env.config_path)
+    assert isinstance(config.object_store, LocalStoreSettings)
+    assert isinstance(config.backup_store, LocalStoreSettings)
+    assert config.object_store.kind == config.backup_store.kind == "local"
+    env.extra["backupStore"]["kind"] = "local"  # the explicit tag means the same thing
+    env.write_config()
+    assert load_config(env.config_path).backup_store == config.backup_store
+    env.extra["backupStore"] = r2_settings(env)
+    env.write_config()
+    chosen = load_config(env.config_path).backup_store
+    assert isinstance(chosen, R2StoreSettings) and chosen.bucket == BUCKET
+    env.extra["backupStore"] = {**r2_settings(env), "rootPath": str(tmp_path)}
+    env.write_config()
+    with pytest.raises(ContractError):  # an r2 entry carrying a local field is not either kind
+        load_config(env.config_path)
+
+
+def r2_cli(
+    lib: Library,
+    ledger: Ledger,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake: FakeS3,
+) -> tuple[Env, list[tuple[str, str, str]]]:
+    env = cli_env(tmp_path, monkeypatch, lib, ledger, None)
+    env.extra["backupStore"] = r2_settings(env)
+    env.write_config()
+    monkeypatch.setenv(KEY_ENV, KEY_VALUE)
+    monkeypatch.setenv(SECRET_ENV, SECRET_VALUE)
+    built: list[tuple[str, str, str]] = []
+
+    def factory(account_id: str, access_key_id: str, secret_access_key: str) -> FakeS3:
+        built.append((account_id, access_key_id, secret_access_key))
+        return fake
+
+    monkeypatch.setattr("conscience_foundry.cli.config.r2_static_client", factory)
+    return env, built
+
+
+def test_backup_reports_r2_media(
+    library: Library,
+    ledger: Ledger,
+    target_ledger: Ledger,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = library
+    verified(lib)
+    fake = FakeS3()
+    source, built = r2_cli(lib, ledger, tmp_path, monkeypatch, fake)
+    services = TrustedServices(clock=lambda: READY)
+    manifest_path = tmp_path / "recovery.json"
+
+    done = source.invoke(
+        "backup", "--manifest-output", str(manifest_path), "--execute", services=services
+    )
+
+    assert done.exit == 0, done.raw
+    assert done.payload["independentMedia"] == f"r2:{BUCKET}"
+    assert done.payload["independentlyVerified"] is False
+    assert done.payload["contentRefs"] > 0 and fake.objects
+    assert built == [("synthetic-account-id", KEY_VALUE, SECRET_VALUE)]
+    source.assert_redacted(done)
+    for secret in (KEY_VALUE, SECRET_VALUE):
+        assert secret not in done.raw
+
+    target, _ = r2_cli(lib, target_ledger, tmp_path / "target", monkeypatch, fake)
+    restored = target.invoke(
+        "restore", "--manifest", str(manifest_path), "--execute", services=services
+    )
+    assert restored.exit == 0, restored.raw
+    assert restored.payload["missingRefs"] == [] and restored.payload["dispatchBlocked"] is True
+
+
+def test_r2_backup_without_credentials_is_a_stated_blocker(
+    library: Library,
+    ledger: Ledger,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3()
+    env, built = r2_cli(library, ledger, tmp_path, monkeypatch, fake)
+    monkeypatch.delenv(SECRET_ENV)
+    out = tmp_path / "recovery.json"
+    blocked = env.invoke("backup", "--manifest-output", str(out), "--execute")
+    assert blocked.code == "credential_unavailable" and blocked.exit == 3
+    assert "backup_credential" in blocked.payload["blockers"]
+    assert not out.exists() and not fake.calls and not built

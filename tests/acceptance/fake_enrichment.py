@@ -81,7 +81,7 @@ def operation_key_for(label: str = "synthetic.enrichment") -> Digest:
 def contract_limits() -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.acceptance.v1",
             "maxJsonBytes": 65536,
             "maxStringScalars": 1024,
@@ -192,7 +192,7 @@ def _ref(schema: str, data: bytes | None = None, media: str = "application/json"
     body = data if data is not None else schema.encode()
     return Ref.model_validate(
         {
-            "schemaVersion": "kf.artifact-ref.v1",
+            "schemaVersion": "cf.artifact-ref.v1",
             "projectId": PROJECT,
             "digest": hashlib.sha256(body).hexdigest(),
             "sizeBytes": len(body),
@@ -232,27 +232,27 @@ class EnrichmentHarness:
         self.text_bytes = self.text.encode("utf-8")
         self.revision_id: str = CASES["revisionId"]
         self.review = review or DeterministicEditorialReview(CASES["verdicts"])
-        text_ref = _ref("kf.canonical-text.v1", self.text_bytes, "text/plain")
+        text_ref = _ref("cf.canonical-text.v1", self.text_bytes, "text/plain")
         self.revision = DocumentRevision.model_validate(
             {
-                "schemaVersion": "kf.document-revision.v1",
+                "schemaVersion": "cf.document-revision.v1",
                 "projectId": PROJECT,
                 "sourceId": SOURCE,
                 "assetId": ASSET,
                 "revisionId": self.revision_id,
-                "originalRef": _ref("kf.raw-original.v1", self.text_bytes, "text/plain"),
+                "originalRef": _ref("cf.raw-original.v1", self.text_bytes, "text/plain"),
                 "textRef": text_ref,
-                "extractionSpecRef": _ref("kf.extraction-spec.v1"),
+                "extractionSpecRef": _ref("cf.extraction-spec.v1"),
                 "textEncoding": "utf-8",
                 "offsetUnit": "unicode_scalar",
                 "sections": [{"sectionId": "body", "start": 0, "end": len(self.text)}],
-                "originMapRef": _ref("kf.origin-map.v1"),
-                "qualityReportRef": _ref("kf.quality-report.v1"),
+                "originMapRef": _ref("cf.origin-map.v1"),
+                "qualityReportRef": _ref("cf.quality-report.v1"),
             }
         )
         self.spec = EnrichmentSpec.model_validate(
             {
-                "schemaVersion": "kf.enrichment-spec.v1",
+                "schemaVersion": "cf.enrichment-spec.v1",
                 "specId": "synthetic.v1",
                 "taskId": "synthetic.annotation",
                 "profileId": "technical_minimal",
@@ -274,13 +274,13 @@ class EnrichmentHarness:
         self.reservation_id = reservation_id
         self.request = EnrichmentRequest.model_validate(
             {
-                "schemaVersion": "kf.enrichment-request.v1",
+                "schemaVersion": "cf.enrichment-request.v1",
                 "projectId": PROJECT,
                 "operationKey": operation_key,
                 "attemptId": attempt_id,
-                "specRef": _ref("kf.enrichment-spec.v1"),
-                "policyRef": _ref("kf.policy.v1"),
-                "canonicalRevisionRefs": [_ref("kf.document-revision.v1")],
+                "specRef": _ref("cf.enrichment-spec.v1"),
+                "policyRef": _ref("cf.policy.v1"),
+                "canonicalRevisionRefs": [_ref("cf.document-revision.v1")],
                 "contextSpans": [],
                 "omittedContextRefs": [],
                 "inputRef": _ref("synthetic.payload.v1"),
@@ -294,7 +294,7 @@ class EnrichmentHarness:
     def span_for(self, start: int, end: int, revision_id: str) -> DocumentSpan:
         return DocumentSpan.model_validate(
             {
-                "schemaVersion": "kf.document-span.v1",
+                "schemaVersion": "cf.document-span.v1",
                 "projectId": PROJECT,
                 "sourceId": SOURCE,
                 "revisionId": revision_id,
@@ -353,7 +353,7 @@ class EnrichmentHarness:
                 reason = Reason(code=error.code, message="Response failed the schema check")  # type: ignore[arg-type]
             else:
                 schema = "valid"
-                candidate_ref = _ref("kf.annotation-set.v1", response.raw)
+                candidate_ref = _ref("cf.annotation-set.v1", response.raw)
                 try:
                     for annotation in parsed.annotations:
                         self._anchor(annotation)
@@ -373,7 +373,7 @@ class EnrichmentHarness:
                         semantic, disposition = "insufficient_context", "needs_review"
         result = EnrichmentResult.model_validate(
             {
-                "schemaVersion": "kf.enrichment-result.v1",
+                "schemaVersion": "cf.enrichment-result.v1",
                 "projectId": PROJECT,
                 "operationKey": self.operation_key,
                 "attemptId": self.attempt_id,

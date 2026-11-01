@@ -864,12 +864,12 @@ def test_fake_no_response(allowance_ledger: Ledger) -> None:
     fabricated = result.model_dump(mode="json", by_alias=True) | {
         "candidateAnnotationsRef": Ref.model_validate(
             {
-                "schemaVersion": "kf.artifact-ref.v1",
+                "schemaVersion": "cf.artifact-ref.v1",
                 "projectId": PROJECT,
                 "digest": "a" * 64,
                 "sizeBytes": 1,
                 "mediaType": "application/json",
-                "artifactSchema": "kf.annotation-set.v1",
+                "artifactSchema": "cf.annotation-set.v1",
                 "locations": [],
             }
         ).model_dump(mode="json", by_alias=True)
@@ -976,7 +976,7 @@ def decision_fixture() -> (
     def ref(schema: str) -> Ref:
         return Ref.model_validate(
             {
-                "schemaVersion": "kf.artifact-ref.v1",
+                "schemaVersion": "cf.artifact-ref.v1",
                 "projectId": PROJECT,
                 "digest": hashlib.sha256(schema.encode()).hexdigest(),
                 "sizeBytes": len(schema),
@@ -988,12 +988,12 @@ def decision_fixture() -> (
 
     request = DecisionRequest.model_validate(
         {
-            "schemaVersion": "kf.decision-request.v1",
+            "schemaVersion": "cf.decision-request.v1",
             "projectId": PROJECT,
-            "taskSpecRef": ref("kf.decision-task.v1"),
-            "decisionReleaseRef": ref("kf.decision-release.v1"),
+            "taskSpecRef": ref("cf.decision-task.v1"),
+            "decisionReleaseRef": ref("cf.decision-release.v1"),
             "inputRef": ref("synthetic.payload.v1"),
-            "policyRef": ref("kf.policy.v1"),
+            "policyRef": ref("cf.policy.v1"),
             "contextRevisionRefs": [],
             "operationKey": "c" * 64,
             "attemptId": str(uuid4()),
@@ -1004,7 +1004,7 @@ def decision_fixture() -> (
     raw = request.model_dump_json(by_alias=True).encode()
     task = DecisionTaskSpec.model_validate(
         {
-            "schemaVersion": "kf.decision-task.v1",
+            "schemaVersion": "cf.decision-task.v1",
             "taskId": "synthetic.categorical",
             "version": "synthetic.v1",
             "inputSchemaRef": ref("json-schema.2020-12"),
@@ -1016,10 +1016,10 @@ def decision_fixture() -> (
     )
     release = DecisionRelease.model_validate(
         {
-            "schemaVersion": "kf.decision-release.v1",
+            "schemaVersion": "cf.decision-release.v1",
             "releaseId": str(uuid4()),
             "implementation": "classifier",
-            "taskSpecRefs": [ref("kf.decision-task.v1")],
+            "taskSpecRefs": [ref("cf.decision-task.v1")],
             "runtimeRef": ref("synthetic.runtime.v1"),
             "stateBuilderRef": ref("synthetic.state.v1"),
             "datasetProvenanceRef": ref("synthetic.dataset.v1"),
@@ -1082,7 +1082,7 @@ def test_fake_wrong_request_or_uncertified_decision(allowance_ledger: Ledger) ->
     # Decision: an uncertified cohort can never drive a prediction, by envelope or by policy.
     raw, task, release, context = decision_fixture()
     base: dict[str, Any] = {
-        "schemaVersion": "kf.decision-result.v1",
+        "schemaVersion": "cf.decision-result.v1",
         "projectId": PROJECT,
         "operationKey": context.operation_key,
         "attemptId": context.attempt_id,

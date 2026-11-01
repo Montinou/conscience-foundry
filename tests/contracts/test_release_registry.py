@@ -49,7 +49,7 @@ LATER = "2026-10-25T01:00:00.000Z"
 def limits(**updates: int) -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.limits.v1",
             "maxJsonBytes": 1048576,
             "maxStringScalars": 4096,
@@ -64,9 +64,9 @@ def limits(**updates: int) -> ContractLimits:
     )
 
 
-def ref(schema: str = "kf.document-revision.v1", **updates: object) -> dict[str, object]:
+def ref(schema: str = "cf.document-revision.v1", **updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": "a" * 64,
         "sizeBytes": 17,
@@ -84,13 +84,13 @@ def source(source_id: str = SOURCE, **updates: object) -> dict[str, object]:
     return {
         "sourceId": source_id,
         "revisionRef": ref(digest="b" * 64 if source_id == SOURCE else "c" * 64),
-        "reviewRef": ref("kf.revision-review.v1"),
+        "reviewRef": ref("cf.revision-review.v1"),
     } | updates
 
 
 def release(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.library-release.v1",
+        "schemaVersion": "cf.library-release.v1",
         "projectId": PROJECT,
         "releaseId": RELEASE,
         "profileId": "technical_minimal",
@@ -98,14 +98,14 @@ def release(**updates: object) -> dict[str, object]:
         "capabilities": ["canonical_text"],
         "sourceEntries": [source()],
         "componentRefs": [],
-        "coverageReportRef": ref("kf.coverage-report.v1"),
-        "provenanceReportRef": ref("kf.provenance-report.v1"),
+        "coverageReportRef": ref("cf.coverage-report.v1"),
+        "provenanceReportRef": ref("cf.provenance-report.v1"),
         "createdAt": TIME,
     } | updates
 
 
 def selection_digest(entries: list[dict[str, object]]) -> str:
-    return hash_jcs("kf.release-selection.v1", entries)
+    return hash_jcs("cf.release-selection.v1", entries)
 
 
 def coverage_entry(**updates: object) -> dict[str, object]:
@@ -116,17 +116,17 @@ def coverage_entry(**updates: object) -> dict[str, object]:
         "status": "accepted",
         "selected": True,
         "revisionRef": source()["revisionRef"],
-        "outcomeEvidenceRefs": [ref("kf.run-report.v1")],
+        "outcomeEvidenceRefs": [ref("cf.run-report.v1")],
         "reasons": [],
     } | updates
 
 
 def coverage(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.coverage-report.v1",
+        "schemaVersion": "cf.coverage-report.v1",
         "projectId": PROJECT,
         "selectionDigest": selection_digest([source()]),
-        "admissionReportRefs": [ref("kf.admission-report.v1")],
+        "admissionReportRefs": [ref("cf.admission-report.v1")],
         "entries": [coverage_entry()],
         "reportAt": TIME,
     } | updates
@@ -134,15 +134,15 @@ def coverage(**updates: object) -> dict[str, object]:
 
 def provenance(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.provenance-report.v1",
+        "schemaVersion": "cf.provenance-report.v1",
         "projectId": PROJECT,
         "selectionDigest": selection_digest([source()]),
         "entries": [
             source()
             | {
-                "operationResultRef": ref("kf.operation-result-record.v1"),
-                "attemptRefs": [ref("kf.stage-attempt.v1")],
-                "runReportRefs": [ref("kf.run-report.v1")],
+                "operationResultRef": ref("cf.operation-result-record.v1"),
+                "attemptRefs": [ref("cf.stage-attempt.v1")],
+                "runReportRefs": [ref("cf.run-report.v1")],
             }
         ],
         "reportAt": TIME,
@@ -154,15 +154,15 @@ def test_unknown_edge_role_fails_closed() -> None:
         edge_roles("unknown.v1", {})
     value = release() | {"unregisteredRef": ref()}
     with pytest.raises(ContractError):
-        edge_roles("kf.library-release.v1", value)
+        edge_roles("cf.library-release.v1", value)
     with pytest.raises(ValidationError):
         LibraryRelease.model_validate(value)
     report = CoverageReport.model_validate(coverage())
-    roles = edge_roles("kf.coverage-report.v1", report)
+    roles = edge_roles("cf.coverage-report.v1", report)
     assert [(edge.ref.artifact_schema, edge.role) for edge in roles] == [
-        ("kf.admission-report.v1", "audit"),
-        ("kf.run-report.v1", "audit"),
-        ("kf.document-revision.v1", "content"),
+        ("cf.admission-report.v1", "audit"),
+        ("cf.run-report.v1", "audit"),
+        ("cf.document-revision.v1", "content"),
     ]
 
 
@@ -173,7 +173,7 @@ def test_selection_digest_has_no_parent_cycle() -> None:
     report.validate_selection(selected)
     lineage.validate_selection(selected)
     assert report.selection_digest == hash_jcs(
-        "kf.release-selection.v1", selected.model_dump(mode="json", by_alias=True)["sourceEntries"]
+        "cf.release-selection.v1", selected.model_dump(mode="json", by_alias=True)["sourceEntries"]
     )
     for model in (report, lineage):
         assert "releaseRef" not in model.model_dump(by_alias=True)
@@ -189,7 +189,7 @@ def test_selection_digest_has_no_parent_cycle() -> None:
     with pytest.raises(ContractError):
         CoverageReport.model_validate(changed).validate_selection(selected)
     changed = copy.deepcopy(provenance())
-    changed["entries"][0]["reviewRef"] = ref("kf.revision-review.v1", digest="d" * 64)
+    changed["entries"][0]["reviewRef"] = ref("cf.revision-review.v1", digest="d" * 64)
     with pytest.raises(ContractError):
         ProvenanceReport.model_validate(changed).validate_selection(selected)
 
@@ -208,11 +208,11 @@ def test_excluded_revision_is_only_audit_and_rows_remain() -> None:
     assert len(report.entries) == 2
     assert [
         edge.role
-        for edge in edge_roles("kf.coverage-report.v1", report)
+        for edge in edge_roles("cf.coverage-report.v1", report)
         if edge.ref.digest == "e" * 64
     ] == ["audit"]
     lineage_roles = edge_roles(
-        "kf.provenance-report.v1", ProvenanceReport.model_validate(provenance())
+        "cf.provenance-report.v1", ProvenanceReport.model_validate(provenance())
     )
     assert [edge.role for edge in lineage_roles] == [
         "content",
@@ -236,11 +236,11 @@ def test_excluded_revision_is_only_audit_and_rows_remain() -> None:
 def test_release_references_and_f1_capabilities() -> None:
     value = LibraryRelease.model_validate(release())
     value.validate_f1()
-    assert all(edge.role == "content" for edge in edge_roles("kf.library-release.v1", value))
-    assert len(edge_roles("kf.library-release.v1", value)) == 4
+    assert all(edge.role == "content" for edge in edge_roles("cf.library-release.v1", value))
+    assert len(edge_roles("cf.library-release.v1", value)) == 4
     for update in (
-        {"coverageReportRef": ref("kf.coverage-report.v1", projectId=OTHER_PROJECT)},
-        {"coverageReportRef": ref("kf.run-report.v1")},
+        {"coverageReportRef": ref("cf.coverage-report.v1", projectId=OTHER_PROJECT)},
+        {"coverageReportRef": ref("cf.run-report.v1")},
         {"capabilities": ["canonical_text", "canonical_text"]},
     ):
         with pytest.raises(ValidationError):
@@ -251,14 +251,14 @@ def test_release_references_and_f1_capabilities() -> None:
 
 def test_publication_conditional_fields_and_no_implicit_grants() -> None:
     base = {
-        "schemaVersion": "kf.publication-record.v1",
+        "schemaVersion": "cf.publication-record.v1",
         "projectId": PROJECT,
         "releaseDigest": "a" * 64,
         "eventId": EVENT,
         "stage": "candidate",
         "actorId": ACTOR,
-        "policyRef": ref("kf.policy.v1"),
-        "evidenceRefs": [ref("kf.library-release.v1")],
+        "policyRef": ref("cf.policy.v1"),
+        "evidenceRefs": [ref("cf.library-release.v1")],
         "recordedAt": TIME,
     }
     candidate = PublicationRecord.model_validate(base)
@@ -270,8 +270,8 @@ def test_publication_conditional_fields_and_no_implicit_grants() -> None:
         {"stage": "validated"},
         {"evidenceRefs": []},
         {"stage": "candidate", "previousEventId": PREVIOUS},
-        {"publicationAuthorizationRef": ref("kf.publication-authorization.v1")},
-        {"policyRef": ref("kf.policy.v1", projectId=OTHER_PROJECT)},
+        {"publicationAuthorizationRef": ref("cf.publication-authorization.v1")},
+        {"policyRef": ref("cf.policy.v1", projectId=OTHER_PROJECT)},
     ):
         with pytest.raises(ValidationError):
             PublicationRecord.model_validate(base | update)
@@ -280,16 +280,16 @@ def test_publication_conditional_fields_and_no_implicit_grants() -> None:
         | {
             "stage": "published",
             "previousEventId": PREVIOUS,
-            "publicationAuthorizationRef": ref("kf.publication-authorization.v1"),
+            "publicationAuthorizationRef": ref("cf.publication-authorization.v1"),
         }
     )
-    assert all(edge.role == "audit" for edge in edge_roles("kf.publication-record.v1", published))
+    assert all(edge.role == "audit" for edge in edge_roles("cf.publication-record.v1", published))
     grant = {
-        "schemaVersion": "kf.publication-authorization.v1",
+        "schemaVersion": "cf.publication-authorization.v1",
         "projectId": PROJECT,
         "releaseDigest": "a" * 64,
         "actorId": ACTOR,
-        "policyRef": ref("kf.policy.v1"),
+        "policyRef": ref("cf.policy.v1"),
         "authorizedAt": TIME,
         "expiresAt": LATER,
     }
@@ -298,7 +298,7 @@ def test_publication_conditional_fields_and_no_implicit_grants() -> None:
         PublicationAuthorization.model_validate(grant | {"expiresAt": TIME})
     activation = ActivationRecord.model_validate(
         {
-            "schemaVersion": "kf.activation.v1",
+            "schemaVersion": "cf.activation.v1",
             "projectId": PROJECT,
             "nextReleaseDigest": "a" * 64,
             "actorId": ACTOR,
@@ -314,10 +314,10 @@ def test_publication_conditional_fields_and_no_implicit_grants() -> None:
 
 def test_import_and_retention_shapes_do_not_claim_runtime_success() -> None:
     receipt = {
-        "schemaVersion": "kf.import-receipt.v1",
+        "schemaVersion": "cf.import-receipt.v1",
         "projectId": PROJECT,
         "importId": EVENT,
-        "releaseRef": ref("kf.library-release.v1"),
+        "releaseRef": ref("cf.library-release.v1"),
         "verifiedArtifacts": [ref()],
         "status": "local_verified",
         "checkedAt": TIME,
@@ -333,7 +333,7 @@ def test_import_and_retention_shapes_do_not_claim_runtime_success() -> None:
         with pytest.raises(ValidationError):
             ImportReceipt.model_validate(receipt | update)
     retention = {
-        "schemaVersion": "kf.retention.v1",
+        "schemaVersion": "cf.retention.v1",
         "policyVersion": "synthetic.v1",
         "minStagingAgeSeconds": 1,
         "fundedStagingHorizonSeconds": 20,
@@ -367,8 +367,8 @@ def test_schema_exports_pin_actual_bytes_and_semantic_descriptors(tmp_path: Path
     assert tuple(binding.schema_id for binding in bundle.contracts) == tuple(
         sorted(registered_schema_ids())
     )
-    assert "kf.artifact-manifest.v1" in registered_schema_ids()
-    assert "kf.execution-config.v1" in registered_schema_ids()
+    assert "cf.artifact-manifest.v1" in registered_schema_ids()
+    assert "cf.execution-config.v1" in registered_schema_ids()
     for binding in bundle.contracts:
         for artifact in (binding.schema_ref, binding.semantic_rules_ref):
             body = (tmp_path / artifact.locations[0].object_key).read_bytes()
@@ -431,7 +431,7 @@ def test_registry_static_validators_and_technical_schema_pin(tmp_path: Path) -> 
         limits_by_schema={key: limits() for key in registered_schema_ids()},
     )
     schema_binding = next(
-        item for item in bundle.contracts if item.schema_id == "kf.technical-metadata.v1"
+        item for item in bundle.contracts if item.schema_id == "cf.technical-metadata.v1"
     )
     binding.validate(schema_binding.schema_ref, {"title": "Synthetic manual"})
     with pytest.raises(ContractError):
@@ -439,7 +439,7 @@ def test_registry_static_validators_and_technical_schema_pin(tmp_path: Path) -> 
     payload = json.dumps(release()).encode()
     artifact = ArtifactRef.model_validate(
         ref(
-            "kf.library-release.v1",
+            "cf.library-release.v1",
             digest=hashlib.sha256(payload).hexdigest(),
             sizeBytes=len(payload),
         )
@@ -469,7 +469,7 @@ def test_raw_roles_never_parse_json_and_have_finite_media_limits(
     payload = b"not JSON\xff"
     raw = ArtifactRef.model_validate(
         ref(
-            "kf.raw-original.v1",
+            "cf.raw-original.v1",
             mediaType="text/plain",
             digest=hashlib.sha256(payload).hexdigest(),
             sizeBytes=len(payload),
@@ -487,7 +487,7 @@ def test_raw_roles_never_parse_json_and_have_finite_media_limits(
         )
         == payload
     )
-    canonical = raw.model_copy(update={"artifact_schema": "kf.canonical-text.v1"})
+    canonical = raw.model_copy(update={"artifact_schema": "cf.canonical-text.v1"})
     with pytest.raises(ContractError):
         validate_artifact(
             canonical, payload, limits_by_schema={key: limits() for key in registered_schema_ids()}
@@ -500,7 +500,7 @@ def test_raw_roles_never_parse_json_and_have_finite_media_limits(
         )
     with pytest.raises(ContractError):
         validate_artifact(
-            raw, payload, limits_by_schema={"kf.raw-original.v1": limits(maxSourceBytes=2)}
+            raw, payload, limits_by_schema={"cf.raw-original.v1": limits(maxSourceBytes=2)}
         )
 
 
@@ -517,17 +517,17 @@ def test_static_registry_rejects_unregistered_reference_field_in_a_model(
     monkeypatch.setattr(
         registry,
         "SCHEMA_MODELS",
-        dict(registry.SCHEMA_MODELS) | {"kf.library-release.v1": AddedReference},
+        dict(registry.SCHEMA_MODELS) | {"cf.library-release.v1": AddedReference},
     )
     monkeypatch.setattr("conscience_foundry.release.edges.SCHEMA_MODELS", registry.SCHEMA_MODELS)
     with pytest.raises(ContractError, match="unsupported_schema"):
-        edge_roles("kf.library-release.v1", extended)
+        edge_roles("cf.library-release.v1", extended)
 
 
 def test_descriptor_cannot_select_code_and_current_schema_pins_are_required(tmp_path: Path) -> None:
     bundle = export_bundle(tmp_path)
     bindings = {item.schema_id: item for item in bundle.contracts}
-    descriptor_ref = bindings["kf.library-release.v1"].semantic_rules_ref
+    descriptor_ref = bindings["cf.library-release.v1"].semantic_rules_ref
     descriptor = json.loads((tmp_path / descriptor_ref.locations[0].object_key).read_bytes())
     for change in ({"edgePolicyId": "untrusted.module:run"}, {"validatorVersion": "different.v1"}):
         data = json.dumps(descriptor | change, sort_keys=True, separators=(",", ":")).encode()
@@ -607,7 +607,7 @@ def test_trusted_bootstrap_still_obeys_configured_descriptor_bounds(tmp_path: Pa
         validate_contract_set(bundle, project_id=PROJECT, limits_by_schema=configured)
 
 
-@pytest.mark.parametrize("role", ["json-schema.2020-12", "kf.semantic-rules.v1"])
+@pytest.mark.parametrize("role", ["json-schema.2020-12", "cf.semantic-rules.v1"])
 @pytest.mark.parametrize("action", ["export", "bootstrap"])
 def test_export_and_bootstrap_obey_artifact_output_ceiling(
     tmp_path: Path, role: str, action: str
@@ -636,7 +636,7 @@ def test_registry_admission_binds_envelope_project_and_bootstrap_pins(tmp_path: 
     payload = json.dumps(release()).encode()
     envelope = ArtifactRef.model_validate(
         ref(
-            "kf.library-release.v1",
+            "cf.library-release.v1",
             projectId=OTHER_PROJECT,
             digest=hashlib.sha256(payload).hexdigest(),
             sizeBytes=len(payload),
@@ -644,13 +644,13 @@ def test_registry_admission_binds_envelope_project_and_bootstrap_pins(tmp_path: 
     )
     with pytest.raises(ContractError, match="forbidden"):
         validate_artifact(envelope, payload, limits_by_schema=configured)
-    configured["kf.contract-set.v1"] = limits(maxOutputBytes=1048576)
+    configured["cf.contract-set.v1"] = limits(maxOutputBytes=1048576)
     bundle = export_bundle(tmp_path).model_dump(mode="json", by_alias=True)
     bundle["contracts"][0]["schemaRef"]["digest"] = "f" * 64
     payload = json.dumps(bundle).encode()
     envelope = ArtifactRef.model_validate(
         ref(
-            "kf.contract-set.v1", digest=hashlib.sha256(payload).hexdigest(), sizeBytes=len(payload)
+            "cf.contract-set.v1", digest=hashlib.sha256(payload).hexdigest(), sizeBytes=len(payload)
         )
     )
     with pytest.raises(ContractError, match="hash_mismatch"):

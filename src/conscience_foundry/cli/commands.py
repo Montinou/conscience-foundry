@@ -18,11 +18,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
+from uuid import uuid4
 
 import psycopg
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
+from conscience_foundry.cli import live
 from conscience_foundry.cli.config import (
+    R2StoreSettings,
     Runtime,
     TrustedServices,
     load_config,
@@ -30,7 +33,11 @@ from conscience_foundry.cli.config import (
     read_input,
     read_trusted,
     resolve_dsn,
+    resolve_r2_credentials,
 )
+from conscience_foundry.cli.drill import add_arguments as _drill_arguments
+from conscience_foundry.cli.drill import run_drill
+from conscience_foundry.contracts.accounting import BudgetEvent
 from conscience_foundry.contracts.admission import IntakeManifest
 from conscience_foundry.contracts.canonical import DocumentSpan, RevisionReview
 from conscience_foundry.contracts.common import (
@@ -39,6 +46,7 @@ from conscience_foundry.contracts.common import (
     Digest,
     ErrorCode,
     Id,
+    Money,
     Reason,
     Ref,
     WireModel,
@@ -72,7 +80,11 @@ from conscience_foundry.execution.evidence import (
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
 from conscience_foundry.ledger.attempts import load_attempt
-from conscience_foundry.ledger.budget import install_run_authorization
+from conscience_foundry.ledger.budget import (
+    apply_budget_event,
+    install_run_authorization,
+    reserve_storage,
+)
 from conscience_foundry.ledger.db import (
     AdmissionRegistrationEvidence,
     PauseState,
@@ -92,7 +104,7 @@ from conscience_foundry.release.publication import activate, append_publication
 from conscience_foundry.release.read import resolve_span
 from conscience_foundry.storage.custody import inspect_intake
 
-Status = Literal["ok", "dry_run", "blocked", "failed"]
+Status = Literal["ok", "dry_run", "blocked", "failed", "interrupted"]
 
 BLOCKED_CODES = frozenset(
     {
@@ -117,6 +129,9 @@ BLOCKED_CODES = frozenset(
         "unsupported_schema",
         "limits_missing",
         "admission_blocked",
+        "project_concurrency_limit",
+        "limit_exceeded",
+        "live_requires_pilot",
     }
 )
 """Deliberate refusals; anything else is a failure of the work itself."""
@@ -150,6 +165,8 @@ class Command:
     needs: tuple[str, ...] = ()
     effect: bool = True
     stateful: bool = True
+    always: Mapping[str, object] = field(default_factory=dict)
+    """Data stated in every report of this command, whatever its outcome (dry runs included)."""
 
 
 # --- request-file helpers -------------------------------------------------------------------
@@ -177,6 +194,13 @@ def _digest(value: object) -> Digest:
         raise ContractError("invalid_schema") from None
 
 
+def _money(value: object) -> Money:
+    try:
+        return TypeAdapter(Money).validate_python(value)
+    except ValidationError:
+        raise ContractError("invalid_schema") from None
+
+
 def _document[Model: WireModel](
     rt: Runtime, path: str, model: type[Model], schema: str
 ) -> tuple[bytes, Model]:
@@ -186,12 +210,12 @@ def _document[Model: WireModel](
 
 
 def _ref_file(rt: Runtime, path: str) -> Ref:
-    return _document(rt, path, Ref, "kf.artifact-ref.v1")[1]
+    return _document(rt, path, Ref, "cf.artifact-ref.v1")[1]
 
 
 def _ref(rt: Runtime, data: bytes, schema: str) -> Ref:
     return Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=rt.config.project_id,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -274,26 +298,26 @@ def _admit(inv: Invocation) -> Outcome:
     settings = rt.config.admission
     if settings is None:
         raise ContractError("config_invalid")
-    manifest_bound = rt.limit("kf.intake.v1")
+    manifest_bound = rt.limit("cf.intake.v1")
     manifest_bytes = read_input(args.manifest, manifest_bound.max_json_bytes)
     manifest = IntakeManifest.from_wire(manifest_bytes, manifest_bound)
     project = ProjectConfig.from_wire(
-        read_trusted(settings.project_config_path, rt.limit("kf.project.v1").max_json_bytes),
-        rt.limit("kf.project.v1"),
+        read_trusted(settings.project_config_path, rt.limit("cf.project.v1").max_json_bytes),
+        rt.limit("cf.project.v1"),
     )
     profile = ProfileDescriptor.from_wire(
-        read_trusted(settings.profile_path, rt.limit("kf.profile.v1").max_json_bytes),
-        rt.limit("kf.profile.v1"),
+        read_trusted(settings.profile_path, rt.limit("cf.profile.v1").max_json_bytes),
+        rt.limit("cf.profile.v1"),
     )
     bundle = ContractSet.from_wire(
-        read_trusted(settings.contract_set_path, rt.limit("kf.contract-set.v1").max_json_bytes),
-        rt.limit("kf.contract-set.v1"),
+        read_trusted(settings.contract_set_path, rt.limit("cf.contract-set.v1").max_json_bytes),
+        rt.limit("cf.contract-set.v1"),
     )
     binding = technical_metadata_binding(
         bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
     )
     policy_bytes = rt.read_policy_bytes()
-    policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("kf.policy.v1"))
+    policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("cf.policy.v1"))
     store = rt.store
     report = inspect_intake(
         manifest,
@@ -310,8 +334,8 @@ def _admit(inv: Invocation) -> Outcome:
         checked_at=rt.clock(),
     )
     report_bytes = report.model_dump_json(by_alias=True).encode("utf-8")
-    manifest_ref = _ref(rt, manifest_bytes, "kf.intake.v1")
-    report_ref = _ref(rt, report_bytes, "kf.admission-report.v1")
+    manifest_ref = _ref(rt, manifest_bytes, "cf.intake.v1")
+    report_ref = _ref(rt, report_bytes, "cf.admission-report.v1")
     _install(rt, manifest_bytes, manifest_ref)
     _install(rt, report_bytes, report_ref)
     _install(rt, policy_bytes, manifest.policy_ref)
@@ -355,13 +379,13 @@ def _prepare_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _prepare_run(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, plan = _document(rt, args.plan, ExecutionPlan, "kf.execution-plan.v1")
+    data, plan = _document(rt, args.plan, ExecutionPlan, "cf.execution-plan.v1")
     _require_operator(rt, plan.project_id, None)
     if data != encoded(plan):
         # Plan digests bind the stored bytes in every grant and adapter, which all digest the
         # canonical serialization: a pretty-printed or reordered file would be refused at dispatch.
         raise ContractError("invalid_schema")
-    ref = _ref(rt, data, "kf.execution-plan.v1")
+    ref = _ref(rt, data, "cf.execution-plan.v1")
     control = rt.control
     _install(rt, data, ref)
     with rt.ledger.transaction() as tx:
@@ -383,11 +407,11 @@ def _authorize_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _authorize_run(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, auth = _document(rt, args.authorization, RunAuthorization, "kf.run-authorization.v1")
+    data, auth = _document(rt, args.authorization, RunAuthorization, "cf.run-authorization.v1")
     # The document's actor is a claim. It must be the configured operator before anything else.
     _require_operator(rt, auth.project_id, auth.actor_id)
     previous = _id(args.previous_authorization_id) if args.previous_authorization_id else None
-    ref = _ref(rt, data, "kf.run-authorization.v1")
+    ref = _ref(rt, data, "cf.run-authorization.v1")
     control = rt.control
     _install(rt, data, ref)
     with rt.ledger.transaction() as tx:
@@ -402,6 +426,27 @@ def _authorize_run(inv: Invocation) -> Outcome:
     return _ok(
         authorizationRef=_dump(ref), authorizationId=auth.authorization_id, runId=auth.run_id
     )
+
+
+def _reserve_storage_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--amount", required=True, help="USD of the reviewed storage estimate")
+    parser.add_argument(
+        "--evidence", required=True, help="reference of the reviewed estimate's storage line"
+    )
+
+
+def _reserve_storage(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    run_id, amount = _id(args.run_id), _money(args.amount)
+    evidence = _ref_file(rt, args.evidence)
+    control = rt.control
+    with rt.ledger.transaction() as tx:
+        # The ledger asks the evidence authority to attest the estimate before it funds anything.
+        reservation = reserve_storage(
+            run_id, amount, evidence, tx, context=budget_context(control, tx=tx)
+        )
+    return _ok(runId=run_id, reservationId=reservation, amountUsd=amount, costStatus="estimated")
 
 
 # --- dispatch / reconcile / cancel / pause / resume -------------------------------------------
@@ -430,6 +475,9 @@ def _dispatch(inv: Invocation) -> Outcome:
     executor, transport = services.executor, services.transport_grants
     if executor is None or transport is None:
         raise ContractError("adapter_unavailable")
+    if isinstance(executor, live.PilotOnlyExecutor):
+        # The live runtime is held only by run-pilot; nothing is read, reserved or minted here.
+        raise ContractError(live.LIVE_REQUIRES_PILOT)
     control = rt.control
     plan_ref = _ref_file(rt, args.plan_ref)
     authorization_ref = _ref_file(rt, args.authorization_ref)
@@ -437,7 +485,7 @@ def _dispatch(inv: Invocation) -> Outcome:
     asset_id = _id(args.asset_id)
     retry = None
     if args.manual_retry:
-        request = _document(rt, args.manual_retry, ManualRetryRequest, "kf.artifact-ref.v1")[1]
+        request = _document(rt, args.manual_retry, ManualRetryRequest, "cf.artifact-ref.v1")[1]
         retry = ManualRetry(
             request.evidence_ref,
             request.expected_snapshot_digest,
@@ -462,20 +510,28 @@ def _dispatch(inv: Invocation) -> Outcome:
         # Asked by the ledger only after the attempt is reserved, funded and claimed.
         return transport(plan, claimed, plan_ref)
 
-    attempt = dispatch(
-        plan,
-        authorization,
-        rt.access,
-        rt.ledger,
-        executor,
-        issue,
-        control=control,
-        plan_ref=plan_ref,
-        authorization_ref=authorization_ref,
-        asset_id=asset_id,
-        evidence_ref=evidence_ref,
-        manual_retry=retry,
-    )
+    try:
+        attempt = dispatch(
+            plan,
+            authorization,
+            rt.access,
+            rt.ledger,
+            executor,
+            issue,
+            control=control,
+            plan_ref=plan_ref,
+            authorization_ref=authorization_ref,
+            asset_id=asset_id,
+            evidence_ref=evidence_ref,
+            manual_retry=retry,
+        )
+    except KeyboardInterrupt:
+        session = live.open_session(services)
+        if session is not None:
+            # Still inside the step: the claimed attempt is stopped with the session's token,
+            # the call is terminated, then the interrupt goes on to run-pilot.
+            live.interrupted_dispatch(rt, executor, session, plan)
+        raise
     return _attempt_outcome(attempt)
 
 
@@ -489,9 +545,59 @@ def _reconcile(inv: Invocation) -> Outcome:
     if executor is None:
         raise ContractError("adapter_unavailable")
     attempt_id = _id(args.attempt_id)
+    session = live.open_session(rt.services)
+    if session is not None:
+        # Under run-pilot: wait for the call, cancelling it through the ledger at its deadline;
+        # a Ctrl-C while waiting is handled there, with the session still open.
+        live.await_terminal(rt, executor, session, attempt_id)
     selected = reconcile(attempt_id, rt.ledger, executor, rt.store, control=rt.control)
     return _attempt_outcome(
         _attempt(rt, attempt_id), selection=_dump(selected) if selected is not None else None
+    )
+
+
+def _record_billing_arguments(parser: argparse.ArgumentParser) -> None:
+    _attempt_argument(parser)
+    parser.add_argument("--amount", required=True, help="USD actually billed for the attempt")
+    parser.add_argument(
+        "--evidence", required=True, help="reference of the operator's billing document"
+    )
+
+
+def _record_billing(inv: Invocation) -> Outcome:
+    """Record the one final settlement of an attempt; a recorded settlement is never revised."""
+    rt, args = inv.rt, inv.args
+    attempt_id, amount = _id(args.attempt_id), _money(args.amount)
+    evidence = _ref_file(rt, args.evidence)
+    control = rt.control
+    with rt.ledger.transaction() as tx:
+        reference, run_id, _, _ = load_attempt(tx, rt.config.project_id, attempt_id)
+        reservation_id = read_model(reference, StageAttempt, control)[1].reservation_id
+        event = BudgetEvent(
+            schema_version="cf.budget-event.v1",
+            project_id=rt.config.project_id,
+            run_id=run_id,
+            reservation_id=reservation_id,
+            scope="attempt",
+            attempt_id=attempt_id,
+            event_id=str(uuid4()),
+            event_type="settle",
+            amount_usd=amount,
+            cost_status="actual",
+            evidence_ref=evidence,
+            created_at=rt.clock(),
+        )
+        # The ledger asks the evidence authority to attest the billing facts (purpose
+        # `final_billing`) and refuses an attempt that may still be executing remotely.
+        apply_budget_event(
+            event, tx, event_bytes=encoded(event), context=budget_context(control, tx=tx)
+        )
+    return _ok(
+        attemptId=attempt_id,
+        runId=run_id,
+        reservationId=reservation_id,
+        amountUsd=amount,
+        costStatus="actual",
     )
 
 
@@ -576,7 +682,7 @@ def _review_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _review(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    data, review = _document(rt, args.review, RevisionReview, "kf.revision-review.v1")
+    data, review = _document(rt, args.review, RevisionReview, "cf.revision-review.v1")
     _require_operator(rt, review.project_id, review.actor_id)
     ref = record_review(
         review,
@@ -608,7 +714,7 @@ def _build_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _build_release(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, selection = _document(rt, args.selection, ReleaseSelection, "kf.library-release.v1")
+    _, selection = _document(rt, args.selection, ReleaseSelection, "cf.library-release.v1")
     candidate = build_release(
         tuple(selection.sources),
         tuple(selection.admission_report_refs),
@@ -620,12 +726,12 @@ def _build_release(inv: Invocation) -> Outcome:
     raw = encoded(candidate)
     digest = hashlib.sha256(raw).hexdigest()
     reference = Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=rt.config.project_id,
         digest=digest,
         size_bytes=len(raw),
         media_type="application/json",
-        artifact_schema="kf.library-release.v1",
+        artifact_schema="cf.library-release.v1",
         locations=(
             ArtifactLocation(
                 store_id=rt.config.object_store.store_id,
@@ -666,7 +772,7 @@ def _record_argument(parser: argparse.ArgumentParser) -> None:
 
 def _publish(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, record = _document(rt, args.record, PublicationRecord, "kf.publication-record.v1")
+    _, record = _document(rt, args.record, PublicationRecord, "cf.publication-record.v1")
     _require_operator(rt, record.project_id, record.actor_id)
     try:
         pin = rt.pin(record.release_digest)
@@ -678,7 +784,7 @@ def _publish(inv: Invocation) -> Outcome:
 
 def _activate(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, record = _document(rt, args.record, ActivationRecord, "kf.activation.v1")
+    _, record = _document(rt, args.record, ActivationRecord, "cf.activation.v1")
     _require_operator(rt, record.project_id, record.actor_id)
     activate(record, rt.access, rt.ledger, release=rt.release)
     return _ok(activeReleaseDigest=record.next_release_digest)
@@ -693,7 +799,7 @@ def _span_arguments(parser: argparse.ArgumentParser) -> None:
 def _read_span(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     digest = _digest(args.release_digest)
-    _, span = _document(rt, args.span, DocumentSpan, "kf.document-span.v1")
+    _, span = _document(rt, args.span, DocumentSpan, "cf.document-span.v1")
     resolved = resolve_span(
         rt.access, digest, span, rt.ledger, rt.store, release=rt.release, pin=rt.pin(digest)
     )
@@ -754,6 +860,13 @@ def _backup(inv: Invocation) -> Outcome:
         raise
     settings, destination = rt.config.object_store, rt.config.backup_store
     assert destination is not None
+    # Mechanics only: a different device is necessary for independence, never sufficient. A
+    # remote bucket has no local device to compare, so it is named for the operator to confirm.
+    media: bool | str = (
+        f"r2:{destination.bucket}"
+        if isinstance(destination, R2StoreSettings)
+        else independent_media(Path(settings.root_path), Path(destination.root_path))
+    )
     return _ok(
         manifestDigest=hashlib.sha256(data).hexdigest(),
         recoveryPoint=manifest.recovery_point,
@@ -761,8 +874,7 @@ def _backup(inv: Invocation) -> Outcome:
         auditRefs=len(manifest.audit_refs),
         pendingAttempts=len(manifest.pending_attempt_ids),
         excludedReleases=list(manifest.excluded_release_digests),
-        # Mechanics only: a different device is necessary for independence, never sufficient.
-        independentMedia=independent_media(Path(settings.root_path), Path(destination.root_path)),
+        independentMedia=media,
         independentlyVerified=False,
     )
 
@@ -773,7 +885,7 @@ def _manifest_argument(parser: argparse.ArgumentParser) -> None:
 
 def _restore(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, manifest = _document(rt, args.manifest, RecoveryManifest, "kf.library-release.v1")
+    _, manifest = _document(rt, args.manifest, RecoveryManifest, "cf.library-release.v1")
     report = restore(manifest, rt.access, rt.ledger, rt.backup, rt.store)
     data = {
         "verifiedRefs": len(report.verified_refs),
@@ -790,13 +902,66 @@ def _restore(inv: Invocation) -> Outcome:
     return Outcome("ok", None, data)
 
 
+def _restore_drill(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    _, manifest = _document(rt, args.manifest, RecoveryManifest, "cf.library-release.v1")
+    # The evidence file is claimed first, so an existing path is refused before any restore.
+    descriptor = _private_output(args.evidence_output)
+    try:
+        result = run_drill(
+            rt,
+            manifest,
+            drill_config=args.drill_config,
+            valid_for_seconds=args.valid_for_seconds,
+            attest_independent=args.attest_independent,
+        )
+        if result.evidence is not None:
+            with os.fdopen(descriptor, "wb") as handle:
+                descriptor = -1
+                handle.write(result.evidence)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        _discard(args.evidence_output)
+        raise
+    report = result.report
+    data = {
+        "drillId": result.drill_id,
+        "verifiedRefs": len(report.verified_refs),
+        "missingRefs": [ref.digest for ref in report.missing_refs],
+        "dispatchBlocked": report.dispatch_blocked,
+        "independence": result.independence,
+        "independentlyVerified": False,
+    }
+    if result.evidence is None or result.report_ref is None:
+        # An incomplete recovery yields no evidence; the empty file made above is removed.
+        if descriptor >= 0:
+            os.close(descriptor)
+        _discard(args.evidence_output)
+        return Outcome("failed", "artifact_missing", data)
+    return _ok(
+        **data,
+        evidenceDigest=hashlib.sha256(result.evidence).hexdigest(),
+        restoreEvidenceDigest=result.report_ref.digest,
+        validUntil=result.valid_until,
+    )
+
+
+def _discard(path: str) -> None:
+    """Remove only the empty file this command just created; an existing path was refused."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def _retention_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--policy", required=True, help="retention policy document")
 
 
 def _retention_report(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
-    _, policy = _document(rt, args.policy, RetentionPolicy, "kf.retention.v1")
+    _, policy = _document(rt, args.policy, RetentionPolicy, "cf.retention.v1")
     report = retention_report(
         rt.access,
         rt.ledger,
@@ -860,6 +1025,13 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE, EVIDENCE),
     ),
     Command(
+        "reserve-storage",
+        "reserve the reviewed storage estimate for a run before any upload",
+        _reserve_storage_arguments,
+        _reserve_storage,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
         "dispatch",
         "claim and submit one attempt through the ledger",
         _dispatch_arguments,
@@ -879,6 +1051,13 @@ COMMANDS: tuple[Command, ...] = (
         _cancel_arguments,
         _cancel,
         (DATABASE, EVIDENCE, EXECUTOR),
+    ),
+    Command(
+        "record-billing",
+        "record the final actual billing of an attempt from the operator's billing document",
+        _record_billing_arguments,
+        _record_billing,
+        (DATABASE, EVIDENCE),
     ),
     Command("pause", "set a durable pause barrier", _pause_arguments, _pause, (DATABASE, EVIDENCE)),
     Command(
@@ -942,6 +1121,13 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE, BACKUP_STORE),
     ),
     Command(
+        "restore-drill",
+        "restore a backup into a fresh target and write independent-backup evidence",
+        _drill_arguments,
+        _restore_drill,
+        (BACKUP_STORE,),
+    ),
+    Command(
         "retention-report",
         "report cleanup eligibility of staged results; never deletes",
         _retention_arguments,
@@ -966,8 +1152,14 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
             except ContractError as error:
                 blockers.append(("database_credential", error.code))
         elif need == BACKUP_STORE:
-            if runtime.config.backup_store is None:
+            destination = runtime.config.backup_store
+            if destination is None:
                 blockers.append((BACKUP_STORE, "config_required"))
+            elif isinstance(destination, R2StoreSettings):
+                try:
+                    resolve_r2_credentials(destination)
+                except ContractError as error:
+                    blockers.append(("backup_credential", error.code))
         elif getattr(runtime.services, need) is None:
             blockers.append((need, "adapter_unavailable"))
     return blockers
@@ -975,6 +1167,13 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
 
 def run_command(command: Command, args: argparse.Namespace, services: TrustedServices) -> Outcome:
     """Gate, then execute one command; every failure becomes a stable, redacted code."""
+    outcome = _run(command, args, services)
+    if not command.always:
+        return outcome
+    return Outcome(outcome.status, outcome.code, {**outcome.data, **command.always})
+
+
+def _run(command: Command, args: argparse.Namespace, services: TrustedServices) -> Outcome:
     try:
         if not command.stateful:
             return with_flag(command.handler(Invocation(args, None)), executed=True)

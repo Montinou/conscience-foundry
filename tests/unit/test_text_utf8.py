@@ -22,7 +22,7 @@ SAMPLE = "A😀e\u0301\r\nB".encode()
 def limits(**changes: object) -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.text-limits.v1",
             "maxJsonBytes": 65536,
             "maxStringScalars": 1024,
@@ -39,7 +39,7 @@ def limits(**changes: object) -> ContractLimits:
 
 def ref(data: bytes, schema: str, media: str = "application/json") -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=PROJECT,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -51,12 +51,12 @@ def ref(data: bytes, schema: str, media: str = "application/json") -> ArtifactRe
 
 def asset(data: bytes, *, source: str = SOURCE, asset_id: str = ASSET) -> SourceAsset:
     return SourceAsset(
-        schema_version="kf.source-asset.v1",
+        schema_version="cf.source-asset.v1",
         project_id=PROJECT,
         asset_id=asset_id,
         source_id=source,
-        original_ref=ref(data, "kf.raw-original.v1", "text/plain"),
-        admission_report_ref=ref(b"synthetic admission evidence", "kf.admission-report.v1"),
+        original_ref=ref(data, "cf.raw-original.v1", "text/plain"),
+        admission_report_ref=ref(b"synthetic admission evidence", "cf.admission-report.v1"),
         metadata={},
     )
 
@@ -64,12 +64,12 @@ def asset(data: bytes, *, source: str = SOURCE, asset_id: str = ASSET) -> Source
 def spec(bound: ContractLimits, **changes: object) -> tuple[ExtractionSpec, bytes]:
     raw = bound.model_dump_json(by_alias=True).encode()
     value: dict[str, object] = {
-        "schema_version": "kf.extraction-spec.v1",
+        "schema_version": "cf.extraction-spec.v1",
         "processor_id": "text.utf8.v1",
         "processor_version": "synthetic.processor.v1",
         "code_version": "synthetic.code.v1",
         "image_digest": "a" * 64,
-        "limits_ref": ref(raw, "kf.contract-limits.v1"),
+        "limits_ref": ref(raw, "cf.contract-limits.v1"),
         "normalization": "none",
         "newline_policy": "preserve",
         "bom_policy": "reject",
@@ -189,7 +189,7 @@ def test_limits_pin_and_original_role_are_verified() -> None:
     with pytest.raises(ContractError):
         process_text(asset(SAMPLE), verified, recipe, limits=changed_bound, limits_bytes=raw)
     wrong_role = asset(SAMPLE).model_copy(update={
-        "original_ref": ref(SAMPLE, "kf.canonical-text.v1", "text/plain")
+        "original_ref": ref(SAMPLE, "cf.canonical-text.v1", "text/plain")
     })
     with pytest.raises(ContractError, match="unsupported_format"):
         process_text(wrong_role, verified, recipe, limits=bound, limits_bytes=raw)

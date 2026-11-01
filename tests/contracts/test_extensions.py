@@ -35,7 +35,7 @@ DEADLINE = "2026-10-25T01:00:00.000Z"
 def limits(**updates: int) -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.v1",
             "maxJsonBytes": 1048576,
             "maxStringScalars": 4096,
@@ -52,7 +52,7 @@ def limits(**updates: int) -> ContractLimits:
 
 def ref(schema: str = "synthetic.payload.v1", **updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": "a" * 64,
         "sizeBytes": 17,
@@ -68,7 +68,7 @@ def reason() -> dict[str, str]:
 
 def enrichment_spec(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.enrichment-spec.v1",
+        "schemaVersion": "cf.enrichment-spec.v1",
         "specId": "synthetic.v1",
         "taskId": "synthetic",
         "profileId": "technical_minimal",
@@ -95,13 +95,13 @@ def enrichment_spec(**updates: object) -> dict[str, object]:
 
 def enrichment_request(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.enrichment-request.v1",
+        "schemaVersion": "cf.enrichment-request.v1",
         "projectId": PROJECT,
         "operationKey": "b" * 64,
         "attemptId": ATTEMPT,
-        "specRef": ref("kf.enrichment-spec.v1"),
-        "policyRef": ref("kf.policy.v1"),
-        "canonicalRevisionRefs": [ref("kf.document-revision.v1")],
+        "specRef": ref("cf.enrichment-spec.v1"),
+        "policyRef": ref("cf.policy.v1"),
+        "canonicalRevisionRefs": [ref("cf.document-revision.v1")],
         "contextSpans": [],
         "omittedContextRefs": [],
         "inputRef": ref(),
@@ -112,11 +112,11 @@ def enrichment_request(**updates: object) -> dict[str, object]:
 
 def enrichment_result(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.enrichment-result.v1",
+        "schemaVersion": "cf.enrichment-result.v1",
         "projectId": PROJECT,
         "operationKey": "b" * 64,
         "attemptId": ATTEMPT,
-        "specRef": ref("kf.enrichment-spec.v1"),
+        "specRef": ref("cf.enrichment-spec.v1"),
         "schemaStatus": "not_run",
         "anchorStatus": "not_run",
         "semanticStatus": "pending",
@@ -129,7 +129,7 @@ def enrichment_result(**updates: object) -> dict[str, object]:
 
 def task_spec(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.decision-task.v1",
+        "schemaVersion": "cf.decision-task.v1",
         "taskId": "synthetic.categorical",
         "version": "synthetic.v1",
         "inputSchemaRef": ref("json-schema.2020-12"),
@@ -142,10 +142,10 @@ def task_spec(**updates: object) -> dict[str, object]:
 
 def decision_release(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.decision-release.v1",
+        "schemaVersion": "cf.decision-release.v1",
         "releaseId": RELEASE,
         "implementation": "rules",
-        "taskSpecRefs": [ref("kf.decision-task.v1")],
+        "taskSpecRefs": [ref("cf.decision-task.v1")],
         "runtimeRef": ref(),
         "stateBuilderRef": ref(),
         "datasetProvenanceRef": ref(),
@@ -157,12 +157,12 @@ def decision_release(**updates: object) -> dict[str, object]:
 
 def decision_request(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.decision-request.v1",
+        "schemaVersion": "cf.decision-request.v1",
         "projectId": PROJECT,
-        "taskSpecRef": ref("kf.decision-task.v1"),
-        "decisionReleaseRef": ref("kf.decision-release.v1"),
+        "taskSpecRef": ref("cf.decision-task.v1"),
+        "decisionReleaseRef": ref("cf.decision-release.v1"),
         "inputRef": ref(),
-        "policyRef": ref("kf.policy.v1"),
+        "policyRef": ref("cf.policy.v1"),
         "contextRevisionRefs": [],
         "operationKey": "c" * 64,
         "attemptId": ATTEMPT,
@@ -174,13 +174,13 @@ def decision_request(**updates: object) -> dict[str, object]:
 def decision_result(**updates: object) -> dict[str, object]:
     raw = json.dumps(decision_request()).encode()
     return {
-        "schemaVersion": "kf.decision-result.v1",
+        "schemaVersion": "cf.decision-result.v1",
         "projectId": PROJECT,
         "operationKey": "c" * 64,
         "attemptId": ATTEMPT,
         "requestDigest": hashlib.sha256(raw).hexdigest(),
-        "taskSpecRef": ref("kf.decision-task.v1"),
-        "decisionReleaseRef": ref("kf.decision-release.v1"),
+        "taskSpecRef": ref("cf.decision-task.v1"),
+        "decisionReleaseRef": ref("cf.decision-release.v1"),
         "status": "unavailable",
         "cohortStatus": "not_applicable",
         "policyOutcome": "needs_review",
@@ -217,7 +217,7 @@ def test_enrichment_shape_and_optional_wire_parity() -> None:
     assert isinstance(req.canonical_revision_refs, tuple)
     for update in (
         {"inputRef": ref(projectId=OTHER)},
-        {"canonicalRevisionRefs": [ref("kf.document-revision.v1")] * 2},
+        {"canonicalRevisionRefs": [ref("cf.document-revision.v1")] * 2},
         {"specRef": ref("wrong.v1")},
     ):
         with pytest.raises(ValidationError):
@@ -228,7 +228,7 @@ def test_enrichment_shape_and_optional_wire_parity() -> None:
         semanticStatus="supported",
         disposition="accepted",
         rawResponseRef=ref(),
-        candidateAnnotationsRef=ref("kf.annotation-set.v1"),
+        candidateAnnotationsRef=ref("cf.annotation-set.v1"),
         reasons=[],
     )
     EnrichmentResult.model_validate(accepted)
@@ -244,15 +244,15 @@ def test_enrichment_shape_and_optional_wire_parity() -> None:
 
 def test_annotation_membership_does_not_assert_acceptance() -> None:
     data = {
-        "schemaVersion": "kf.annotation-set.v1",
+        "schemaVersion": "cf.annotation-set.v1",
         "projectId": PROJECT,
-        "specRef": ref("kf.enrichment-spec.v1"),
-        "canonicalRevisionRefs": [ref("kf.document-revision.v1")],
-        "results": [ref("kf.enrichment-result.v1")],
+        "specRef": ref("cf.enrichment-spec.v1"),
+        "canonicalRevisionRefs": [ref("cf.document-revision.v1")],
+        "results": [ref("cf.enrichment-result.v1")],
         "coverageReportRef": ref(),
     }
     model = AnnotationSet.model_validate(data)
-    assert model.results[0].artifact_schema == "kf.enrichment-result.v1"
+    assert model.results[0].artifact_schema == "cf.enrichment-result.v1"
     with pytest.raises(ValidationError):
         AnnotationSet.model_validate(data | {"results": [ref(projectId=OTHER)]})
 
@@ -301,10 +301,10 @@ def decision_context(**updates: object) -> DecisionValidationContext:
         "attempt_id": ATTEMPT,
         "applicable_cohort": None,
         "expected_cohort_status": "not_applicable",
-        "task_spec_ref": ArtifactRef.model_validate(ref("kf.decision-task.v1")),
-        "decision_release_ref": ArtifactRef.model_validate(ref("kf.decision-release.v1")),
+        "task_spec_ref": ArtifactRef.model_validate(ref("cf.decision-task.v1")),
+        "decision_release_ref": ArtifactRef.model_validate(ref("cf.decision-release.v1")),
         "output_schema_ref": ArtifactRef.model_validate(ref("json-schema.2020-12")),
-        "policy_ref": ArtifactRef.model_validate(ref("kf.policy.v1")),
+        "policy_ref": ArtifactRef.model_validate(ref("cf.policy.v1")),
         "decision_policy_ref": ArtifactRef.model_validate(ref()),
         "fallback_policy_ref": ArtifactRef.model_validate(ref()),
         "implementation": "rules",
@@ -325,7 +325,7 @@ def enrichment_context(**updates: object) -> EnrichmentValidationContext:
         "project_id": PROJECT,
         "operation_key": "b" * 64,
         "attempt_id": ATTEMPT,
-        "spec_ref": ArtifactRef.model_validate(ref("kf.enrichment-spec.v1")),
+        "spec_ref": ArtifactRef.model_validate(ref("cf.enrichment-spec.v1")),
         "validation_policy_ref": ArtifactRef.model_validate(ref()),
         "review_policy_ref": ArtifactRef.model_validate(ref()),
         "anchors_applicable": True,
@@ -635,7 +635,7 @@ def test_enrichment_trusted_evidence_and_registered_pins() -> None:
             expected_disposition="accepted",
         ),
         enrichment_context(
-            spec_ref=ArtifactRef.model_validate(ref("kf.enrichment-spec.v1", digest="f" * 64))
+            spec_ref=ArtifactRef.model_validate(ref("cf.enrichment-spec.v1", digest="f" * 64))
         ),
         enrichment_context(validation_policy_ref=ArtifactRef.model_validate(ref(digest="f" * 64))),
     ):
@@ -761,11 +761,11 @@ def test_extension_schema_registry_and_explicit_edge_roles(tmp_path: Path) -> No
         (
             AnnotationSet,
             {
-                "schemaVersion": "kf.annotation-set.v1",
+                "schemaVersion": "cf.annotation-set.v1",
                 "projectId": PROJECT,
-                "specRef": ref("kf.enrichment-spec.v1"),
-                "canonicalRevisionRefs": [ref("kf.document-revision.v1")],
-                "results": [ref("kf.enrichment-result.v1")],
+                "specRef": ref("cf.enrichment-spec.v1"),
+                "canonicalRevisionRefs": [ref("cf.document-revision.v1")],
+                "results": [ref("cf.enrichment-result.v1")],
                 "coverageReportRef": ref(),
             },
         ),
@@ -884,10 +884,10 @@ def test_request_schema_and_policy_pins_are_independently_bound() -> None:
     task = DecisionTaskSpec.model_validate(task_spec())
     release = DecisionRelease.model_validate(decision_release())
     for field, schema in (
-        ("task_spec_ref", "kf.decision-task.v1"),
-        ("decision_release_ref", "kf.decision-release.v1"),
+        ("task_spec_ref", "cf.decision-task.v1"),
+        ("decision_release_ref", "cf.decision-release.v1"),
         ("output_schema_ref", "json-schema.2020-12"),
-        ("policy_ref", "kf.policy.v1"),
+        ("policy_ref", "cf.policy.v1"),
         ("decision_policy_ref", "synthetic.payload.v1"),
         ("fallback_policy_ref", "synthetic.payload.v1"),
     ):

@@ -11,6 +11,7 @@ import dataclasses
 import hashlib
 import itertools
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -23,7 +24,10 @@ from test_cli import ALL_GRANTS, Env, Spy, file_names, write_private
 from test_ledger_db import admission
 from test_ledger_db import limits as base_limits
 
-from conscience_foundry.cli import preflight as pilot_cli
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "adapters"))
+from test_staging_s3 import FakeS3, Issuer, make_attempt, make_store  # noqa: E402
+
+from conscience_foundry.cli import preflight as pilot_cli  # noqa: E402
 from conscience_foundry.cli.commands import Outcome
 from conscience_foundry.cli.config import TrustedServices
 from conscience_foundry.contracts.common import ContractError, Reason
@@ -91,7 +95,7 @@ CAMEL = {
 
 def ref(data: bytes, schema: str) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": hashlib.sha256(data).hexdigest(),
         "sizeBytes": len(data),
@@ -101,9 +105,9 @@ def ref(data: bytes, schema: str) -> dict[str, Any]:
     }
 
 
-TARIFF = ref(b"synthetic tariff", "kf.tariff.v1")
-DESTINATION = ref(b"synthetic destination", "kf.destination.v1")
-RESTORE = ref(b"synthetic restore drill", "kf.restore-evidence.v1")
+TARIFF = ref(b"synthetic tariff", "cf.tariff.v1")
+DESTINATION = ref(b"synthetic destination", "cf.destination.v1")
+RESTORE = ref(b"synthetic restore drill", "cf.restore-evidence.v1")
 LOCK = hashlib.sha256(b"synthetic lock").hexdigest()
 IMAGE = "a" * 64
 CODE = "b" * 64
@@ -111,19 +115,19 @@ CODE = "b" * 64
 
 def plan_document(manifest_policy: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.execution-plan.v1",
+        "schemaVersion": "cf.execution-plan.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "planId": "00000000-0000-0000-0000-000000000005",
-        "executionConfigRef": ref(b"synthetic config", "kf.execution-config.v1"),
-        "admissionReportRef": ref(b"synthetic report", "kf.admission-report.v1"),
-        "extractionSpecRef": ref(b"synthetic spec", "kf.extraction-spec.v1"),
+        "executionConfigRef": ref(b"synthetic config", "cf.execution-config.v1"),
+        "admissionReportRef": ref(b"synthetic report", "cf.admission-report.v1"),
+        "extractionSpecRef": ref(b"synthetic spec", "cf.extraction-spec.v1"),
         "policyRef": manifest_policy,
         "profileId": "technical_minimal",
         "profileVersion": "synthetic.v1",
-        "contractSetRef": ref(b"synthetic contracts", "kf.contract-set.v1"),
-        "limitsRefs": [ref(b"synthetic limits", "kf.contract-limits.v1")],
-        "inputRefs": [ref(b"synthetic input", "kf.raw-original.v1")],
+        "contractSetRef": ref(b"synthetic contracts", "cf.contract-set.v1"),
+        "limitsRefs": [ref(b"synthetic limits", "cf.contract-limits.v1")],
+        "inputRefs": [ref(b"synthetic input", "cf.raw-original.v1")],
         "operationKey": "c" * 64,
         "resources": {
             "cpuMilli": 1000,
@@ -174,7 +178,7 @@ def estimate_document() -> dict[str, Any]:
 
 def capability_document(plan_wire: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schemaVersion": "kf.modal-capability-record.v1",
+        "schemaVersion": "cf.modal-capability-record.v1",
         "projectId": PROJECT,
         "executionConfigRef": plan_wire["executionConfigRef"],
         "sdkVersion": "synthetic-sdk.1",
@@ -194,7 +198,7 @@ def capability_document(plan_wire: dict[str, Any]) -> dict[str, Any]:
         "cancellation": "terminates_containers",
         "deadlineEnforcement": "entry_and_every_bounded_step",
         "validUntil": PLAN_EXPIRY,
-        "sourceEvidenceRefs": [ref(b"synthetic evidence", "kf.capability-source.v1")],
+        "sourceEvidenceRefs": [ref(b"synthetic evidence", "cf.capability-source.v1")],
     }
 
 
@@ -281,18 +285,18 @@ def build(
         "deploymentVersion": "synthetic.deployment.v1",
         "imageDigest": IMAGE,
         "dependencyLockDigest": LOCK,
-        "capabilitiesRef": ref(documents["capabilities"], "kfx.capability-evidence.v1"),
+        "capabilitiesRef": ref(documents["capabilities"], "cfx.capability-evidence.v1"),
         "tariffRef": TARIFF,
-        "estimateRef": ref(documents["estimate"], "kfx.cost-estimate.v1"),
+        "estimateRef": ref(documents["estimate"], "cfx.cost-estimate.v1"),
         "policyRef": policy_ref,
         "destinationRef": DESTINATION,
-        "backupRef": ref(documents["backup"], "kfx.backup-evidence.v1"),
+        "backupRef": ref(documents["backup"], "cfx.backup-evidence.v1"),
         "contractLimits": json.loads(base_limits().model_dump_json(by_alias=True)),
         "resources": plan_wire["resources"],
         "maxRunUsd": plan_wire["budget"]["maxRunCost"],
         "maxAttemptUsd": plan_wire["budget"]["maxAttemptCost"],
         "retention": {
-            "schemaVersion": "kf.retention.v1",
+            "schemaVersion": "cf.retention.v1",
             "policyVersion": "synthetic.v1",
             "minStagingAgeSeconds": 60,
             "fundedStagingHorizonSeconds": 86400,
@@ -557,10 +561,10 @@ def test_estimate_scope_sums_and_caps_use_exact_decimals() -> None:
 
 def test_estimate_binds_tariff_reviewer_and_validity() -> None:
     def other_tariff(wire_estimate: dict[str, Any]) -> None:
-        wire_estimate["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        wire_estimate["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def other_line_tariff(wire_estimate: dict[str, Any]) -> None:
-        lines_of(wire_estimate)[1]["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        lines_of(wire_estimate)[1]["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def stranger(wire_estimate: dict[str, Any]) -> None:
         wire_estimate["reviewedBy"] = OTHER
@@ -636,13 +640,13 @@ def test_plan_must_be_the_pinned_canonical_plan() -> None:
     assert blocked_on(report, "plan:noncanonical")
 
     def other_tariff(wire_plan: dict[str, Any]) -> None:
-        wire_plan["budget"]["tariffRef"] = ref(b"another tariff", "kf.tariff.v1")
+        wire_plan["budget"]["tariffRef"] = ref(b"another tariff", "cf.tariff.v1")
 
     def other_resources(wire_packet: dict[str, Any]) -> None:
         wire_packet["resources"] = wire_packet["resources"] | {"cpuMilli": 500}
 
     def other_policy(wire_plan: dict[str, Any]) -> None:
-        wire_plan["policyRef"] = ref(b"another policy", "kf.policy.v1")
+        wire_plan["policyRef"] = ref(b"another policy", "cf.policy.v1")
 
     # the packet in each case is pinned to the plan bytes it was built with, so only the binding
     # between the packet's own values and that plan can block
@@ -749,12 +753,12 @@ def test_every_packet_field_changes_the_digest(name: str) -> None:
         "deployment_version": "other.deployment",
         "image_digest": "9" * 64,
         "dependency_lock_digest": "8" * 64,
-        "capabilities_ref": ref(b"x1", "kf.x.v1"),
-        "tariff_ref": ref(b"x2", "kf.x.v1"),
-        "estimate_ref": ref(b"x3", "kf.x.v1"),
-        "policy_ref": ref(b"x4", "kf.x.v1"),
-        "destination_ref": ref(b"x5", "kf.x.v1"),
-        "backup_ref": ref(b"x6", "kf.x.v1"),
+        "capabilities_ref": ref(b"x1", "cf.x.v1"),
+        "tariff_ref": ref(b"x2", "cf.x.v1"),
+        "estimate_ref": ref(b"x3", "cf.x.v1"),
+        "policy_ref": ref(b"x4", "cf.x.v1"),
+        "destination_ref": ref(b"x5", "cf.x.v1"),
+        "backup_ref": ref(b"x6", "cf.x.v1"),
         "contract_limits": base.packet_wire["contractLimits"] | {"maxJsonBytes": 1},
         "resources": base.packet_wire["resources"] | {"cpuMilli": 1},
         "max_run_usd": "9",
@@ -792,6 +796,18 @@ def test_grant_is_bound_to_actor_window_and_a_ready_report() -> None:
     )
     unknown_command = grant_blockers(case, grant_for(case, commands=("restore",)))
     assert any("grant:command" in reason.message for reason in unknown_command)
+    storage = ("prepare-run", "authorize-run", "reserve-storage", "dispatch", "reconcile")
+    assert grant_blockers(case, grant_for(case, commands=storage)) == []
+    late = (*storage[:3], "dispatch", "reserve-storage")  # storage is funded before the spend
+    assert any(
+        "grant:step_order" in reason.message
+        for reason in grant_blockers(case, grant_for(case, commands=late))
+    )
+    unauthorized = ("prepare-run", "reserve-storage", "dispatch")
+    assert any(
+        "grant:step_order" in reason.message
+        for reason in grant_blockers(case, grant_for(case, commands=unauthorized))
+    )
 
 
 def test_packet_expiry_is_a_blocker() -> None:
@@ -844,14 +860,18 @@ class Cli:
         self.backup = write_private(private / "backup.json", evidence.backup or b"")
 
     def services(self, closed: frozenset[str] = CLOSED) -> TrustedServices:
+        """Every gate is attested from runtime wiring: wired for ``CLOSED``, bare otherwise."""
         return TrustedServices(
             evidence_authority=Spy("evidence", self.calls),
             release_authority=Spy("release", self.calls),
-            executor=Spy("executor", self.calls),
             transport_grants=lambda *args: self.calls.append("transport") or Spy("g", self.calls),
             connect=self.env.connect,
             clock=lambda: NOW,
-            pilot_gates_closed=closed,
+            **(
+                wiring(self.calls)
+                if closed == CLOSED
+                else {"executor": Spy("executor", self.calls)}
+            ),
         )
 
     def evidence_args(self) -> list[str]:
@@ -889,7 +909,7 @@ class Cli:
         """prepare-run, authorize-run and dispatch with files that bind the packet unless edited."""
         plan_bytes = self.case.evidence.plan or b""
         auth_wire: dict[str, Any] = {
-            "schemaVersion": "kf.run-authorization.v1",
+            "schemaVersion": "cf.run-authorization.v1",
             "authorizationId": "00000000-0000-0000-0000-000000000009",
             "projectId": PROJECT,
             "runId": RUN,
@@ -907,11 +927,11 @@ class Cli:
         plan_path = self.document("step-plan.json", plan if plan is not None else plan_bytes)
         auth_path = self.document("step-authorization.json", auth_bytes)
         plan_file = self.document(
-            "step-plan-ref.json", wire(plan_ref or ref(plan_bytes, "kf.execution-plan.v1"))
+            "step-plan-ref.json", wire(plan_ref or ref(plan_bytes, "cf.execution-plan.v1"))
         )
         auth_file = self.document(
             "step-authorization-ref.json",
-            wire(authorization_ref or ref(auth_bytes, "kf.run-authorization.v1")),
+            wire(authorization_ref or ref(auth_bytes, "cf.run-authorization.v1")),
         )
         estimate_file = self.document(
             "step-estimate-ref.json", wire(evidence_ref or self.case.packet_wire["estimateRef"])
@@ -1237,14 +1257,157 @@ def test_run_pilot_through_the_real_commands_blocks_without_adapters(cli: Cli) -
         str(cli.steps(steps)),
         "--execute",
     ]
-    services = TrustedServices(
-        connect=cli.env.connect, clock=lambda: NOW, pilot_gates_closed=CLOSED
-    )
+    services = TrustedServices(connect=cli.env.connect, clock=lambda: NOW, **wiring(cli.calls))
     result = cli.env.invoke(*argv, services=services)
     assert result.exit == 3 and result.payload["outcome"] == "blocked", result.raw
     assert result.payload["haltedAt"] == 0
     assert cli.env.connects == []
     cli.env.assert_redacted(result)
+
+
+# -- gates are attested from the runtime wiring, never from a flag or a file ------------------
+
+
+class WiredExecutor(Spy):
+    """Stands in for the Modal executor: only its attempt reader factory is probed."""
+
+    def __init__(self, calls: list[str], reader_for: Callable[[str, str], Any]) -> None:
+        super().__init__("executor", calls)
+        self.reader_for = reader_for
+
+
+def issuer_scopes_of(store: Any) -> Callable[[ExecutionPlan, str], tuple[frozenset[str], str]]:
+    """What the real issuer reports: the scopes the store itself asks it to mint, per attempt."""
+
+    def scopes(plan: ExecutionPlan, attempt_id: str) -> tuple[frozenset[str], str]:
+        issuer = Issuer()
+        minting = dataclasses.replace(store, credential_issuer=issuer)
+        attempt = make_attempt(plan, projectId=plan.project_id, attemptId=attempt_id)
+        context = AccessContext(plan.project_id, ACTOR, frozenset({"read", "remoteTransfer"}))
+        minting.grant_transport(plan, attempt, context)
+        (request,) = issuer.requests
+        return frozenset(request.read_keys), request.write_prefix
+
+    return scopes
+
+
+def wiring(calls: list[str] | None = None, **overrides: Any) -> dict[str, Any]:
+    """Complete, correct runtime wiring over a fake staging client (no network)."""
+    store = make_store(FakeS3())
+    values: dict[str, Any] = {
+        "staged_reader": store.attempt_reader,
+        "executor": WiredExecutor([] if calls is None else calls, store.attempt_reader),
+        "issuer_scopes": issuer_scopes_of(store),
+        "stage_inputs": lambda plan, context: (),
+    }
+    return values | overrides
+
+
+def attested(**overrides: Any) -> frozenset[str]:
+    return pilot_cli.attested_gates(TrustedServices(**wiring(**overrides)), PROJECT)
+
+
+def test_gates_closed_with_full_wiring() -> None:
+    assert attested() == CLOSED
+    # the attestation is exactly what the library accepts as closing both blocking gates
+    assert case_with_gates(attested()).ready
+
+
+def case_with_gates(closed: frozenset[str]) -> PreflightReport:
+    return build().run(closed=closed)
+
+
+def test_gates_open_without_reader() -> None:
+    assert pilot_cli.attested_gates(TrustedServices(), PROJECT) == frozenset()
+    assert attested(staged_reader=None) == frozenset({SCOPED_EXECUTOR_STORE})
+    assert attested(executor=None) == frozenset({STAGING_STORE_TRANSFER})
+    # an executor with no attempt reader factory at all (the old shared-store shape)
+    assert attested(executor=Spy("executor", [])) == frozenset({STAGING_STORE_TRANSFER})
+    assert not case_with_gates(attested(staged_reader=None, executor=None)).ready
+
+
+def test_gates_open_with_unscoped_reader() -> None:
+    shared = make_store(FakeS3())  # a store with no attempt scope
+    unscoped = {"staged_reader": lambda p, a: shared}
+    assert attested(**unscoped) == frozenset({SCOPED_EXECUTOR_STORE})
+    executor = WiredExecutor([], lambda p, a: shared)
+    assert attested(executor=executor) == frozenset({STAGING_STORE_TRANSFER})
+    both = attested(**unscoped, executor=executor)
+    assert both == frozenset()
+    assert not case_with_gates(both).ready
+
+
+def test_gates_open_with_a_reader_scoped_to_the_wrong_attempt() -> None:
+    store = make_store(FakeS3())
+    fixed = store.attempt_reader(PROJECT, "00000000-0000-0000-0000-0000000000a9")
+    other_project = store.attempt_reader(OTHER, "00000000-0000-0000-0000-0000000000a9")
+    for reader in (lambda p, a: fixed, lambda p, a: other_project):
+        assert attested(staged_reader=reader) == frozenset({SCOPED_EXECUTOR_STORE})
+        assert attested(executor=WiredExecutor([], reader)) == frozenset({STAGING_STORE_TRANSFER})
+
+
+def test_gates_open_with_partial_wiring() -> None:
+    assert attested(issuer_scopes=None) == frozenset({STAGING_STORE_TRANSFER})
+
+    def boom(*_args: object) -> Any:
+        raise RuntimeError("synthetic outage")
+
+    assert attested(staged_reader=boom) == frozenset({SCOPED_EXECUTOR_STORE})
+    assert attested(issuer_scopes=boom) == frozenset({STAGING_STORE_TRANSFER})
+    assert attested(executor=WiredExecutor([], boom)) == frozenset({STAGING_STORE_TRANSFER})
+    assert attested(issuer_scopes=lambda p, a: None) == frozenset({STAGING_STORE_TRANSFER})
+
+
+def test_gates_open_when_the_issuer_scope_is_wrong() -> None:
+    good: Callable[[ExecutionPlan, str], tuple[frozenset[str], str]] = wiring()["issuer_scopes"]
+
+    def widened(plan: ExecutionPlan, attempt: str) -> tuple[frozenset[str], str]:
+        keys, prefix = good(plan, attempt)
+        return keys | {f"{prefix}elsewhere"}, prefix
+
+    def shared_key(plan: ExecutionPlan, attempt: str) -> tuple[frozenset[str], str]:
+        keys, prefix = good(plan, attempt)
+        return frozenset(), prefix
+
+    def other_attempt(plan: ExecutionPlan, attempt: str) -> tuple[frozenset[str], str]:
+        return good(plan, "00000000-0000-0000-0000-0000000000a9")
+
+    def whole_project(plan: ExecutionPlan, attempt: str) -> tuple[frozenset[str], str]:
+        keys, prefix = good(plan, attempt)
+        return keys, prefix.removesuffix(f"attempts/{attempt}/")
+
+    def not_frozen(plan: ExecutionPlan, attempt: str) -> tuple[Any, str]:
+        keys, prefix = good(plan, attempt)
+        return list(keys), prefix
+
+    for bad in (widened, shared_key, other_attempt, whole_project, not_frozen):
+        assert attested(issuer_scopes=bad) == frozenset({STAGING_STORE_TRANSFER}), bad.__name__
+
+
+def test_gates_are_not_attested_by_a_flag() -> None:
+    assert "pilot_gates_closed" not in {f.name for f in dataclasses.fields(TrustedServices)}
+    with pytest.raises(TypeError):
+        TrustedServices(pilot_gates_closed=CLOSED)  # type: ignore[call-arg]
+
+
+def test_packet_cannot_close_gates(cli: Cli) -> None:
+    """With bare services no packet, evidence or wire field closes a gate; wiring alone does."""
+    bare = TrustedServices(connect=cli.env.connect, clock=lambda: NOW)
+    result = cli.env.invoke("preflight", *cli.evidence_args(), services=bare)
+    assert result.exit == 3 and result.code == "preflight_blocked", result.raw
+    gates = {item["id"]: item["state"] for item in result.payload["gates"]}
+    assert gates[STAGING_STORE_TRANSFER] == gates[SCOPED_EXECUTOR_STORE] == "open"
+    # a packet that claims its own attestation is not even readable
+    claim = cli.case.packet_wire | {"closedGates": sorted(CLOSED)}
+    forged = write_private(cli.env.private / "forged.json", wire(claim))
+    arguments = ["preflight", *cli.evidence_args()]
+    arguments[arguments.index("--packet") + 1] = str(forged)
+    refused = cli.env.invoke(*arguments, services=bare)
+    assert refused.exit != 0 and refused.payload.get("ready") is not True, refused.raw
+    # the same packet is ready only when trusted code wired both stores
+    wired = TrustedServices(connect=cli.env.connect, clock=lambda: NOW, **wiring(cli.calls))
+    ready = cli.env.invoke("preflight", *cli.evidence_args(), services=wired)
+    assert ready.exit == 0 and ready.payload["ready"] is True, ready.raw
 
 
 # -- fix round 1: steps are bound to the preflighted packet; a grant is single use ----------------
@@ -1301,15 +1464,15 @@ def _auth_other_actor(cli: Cli) -> list[dict[str, Any]]:
 
 
 def _dispatch_other_plan(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(plan_ref=ref(b"another plan", "kf.execution-plan.v1"))
+    return cli.bound_steps(plan_ref=ref(b"another plan", "cf.execution-plan.v1"))
 
 
 def _dispatch_other_estimate(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(evidence_ref=ref(b"an estimate nobody reviewed", "kfx.cost-estimate.v1"))
+    return cli.bound_steps(evidence_ref=ref(b"an estimate nobody reviewed", "cfx.cost-estimate.v1"))
 
 
 def _dispatch_other_authorization(cli: Cli) -> list[dict[str, Any]]:
-    return cli.bound_steps(authorization_ref=ref(b"another grant", "kf.run-authorization.v1"))
+    return cli.bound_steps(authorization_ref=ref(b"another grant", "cf.run-authorization.v1"))
 
 
 def _dispatch_without_authorize(cli: Cli) -> list[dict[str, Any]]:
@@ -1454,3 +1617,48 @@ def test_packet_files_are_digest_stable_wire_documents() -> None:
     first = packet_digest(case.packet)
     again = packet_digest(PreflightPacket.from_wire(wire(case.packet_wire), base_limits()))
     assert first == again
+
+
+# -- T15: reserve-storage is bound to the packet; staging needs input staging too --------------
+
+
+def _with_reserve_storage(cli: Cli, run_id: str, evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    prepare, authorize, dispatch = cli.bound_steps()
+    evidence_file = cli.document("step-storage-estimate-ref.json", wire(evidence))
+    reserve = {
+        "command": "reserve-storage",
+        "argv": ["--run-id", run_id, "--amount", "0.40", "--evidence", str(evidence_file)],
+    }
+    return [prepare, authorize, reserve, dispatch]
+
+
+def test_run_pilot_binds_reserve_storage_to_the_packet(
+    cli: Cli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = Recorder()
+    monkeypatch.setattr(pilot_cli, "run_command", recorder)
+    estimate = cli.case.packet_wire["estimateRef"]
+    other = ref(b"another estimate", "cfx.cost-estimate.v1")
+    for steps in (
+        _with_reserve_storage(cli, OTHER, estimate),  # another run
+        _with_reserve_storage(cli, RUN, other),  # an estimate the packet did not preflight
+    ):
+        result = cli.env.invoke(*bound_argv(cli, steps), services=cli.services())
+        assert result.exit == 3 and result.code == "forbidden", result.raw
+    assert recorder.ran == []
+    bound = cli.env.invoke(
+        *bound_argv(cli, _with_reserve_storage(cli, RUN, estimate)), services=cli.services()
+    )
+    assert bound.exit == 0, bound.raw
+    assert [name for name, *_ in recorder.ran] == [
+        "prepare-run",
+        "authorize-run",
+        "reserve-storage",
+        "dispatch",
+    ]
+
+
+def test_gates_open_without_stage_inputs() -> None:
+    # A staged result can be imported only if the inputs it was made from were staged first.
+    assert attested(stage_inputs=None) == frozenset({SCOPED_EXECUTOR_STORE})
+    assert attested() == CLOSED

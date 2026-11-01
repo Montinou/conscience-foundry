@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
-from typing import Literal, cast
+from dataclasses import dataclass, field, replace
+from typing import Literal, cast, get_args
 from uuid import uuid4
 
 from psycopg import sql
@@ -16,7 +16,14 @@ from conscience_foundry.contracts.accounting import (
     ResourceUsage,
 )
 from conscience_foundry.contracts.admission import IntakeManifest
-from conscience_foundry.contracts.common import ContractError, Digest, Id, Reason, Ref
+from conscience_foundry.contracts.common import (
+    ContractError,
+    Digest,
+    ErrorCode,
+    Id,
+    Reason,
+    Ref,
+)
 from conscience_foundry.contracts.execution import (
     ExecutionPlan,
     RunAuthorization,
@@ -53,6 +60,7 @@ from conscience_foundry.execution.ports import (
     TransportIssuer,
     TransportProof,
 )
+from conscience_foundry.execution.staged_import import import_staged_result
 from conscience_foundry.ledger._budget_inputs import DuplicateRiskAuthorization
 from conscience_foundry.ledger.acceptance import integrity_hold, select_result, verify_result
 from conscience_foundry.ledger.attempts import (
@@ -137,7 +145,7 @@ def _grants(
     total = (
         len(grants.output_scope)
         + 8 * (len(grants.material) + 2)
-        + len(b"kf.transport-material.internal.v1\n")
+        + len(b"cf.transport-material.internal.v1\n")
     )
     if total > bound.max_source_bytes:
         raise ContractError("limit_exceeded")
@@ -183,7 +191,7 @@ def _grants(
     if not clock(control) < grants.expires_at <= min(plan.expires_at, auth.expires_at):
         raise ContractError("authorization_expired")
     # Length delimiters distinguish e.g. (b"ab", b"c") from (b"a", b"bc").
-    digest = hashlib.sha256(b"kf.transport-material.internal.v1\n")
+    digest = hashlib.sha256(b"cf.transport-material.internal.v1\n")
     digest.update(len(grants.material).to_bytes(8, "big"))
     for piece in grants.material:
         digest.update(len(piece).to_bytes(8, "big"))
@@ -273,6 +281,42 @@ def _mint(issuer: TransportIssuer, attempt: StageAttempt) -> TransportGrants:
     if type(minted) is not TransportGrants or minted.attempt_id != attempt.attempt_id:
         raise ContractError("forbidden")
     return minted
+
+
+def _close_unsubmitted(
+    ledger: Ledger,
+    attempt: StageAttempt,
+    evidence_ref: Ref,
+    control: ControlContext,
+    *,
+    state: Literal["failed", "unknown_outcome"],
+    reason: Reason,
+    action: str,
+) -> StageAttempt:
+    """End a claimed dispatch that never reached the executor, with the evidence of why."""
+    with ledger.transaction() as tx:
+        current, run, _, _ = _load(tx, attempt.attempt_id, control)
+        tx.lock(current.project_id, run, current.operation_key)
+        current, _, _, _ = _load(tx, attempt.attempt_id, control)
+        if current.state == "dispatching":
+            current = transition(
+                current,
+                state,
+                control,
+                **({"reason": reason} if state == "failed" else {}),
+            )
+            save_attempt(tx, current, control)
+        request = bounded_request(
+            {
+                "action": action,
+                "attemptId": current.attempt_id,
+                "submitInvoked": False,
+                "state": current.state,
+            },
+            control,
+        )
+        append_observation(tx, current, evidence_ref, request, control)
+        return current
 
 
 def dispatch(
@@ -374,6 +418,29 @@ def dispatch(
         attempt = claim_attempt(tx, attempt, control)
     # The committed claim/reservation precedes every external effect. No DB lock
     # is retained across submit, and an exception is deliberately uncertain.
+    if control.stage_inputs is not None:
+        # Before any write-capable material exists. Nothing is submitted if staging stops, but a
+        # `dispatch_unknown` leaves the staged state unproven, so it is never reported as failed.
+        code: str | None = None
+        try:
+            control.stage_inputs(plan, context)
+        except ContractError as error:
+            code = error.code
+        except Exception:
+            code = "dispatch_unknown"
+        if code is not None:
+            return _close_unsubmitted(
+                ledger,
+                attempt,
+                evidence_ref,
+                control,
+                state="unknown_outcome" if code == "dispatch_unknown" else "failed",
+                reason=Reason(
+                    code=cast(ErrorCode, code if code in get_args(ErrorCode) else "forbidden"),
+                    message="Input staging refused",
+                ),
+                action="input_staging_refused",
+            )
     try:
         minted = prepared if prepared is not None else _mint(cast(TransportIssuer, grants), attempt)
         _grants(
@@ -382,29 +449,15 @@ def dispatch(
     except ContractError:
         # No executor was invoked: local control can prove no submission effect.
         # Financial liability still needs the separate final-no-liability gate.
-        with ledger.transaction() as tx:
-            current, run, _, _ = _load(tx, attempt.attempt_id, control)
-            tx.lock(current.project_id, run, current.operation_key)
-            current, _, _, _ = _load(tx, attempt.attempt_id, control)
-            if current.state == "dispatching":
-                current = transition(
-                    current,
-                    "failed",
-                    control,
-                    reason=Reason(code="forbidden", message="Transport proof unavailable"),
-                )
-                save_attempt(tx, current, control)
-            request = bounded_request(
-                {
-                    "action": "transport_proof_refused",
-                    "attemptId": current.attempt_id,
-                    "submitInvoked": False,
-                    "state": current.state,
-                },
-                control,
-            )
-            append_observation(tx, current, evidence_ref, request, control)
-            return current
+        return _close_unsubmitted(
+            ledger,
+            attempt,
+            evidence_ref,
+            control,
+            state="failed",
+            reason=Reason(code="forbidden", message="Transport proof unavailable"),
+            action="transport_proof_refused",
+        )
     try:
         submission = executor.submit(plan, attempt, minted)
     except Exception:
@@ -414,7 +467,7 @@ def dispatch(
         and type(submission.remote_call_id) is str
         and bool(submission.remote_call_id)
         and len(submission.remote_call_id)
-        <= limits_for(control, "kf.stage-attempt.v1").max_string_scalars
+        <= limits_for(control, "cf.stage-attempt.v1").max_string_scalars
     )
     usable = identified and submission.accepted is True
     with ledger.transaction() as tx:
@@ -481,7 +534,7 @@ def _observation(
         if type(observation.usage) is not ResourceUsage:
             raise ContractError("invalid_schema")
         usage = ResourceUsage.from_wire(
-            encoded(observation.usage), limits_for(control, "kf.result.v1")
+            encoded(observation.usage), limits_for(control, "cf.result.v1")
         )
     request = bounded_request(
         {
@@ -526,7 +579,7 @@ def _observation(
         type(facts.remote_call_id) is str
         and bool(facts.remote_call_id)
         and len(facts.remote_call_id)
-        <= limits_for(control, "kf.stage-attempt.v1").max_string_scalars
+        <= limits_for(control, "cf.stage-attempt.v1").max_string_scalars
     )
     if facts.remote_call_id is not None and not identified:
         raise ContractError("forbidden")
@@ -561,9 +614,20 @@ def _observation(
     return facts, request
 
 
-def _reconcile_observation(
+@dataclass(frozen=True)
+class AttestedObservation:
+    """An observation proven against the attempt as it stood, before any result is imported."""
+
+    attempt: StageAttempt
+    observation: Observation
+    facts: ObservationFacts
+    request: bytes = field(repr=False)
+
+
+def _attest(
     attempt_id: Id, ledger: Ledger, observation: Observation, control: ControlContext
-) -> OperationResultRecord | None:
+) -> AttestedObservation:
+    """Short transaction: authorize and attest the observation; nothing is recorded."""
     with ledger.transaction() as tx:
         attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
         authorize(control, "reconcile", attempt.project_id, run)
@@ -576,6 +640,56 @@ def _reconcile_observation(
         ):
             raise ContractError("forbidden")
         facts, request = _observation(attempt, run, plan_ref, auth_ref, observation, control)
+        return AttestedObservation(attempt, observation, facts, request)
+
+
+def _fail_closed(attempt_id: Id, ledger: Ledger, control: ControlContext) -> None:
+    """Uncertainty about a live attempt is `unknown_outcome`, never a terminal assertion."""
+    with ledger.transaction() as tx:
+        current, run, _, _ = _load(tx, attempt_id, control)
+        tx.lock(current.project_id, run, current.operation_key)
+        current, _, _, _ = _load(tx, attempt_id, control)
+        if current.state in {"dispatching", "running", "cancel_requested"}:
+            save_attempt(tx, transition(current, "unknown_outcome", control), control)
+
+
+def _reconcile_observation(
+    attempt_id: Id, ledger: Ledger, observation: Observation, control: ControlContext
+) -> OperationResultRecord | None:
+    attested = _attest(attempt_id, ledger, observation, control)
+    # Outside any transaction: remote reads must not hold a lock or a connection.
+    if observation.result_ref is not None and control.staged_reader is not None:
+        try:
+            import_staged_result(
+                control.staged_reader(attested.attempt.project_id, attested.attempt.attempt_id),
+                control.store,
+                observation.result_ref,
+                control.access,
+                limits_by_schema=control.limits_by_schema,
+            )
+        except ContractError:
+            # An unproven import is not a verdict on the result: acceptance never ran.
+            _fail_closed(attempt_id, ledger, control)
+            return None
+    return _apply(attempt_id, ledger, attested, control)
+
+
+def _apply(
+    attempt_id: Id, ledger: Ledger, attested: AttestedObservation, control: ControlContext
+) -> OperationResultRecord | None:
+    observation, facts, request = attested.observation, attested.facts, attested.request
+    with ledger.transaction() as tx:
+        attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
+        authorize(control, "reconcile", attempt.project_id, run)
+        tx.lock(attempt.project_id, run, attempt.operation_key)
+        attempt, _, _, _ = _load(tx, attempt_id, control)
+        # What was attested describes the attempt as it was; any move since voids it.
+        if (attempt.state, attempt.remote_call_id) != (
+            attested.attempt.state,
+            attested.attempt.remote_call_id,
+        ):
+            raise ContractError("determinism_conflict")
+        plan = verified_plan(plan_ref, auth_ref, tx, control, spending=False)
         seen = observation_seen(tx, attempt, observation.evidence, request)
         verified = None
         record = None
@@ -602,7 +716,7 @@ def _reconcile_observation(
         )
         if usage is not None:
             event = BudgetEvent(
-                schema_version="kf.budget-event.v1",
+                schema_version="cf.budget-event.v1",
                 project_id=attempt.project_id,
                 run_id=run,
                 reservation_id=attempt.reservation_id,
@@ -664,12 +778,7 @@ def reconcile(
         observation = executor.observe(attempt)
     except Exception:
         # Unobservability is uncertainty, never a terminal or billing assertion.
-        with ledger.transaction() as tx:
-            current, run, _, _ = _load(tx, attempt_id, control)
-            tx.lock(current.project_id, run, current.operation_key)
-            current, _, _, _ = _load(tx, attempt_id, control)
-            if current.state in {"dispatching", "running", "cancel_requested"}:
-                save_attempt(tx, transition(current, "unknown_outcome", control), control)
+        _fail_closed(attempt_id, ledger, control)
         return None
     return _reconcile_observation(attempt_id, ledger, observation, control)
 
@@ -732,7 +841,7 @@ def _resume_grants(tx: LedgerTxn, project: Id, run: Id | None, control: ControlC
         "WHERE (a.project_id,a.run_id)=(r.project_id,r.run_id) "
         "AND a.state NOT IN ('succeeded','failed','cancelled')))))"
     ).format(reservations=tx.table("reservations"), attempts=tx.table("attempts"))
-    bound = limits_for(control, "kf.run-authorization.v1")
+    bound = limits_for(control, "cf.run-authorization.v1")
     count = tx.connection.execute(
         sql.SQL("SELECT count(*) FROM {} r WHERE {}").format(tx.table("runs"), predicate),
         (project, run, run),
@@ -759,6 +868,30 @@ def _resume_grants(tx: LedgerTxn, project: Id, run: Id | None, control: ControlC
             raise ContractError("authorization_expired")
 
 
+DEADLINE_REASON = "limit_exceeded"
+"""The only reason code a deadline cancel or unknown mark may carry."""
+
+
+def _permission(
+    control: ControlContext, reason: Reason, deadline_token: object | None, deadline_action: str
+) -> str | None:
+    """The grant to check instead of the operator's, when the live session's token is held.
+
+    ``None`` means the ordinary action. A token is a capability held by identity: it must be the
+    very object the control context carries (never ``None`` against ``None``), and it only
+    stands for a deadline, so the reason must say so.
+    """
+    if deadline_token is None:
+        return None
+    if (
+        control.deadline_token is None
+        or deadline_token is not control.deadline_token
+        or reason.code != DEADLINE_REASON
+    ):
+        raise ContractError("forbidden")
+    return deadline_action
+
+
 def cancel_attempt(
     attempt_id: Id,
     ledger: Ledger,
@@ -767,8 +900,16 @@ def cancel_attempt(
     control: ControlContext,
     reason: Reason,
     evidence_ref: Ref,
+    deadline_token: object | None = None,
 ) -> StageAttempt:
+    """Request cancellation of an attempt's remote call; the provider alone settles it.
+
+    Without ``deadline_token`` the operator's ``cancel_attempt`` grant is checked. With the live
+    session's token (and ``limit_exceeded``) the ``deadline_cancel`` grant is checked instead, so
+    the reconcile step can cancel a call at its deadline and nothing else.
+    """
     reason = checked_reason(reason, control)
+    permission = _permission(control, reason, deadline_token, "deadline_cancel")
     with ledger.transaction() as tx:
         attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
         tx.lock(attempt.project_id, run, attempt.operation_key)
@@ -793,6 +934,7 @@ def cancel_attempt(
             attempt=attempt_id,
             authorization_ref=auth_ref,
             plan_ref=plan_ref,
+            permission=permission,
         )
         if attempt.state in TERMINAL:
             return attempt
@@ -827,14 +969,19 @@ def mark_unknown_outcome(
     control: ControlContext,
     reason: Reason,
     evidence_ref: Ref,
+    deadline_token: object | None = None,
 ) -> StageAttempt:
     """Evidenced resolution of a stale claim: dispatching/running -> unknown_outcome.
 
     A crash after provider acceptance strands `dispatching` with no remote id. This is the
     only way out besides reconciliation; it asserts uncertainty, never absence of effect,
     so the reservation keeps its funds and the manual-retry gate still applies.
+
+    With the live session's ``deadline_token`` (and ``limit_exceeded``) the ``deadline_unknown``
+    grant is checked instead of ``mark_unknown_outcome``, which no CLI command holds.
     """
     reason = checked_reason(reason, control)
+    permission = _permission(control, reason, deadline_token, "deadline_unknown")
     with ledger.transaction() as tx:
         attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
         tx.lock(attempt.project_id, run, attempt.operation_key)
@@ -859,6 +1006,7 @@ def mark_unknown_outcome(
             attempt=attempt_id,
             authorization_ref=auth_ref,
             plan_ref=plan_ref,
+            permission=permission,
         )
         if attempt.state == "unknown_outcome":
             return attempt
@@ -916,7 +1064,7 @@ def _manual_retry(
     current = snapshot(tx, plan.project_id, plan.run_id, control, plan.operation_key)
     if current != risk.expected_snapshot_digest:
         raise ContractError("determinism_conflict")
-    bound = limits_for(control, "kf.stage-attempt.v1")
+    bound = limits_for(control, "cf.stage-attempt.v1")
     count = tx.connection.execute(
         sql.SQL(
             "SELECT count(*) FROM {} WHERE project_id=%s AND ((run_id=%s AND state IN "

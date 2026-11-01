@@ -142,7 +142,7 @@ class LocationRegistry:
             raise ContractError("unavailable") from None
 
     def _ceiling(self, ref: Ref) -> int:
-        if ref.artifact_schema == "kf.raw-original.v1":
+        if ref.artifact_schema == "cf.raw-original.v1":
             return self.limits.max_source_bytes
         return self.limits.max_output_bytes
 

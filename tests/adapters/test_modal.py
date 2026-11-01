@@ -51,7 +51,7 @@ from conscience_foundry.execution.modal_adapter import (
     ModalPin,
     ModalPoll,
 )
-from conscience_foundry.execution.ports import Submission, TransportGrants
+from conscience_foundry.execution.ports import AttemptStaging, Submission, TransportGrants
 from conscience_foundry.execution.worker import run_worker
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import VerifiedBytes
@@ -88,7 +88,7 @@ def make_ref(
     data: bytes, schema: str, media: str = "application/json", project: str = PROJECT
 ) -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -101,7 +101,7 @@ def make_ref(
 def make_limits(**changes: object) -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.worker-limits.v1",
             "maxJsonBytes": 65536,
             "maxStringScalars": 4096,
@@ -123,6 +123,14 @@ class MemoryStore:
         self.objects: dict[str, bytes] = {}
         self.log: list[tuple[str, str]] = []
         self.contexts: list[AccessContext] = []
+        self.lease = False
+
+    def lease_present(self) -> bool:
+        """The ``AttemptStaging`` view the executor's reader must give; no lease by default."""
+        return self.lease
+
+    def result_pointer(self) -> ArtifactRef | None:
+        return None
 
     def put_verified(
         self, stream: Any, expected: ArtifactRef, context: AccessContext
@@ -195,10 +203,10 @@ def build(
     bound = limits if limits is not None else make_limits()
     store = MemoryStore()
     limits_raw = bound.model_dump_json(by_alias=True).encode()
-    limits_ref = make_ref(limits_raw, "kf.contract-limits.v1")
+    limits_ref = make_ref(limits_raw, "cf.contract-limits.v1")
     spec = ExtractionSpec.model_validate(
         {
-            "schema_version": "kf.extraction-spec.v1",
+            "schema_version": "cf.extraction-spec.v1",
             "processor_id": "text.utf8.v1",
             "processor_version": "synthetic.processor.v1",
             "code_version": "synthetic.code.v1",
@@ -210,10 +218,10 @@ def build(
         }
     )
     spec_raw = encoded(spec)
-    spec_ref = make_ref(spec_raw, "kf.extraction-spec.v1")
-    source_ref = make_ref(source, "kf.raw-original.v1", "text/plain")
+    spec_ref = make_ref(spec_raw, "cf.extraction-spec.v1")
+    source_ref = make_ref(source, "cf.raw-original.v1", "text/plain")
     report = AdmissionReport(
-        schema_version="kf.admission-report.v1",
+        schema_version="cf.admission-report.v1",
         project_id=PROJECT,
         batch_id=BATCH,
         manifest_digest="c" * 64,
@@ -230,8 +238,8 @@ def build(
         ),
     )
     report_raw = encoded(report)
-    report_ref = make_ref(report_raw, "kf.admission-report.v1")
-    tariff_ref = make_ref(b"synthetic tariff", "kf.tariff.v1")
+    report_ref = make_ref(report_raw, "cf.admission-report.v1")
+    tariff_ref = make_ref(b"synthetic tariff", "cf.tariff.v1")
     values: dict[str, Any] = {
         "cpu_milli": 1000,
         "memory_mib": 512,
@@ -244,17 +252,17 @@ def build(
     } | (resources or {})
     plan = ExecutionPlan.model_validate(
         {
-            "schema_version": "kf.execution-plan.v1",
+            "schema_version": "cf.execution-plan.v1",
             "project_id": PROJECT,
             "run_id": RUN,
             "plan_id": PLAN_ID,
-            "execution_config_ref": make_ref(b"synthetic config", "kf.execution-config.v1"),
+            "execution_config_ref": make_ref(b"synthetic config", "cf.execution-config.v1"),
             "admission_report_ref": report_ref,
             "extraction_spec_ref": spec_ref,
-            "policy_ref": make_ref(b"synthetic policy", "kf.policy.v1"),
+            "policy_ref": make_ref(b"synthetic policy", "cf.policy.v1"),
             "profile_id": "technical_minimal",
             "profile_version": "synthetic.profile.v1",
-            "contract_set_ref": make_ref(b"synthetic contracts", "kf.contract-set.v1"),
+            "contract_set_ref": make_ref(b"synthetic contracts", "cf.contract-set.v1"),
             "limits_refs": (limits_ref,),
             "input_refs": (source_ref,),
             "operation_key": "d" * 64,
@@ -273,7 +281,7 @@ def build(
     plan_bytes = encoded(plan)
     attempt = StageAttempt.model_validate(
         {
-            "schema_version": "kf.stage-attempt.v1",
+            "schema_version": "cf.stage-attempt.v1",
             "project_id": PROJECT,
             "plan_id": PLAN_ID,
             "operation_key": "d" * 64,
@@ -318,13 +326,15 @@ def build(
 
 
 def execute(scenario: Scenario, clock: StepClock | None = None) -> ArtifactRef:
-    return run_worker(
+    result = run_worker(
         scenario.plan_bytes,
         scenario.attempt_bytes,
         scenario.grants,
         scenario.store,
         clock or StepClock(),
     )
+    assert isinstance(result, ArtifactRef)  # no lease was passed, so the worker is the executor
+    return result
 
 
 def read_manifest(scenario: Scenario, ref: ArtifactRef) -> ResultManifest:
@@ -337,7 +347,16 @@ def read_manifest(scenario: Scenario, ref: ArtifactRef) -> ResultManifest:
 def test_worker_has_no_ledger_or_model_dependency() -> None:
     # worker_receives_no_database_credentials: nothing database-shaped enters or is read
     parameters = set(inspect.signature(run_worker).parameters)
-    assert parameters == {"plan_bytes", "attempt_bytes", "grants", "store", "clock"}
+    # the lease is a store port, not a database: the worker still holds no ledger handle
+    assert parameters == {
+        "plan_bytes",
+        "attempt_bytes",
+        "grants",
+        "store",
+        "clock",
+        "lease",
+        "nonce",
+    }
     assert not {"dsn", "database", "connection", "ledger", "credentials"} & parameters
     tree = ast.parse(Path(inspect.getfile(worker_module)).read_text())
     imported = {
@@ -362,15 +381,15 @@ def test_worker_has_no_ledger_or_model_dependency() -> None:
     # the result is the verified canonical output and the manifest is the last write
     scenario = build()
     manifest_ref = execute(scenario)
-    assert manifest_ref.artifact_schema == "kf.result.v1"
-    assert scenario.store.writes()[-1] == "kf.result.v1"
-    assert scenario.store.writes().count("kf.result.v1") == 1
+    assert manifest_ref.artifact_schema == "cf.result.v1"
+    assert scenario.store.writes()[-1] == "cf.result.v1"
+    assert scenario.store.writes().count("cf.result.v1") == 1
     assert scenario.store.writes() == [
-        "kf.canonical-text.v1",
-        "kf.origin-map.v1",
-        "kf.quality-report.v1",
-        "kf.document-revision.v1",
-        "kf.result.v1",
+        "cf.canonical-text.v1",
+        "cf.origin-map.v1",
+        "cf.quality-report.v1",
+        "cf.document-revision.v1",
+        "cf.result.v1",
     ]
     manifest = read_manifest(scenario, manifest_ref)
     assert manifest.status == "succeeded"
@@ -382,7 +401,7 @@ def test_worker_has_no_ledger_or_model_dependency() -> None:
     assert manifest.usage.tariff_ref == scenario.plan.budget.tariff_ref
     for output in manifest.outputs:
         assert hashlib.sha256(scenario.store.objects[output.digest]).hexdigest() == output.digest
-    text = next(o for o in manifest.outputs if o.artifact_schema == "kf.canonical-text.v1")
+    text = next(o for o in manifest.outputs if o.artifact_schema == "cf.canonical-text.v1")
     assert scenario.store.objects[text.digest] == SOURCE_BYTES
     revision = DocumentRevision.from_wire(
         scenario.store.objects[manifest.document_revision_ref.digest],  # type: ignore[union-attr]
@@ -465,7 +484,7 @@ def test_deadline_is_checked_at_entry_and_before_every_bounded_step(expired_call
     assert late.value.code == "authorization_expired"
     # call 1 is the entry check; each of the nine bounded external steps is preceded by one more
     assert len(scenario.store.log) == max(expired_call - 2, 0)
-    assert "kf.result.v1" not in scenario.store.writes()
+    assert "cf.result.v1" not in scenario.store.writes()
     assert clock.calls == expired_call
 
 
@@ -526,6 +545,7 @@ def test_staged_worker_stays_inside_the_scope_its_grant_names() -> None:
     manifest_ref = run_worker(
         scenario.plan_bytes, scenario.attempt_bytes, grants, worker_store, StepClock()
     )
+    assert isinstance(manifest_ref, ArtifactRef)
 
     touched = client.calls[staged:]
     assert {operation for operation, _ in touched} == {"get", "head", "put"}
@@ -609,7 +629,7 @@ def test_memory_ceiling_bounds_the_working_set() -> None:
     with pytest.raises(ContractError) as over:
         execute(scenario)
     assert over.value.code == "limit_exceeded"
-    assert ("read", "kf.raw-original.v1") not in scenario.store.log
+    assert ("read", "cf.raw-original.v1") not in scenario.store.log
     assert scenario.store.writes() == []
 
 
@@ -627,7 +647,7 @@ def test_wall_ceiling_is_part_of_the_deadline() -> None:
     with pytest.raises(ContractError) as late:
         execute(scenario, Drifting())  # type: ignore[arg-type]
     assert late.value.code == "authorization_expired"
-    assert "kf.result.v1" not in scenario.store.writes()
+    assert "cf.result.v1" not in scenario.store.writes()
 
 
 def test_content_failure_is_a_failed_manifest_written_last_and_infrastructure_is_not() -> None:
@@ -637,7 +657,7 @@ def test_content_failure_is_a_failed_manifest_written_last_and_infrastructure_is
     assert manifest.status == "failed"
     assert [error.code for error in manifest.errors] == ["bom_rejected"]
     assert manifest.outputs == ()
-    assert scenario.store.writes() == ["kf.result.v1"]
+    assert scenario.store.writes() == ["cf.result.v1"]
 
     # a missing source is an unavailable input, not a proven content failure: no manifest
     missing = build(store_source=False)
@@ -651,7 +671,7 @@ def test_content_failure_is_a_failed_manifest_written_last_and_infrastructure_is
 
 def capability(plan: ExecutionPlan, **changes: Any) -> CapabilityRecord:
     values: dict[str, Any] = {
-        "schema_version": "kf.modal-capability-record.v1",
+        "schema_version": "cf.modal-capability-record.v1",
         "project_id": PROJECT,
         "execution_config_ref": plan.execution_config_ref,
         "sdk_version": "synthetic-sdk.1",
@@ -671,7 +691,7 @@ def capability(plan: ExecutionPlan, **changes: Any) -> CapabilityRecord:
         "cancellation": "terminates_containers",
         "deadline_enforcement": "entry_and_every_bounded_step",
         "valid_until": plan.budget.valid_until,
-        "source_evidence_refs": (make_ref(b"synthetic evidence", "kf.capability-source.v1"),),
+        "source_evidence_refs": (make_ref(b"synthetic evidence", "cf.capability-source.v1"),),
     }
     return CapabilityRecord.model_validate(values | changes)
 
@@ -717,7 +737,7 @@ def test_capability_record_must_cover_the_plan(changes: dict[str, Any], code: st
 
 def test_capability_record_binds_the_plan_config_and_cites_evidence() -> None:
     scenario = build()
-    other = make_ref(b"another config", "kf.execution-config.v1")
+    other = make_ref(b"another config", "cf.execution-config.v1")
     with pytest.raises(ContractError) as swapped:
         validate_capabilities(capability(scenario.plan, execution_config_ref=other), scenario.plan)
     assert swapped.value.code == "forbidden"
@@ -728,7 +748,7 @@ def test_capability_record_binds_the_plan_config_and_cites_evidence() -> None:
                 source_evidence_refs=(
                     make_ref(
                         b"e",
-                        "kf.capability-source.v1",
+                        "cf.capability-source.v1",
                         project="00000000-0000-0000-0000-0000000000ff",
                     ),
                 ),
@@ -789,6 +809,7 @@ def make_executor(
     pin: ModalPin | None = None,
     clock: Callable[[], Instant] | None = None,
     evidence: list[tuple[str, bytes]] | None = None,
+    reader_for: Callable[[str, str], AttemptStaging] | None = None,
 ) -> ModalExecutor:
     log = evidence if evidence is not None else []
 
@@ -810,7 +831,7 @@ def make_executor(
         ),
         record=record or capability(scenario.plan),
         execution_config_digest=scenario.plan.execution_config_ref.digest,
-        store=scenario.store,
+        reader_for=reader_for or (lambda _project, _attempt: scenario.store),
         access=AccessContext(PROJECT, ACTOR, frozenset({"read"})),
         limits=scenario.limits,
         clock=clock or (lambda: NOW),
@@ -910,6 +931,77 @@ def poll_executor(
     return make_executor(scenario, sdk, evidence=evidence), sdk, evidence
 
 
+def staged_attempt_manifest() -> tuple[Scenario, S3StagingStore, FakeS3, ArtifactRef]:
+    """A worker scoped to the scenario's attempt writes its manifest under that attempt's prefix."""
+    scenario = build()
+    client = FakeS3()
+    control = make_store(client, issuer=Issuer(), max_object_bytes=65536, transfer_chunk_bytes=64)
+    for ref, raw in (
+        (scenario.limits_ref, scenario.limits.model_dump_json(by_alias=True).encode()),
+        (scenario.spec_ref, scenario.store.objects[scenario.spec_ref.digest]),
+        (scenario.report_ref, scenario.store.objects[scenario.report_ref.digest]),
+        (scenario.source_ref, SOURCE_BYTES),
+    ):
+        control.put_verified(io.BytesIO(raw), ref, CONTEXT)
+    grants = control.grant_transport(scenario.plan, scenario.attempt, CONTEXT)
+    worker = control.scoped_to(scenario.plan, scenario.attempt.attempt_id)
+    manifest_ref = run_worker(
+        scenario.plan_bytes, scenario.attempt_bytes, grants, worker, StepClock()
+    )
+    assert isinstance(manifest_ref, ArtifactRef)
+    return scenario, control, client, manifest_ref
+
+
+def test_result_reads_manifest_from_attempt_prefix() -> None:
+    scenario, control, client, manifest_ref = staged_attempt_manifest()
+    asked: list[tuple[str, str]] = []
+
+    def reader_for(project_id: str, attempt_id: str) -> AttemptStaging:
+        asked.append((project_id, attempt_id))
+        return control.attempt_reader(project_id, attempt_id)
+
+    sdk = FakeModal()
+    wire = manifest_ref.model_dump_json(by_alias=True, exclude_none=True).encode()
+    sdk.polls = [ModalPoll("completed", wire)]
+    executor = make_executor(scenario, sdk, reader_for=reader_for)
+    staged = len(client.calls)
+
+    observed = executor.observe(running(scenario))
+
+    assert (observed.state, observed.result_ref) == ("succeeded", manifest_ref)
+    assert asked == [(PROJECT, ATTEMPT)]
+    attempt_prefix = f"staging/f1/{PROJECT}/attempts/{ATTEMPT}/"
+    reads = [key for operation, key in client.calls[staged:] if operation == "get"]
+    assert reads and all(key.startswith(attempt_prefix) for key in reads)
+
+
+def test_result_cannot_read_other_attempt() -> None:
+    scenario, control, client, manifest_ref = staged_attempt_manifest()
+    other = "00000000-0000-0000-0000-0000000000a1"
+    asked: list[tuple[str, str]] = []
+
+    def reader_for(project_id: str, attempt_id: str) -> AttemptStaging:
+        asked.append((project_id, attempt_id))
+        return control.attempt_reader(project_id, attempt_id)
+
+    sdk = FakeModal()
+    # another attempt's call nominates the manifest that attempt ATTEMPT staged
+    wire = manifest_ref.model_dump_json(by_alias=True, exclude_none=True).encode()
+    sdk.polls = [ModalPoll("completed", wire)]
+    executor = make_executor(scenario, sdk, reader_for=reader_for)
+    intruder = StageAttempt.model_validate(
+        running(scenario).model_dump(by_alias=True, exclude_none=True) | {"attemptId": other}
+    )
+    staged = len(client.calls)
+
+    observed = executor.observe(intruder)
+
+    assert (observed.state, observed.result_ref) == ("unknown_outcome", None)
+    assert asked == [(PROJECT, other)]
+    prefix = f"staging/f1/{PROJECT}/attempts/{ATTEMPT}/"
+    assert all(not key.startswith(prefix) for _, key in client.calls[staged:])
+
+
 def test_observe_maps_sdk_outcomes_without_inventing_failure_or_absence() -> None:
     scenario = build()
     manifest_ref = execute(scenario)
@@ -966,7 +1058,7 @@ def test_observe_maps_sdk_outcomes_without_inventing_failure_or_absence() -> Non
     assert executor.observe(attempt).state == "unknown_outcome"
 
     # a result nominating another project's manifest is not accepted as this attempt's result
-    foreign = make_ref(b"x", "kf.result.v1", project="00000000-0000-0000-0000-0000000000ff")
+    foreign = make_ref(b"x", "cf.result.v1", project="00000000-0000-0000-0000-0000000000ff")
     executor, _, _ = poll_executor(
         scenario,
         ModalPoll("completed", foreign.model_dump_json(by_alias=True, exclude_none=True).encode()),

@@ -47,7 +47,7 @@ PERMISSIONS = (
 
 def limits(**overrides: int) -> ContractLimits:
     values = {
-        "schemaVersion": "kf.contract-limits.v1",
+        "schemaVersion": "cf.contract-limits.v1",
         "version": "synthetic.limits.v1",
         "maxJsonBytes": 65536,
         "maxStringScalars": 256,
@@ -64,7 +64,7 @@ def limits(**overrides: int) -> ContractLimits:
 
 def ref(project: str = PROJECT, **updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": project,
         "digest": "a" * 64,
         "sizeBytes": 17,
@@ -80,7 +80,7 @@ def source_policy(**updates: object) -> dict[str, object]:
 
 def policy(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.policy.v1",
+        "schemaVersion": "cf.policy.v1",
         "projectId": PROJECT,
         "policyVersion": "synthetic.policy.v1",
         "sources": [source_policy()],
@@ -103,12 +103,12 @@ def item(**updates: object) -> dict[str, object]:
 
 def manifest(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.intake.v1",
+        "schemaVersion": "cf.intake.v1",
         "projectId": PROJECT,
         "batchId": BATCH,
         "profileId": "technical_minimal",
         "profileVersion": "synthetic.profile.v1",
-        "policyRef": ref(artifactSchema="kf.policy.v1"),
+        "policyRef": ref(artifactSchema="cf.policy.v1"),
         "createdAt": TIME,
         "items": [item()],
     } | updates
@@ -116,7 +116,7 @@ def manifest(**updates: object) -> dict[str, object]:
 
 def report(manifest_value: IntakeManifest, **updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.admission-report.v1",
+        "schemaVersion": "cf.admission-report.v1",
         "projectId": PROJECT,
         "batchId": BATCH,
         "manifestDigest": "a" * 64,
@@ -241,15 +241,15 @@ def test_custody_paths_are_strict_relative_json_strings() -> None:
 
 def test_project_storage_and_profile_pins_are_project_scoped() -> None:
     config = {
-        "schemaVersion": "kf.project.v1",
+        "schemaVersion": "cf.project.v1",
         "projectId": PROJECT,
         "profileId": "technical_minimal",
         "profileVersion": "synthetic.profile.v1",
-        "policyRef": ref(artifactSchema="kf.policy.v1"),
-        "limitsRefs": [ref(artifactSchema="kf.contract-limits.v1")],
-        "contractSetRef": ref(artifactSchema="kf.contract-set.v1"),
-        "storageConfigRef": ref(artifactSchema="kf.storage-config.v1"),
-        "executionConfigRef": ref(artifactSchema="kf.execution-config.v1"),
+        "policyRef": ref(artifactSchema="cf.policy.v1"),
+        "limitsRefs": [ref(artifactSchema="cf.contract-limits.v1")],
+        "contractSetRef": ref(artifactSchema="cf.contract-set.v1"),
+        "storageConfigRef": ref(artifactSchema="cf.storage-config.v1"),
+        "executionConfigRef": ref(artifactSchema="cf.execution-config.v1"),
     }
     assert ProjectConfig.model_validate(config)
     for name in ("policyRef", "contractSetRef", "storageConfigRef", "executionConfigRef"):
@@ -258,18 +258,18 @@ def test_project_storage_and_profile_pins_are_project_scoped() -> None:
     with pytest.raises(ValidationError):
         ProjectConfig.model_validate(config | {"limitsRefs": []})
     storage = {
-        "schemaVersion": "kf.storage-config.v1",
+        "schemaVersion": "cf.storage-config.v1",
         "projectId": PROJECT,
         "localStoreId": "local",
         "stagingStoreId": "staging",
         "backupStoreId": "backup",
-        "retentionPolicyRef": ref(artifactSchema="kf.retention-policy.v1"),
+        "retentionPolicyRef": ref(artifactSchema="cf.retention-policy.v1"),
     }
     assert StorageConfig.model_validate(storage)
     with pytest.raises(ValidationError):
         StorageConfig.model_validate(storage | {"retentionPolicyRef": ref(OTHER_PROJECT)})
     profile = {
-        "schemaVersion": "kf.profile.v1",
+        "schemaVersion": "cf.profile.v1",
         "profileId": "technical_minimal",
         "version": "synthetic.profile.v1",
         "metadataSchemaRef": ref(),
@@ -335,9 +335,9 @@ def test_admission_matches_manifest_universe_and_immutable_bytes() -> None:
 def test_source_asset_is_bound_to_admitted_item_and_report() -> None:
     admitted = IntakeManifest.model_validate(manifest())
     admission = AdmissionReport.model_validate(report(admitted))
-    admission_ref = ref(artifactSchema="kf.admission-report.v1")
+    admission_ref = ref(artifactSchema="cf.admission-report.v1")
     value = {
-        "schemaVersion": "kf.source-asset.v1",
+        "schemaVersion": "cf.source-asset.v1",
         "projectId": PROJECT,
         "assetId": ASSET,
         "sourceId": SOURCE,
@@ -361,18 +361,18 @@ def test_source_asset_is_bound_to_admitted_item_and_report() -> None:
 
 def test_generic_metadata_is_preserved_but_technical_profile_is_checked_at_boundary() -> None:
     config_value = {
-        "schemaVersion": "kf.project.v1",
+        "schemaVersion": "cf.project.v1",
         "projectId": PROJECT,
         "profileId": "technical_minimal",
         "profileVersion": "synthetic.profile.v1",
-        "policyRef": ref(artifactSchema="kf.policy.v1"),
+        "policyRef": ref(artifactSchema="cf.policy.v1"),
         "limitsRefs": [ref()],
         "contractSetRef": ref(),
         "storageConfigRef": ref(),
         "executionConfigRef": ref(),
     }
     profile_value = {
-        "schemaVersion": "kf.profile.v1",
+        "schemaVersion": "cf.profile.v1",
         "profileId": "technical_minimal",
         "version": "synthetic.profile.v1",
         "metadataSchemaRef": ref(),
@@ -494,12 +494,12 @@ def test_admission_policy_version_requires_pinned_context() -> None:
         )
     asset = SourceAsset.model_validate(
         {
-            "schemaVersion": "kf.source-asset.v1",
+            "schemaVersion": "cf.source-asset.v1",
             "projectId": PROJECT,
             "assetId": ASSET,
             "sourceId": SOURCE,
             "originalRef": ref(mediaType="text/plain", artifactSchema="raw.utf8.v1"),
-            "admissionReportRef": ref(artifactSchema="kf.admission-report.v1"),
+            "admissionReportRef": ref(artifactSchema="cf.admission-report.v1"),
             "metadata": {"title": "Synthetic manual"},
         }
     )
@@ -514,11 +514,11 @@ def test_admission_policy_version_requires_pinned_context() -> None:
 def test_profile_schema_pin_is_bound_to_static_validator() -> None:
     project = ProjectConfig.model_validate(
         {
-            "schemaVersion": "kf.project.v1",
+            "schemaVersion": "cf.project.v1",
             "projectId": PROJECT,
             "profileId": "technical_minimal",
             "profileVersion": "synthetic.profile.v1",
-            "policyRef": ref(artifactSchema="kf.policy.v1"),
+            "policyRef": ref(artifactSchema="cf.policy.v1"),
             "limitsRefs": [ref()],
             "contractSetRef": ref(),
             "storageConfigRef": ref(),
@@ -527,7 +527,7 @@ def test_profile_schema_pin_is_bound_to_static_validator() -> None:
     )
     descriptor = ProfileDescriptor.model_validate(
         {
-            "schemaVersion": "kf.profile.v1",
+            "schemaVersion": "cf.profile.v1",
             "profileId": "technical_minimal",
             "version": "synthetic.profile.v1",
             "metadataSchemaRef": ref(digest="b" * 64),

@@ -39,7 +39,12 @@ class Observation:
 
 @dataclass(frozen=True)
 class TransportGrants:
-    """Transient tokens; only a trusted transport adapter can establish scope."""
+    """Transient tokens; only a trusted transport adapter can establish scope.
+
+    ``material`` holds one opaque piece per credential. For R2 it is exactly two, read-only first
+    and read-write second (see ``conscience_foundry.storage.r2``): the worker reads declared
+    inputs with the first and writes and reads back under its attempt prefix with the second.
+    """
 
     project_id: Id
     plan_digest: Digest
@@ -87,6 +92,22 @@ class TransportFacts:
     output_scope: bytes = field(repr=False)
     output_attempt_id: Id
     attempt_isolated: bool
+
+
+class LeaseStore(Protocol):
+    """First-writer-wins claim on one attempt's execution, and the pointer to its result."""
+
+    def claim_lease(self, attempt_id: Id, nonce: str) -> Literal["won", "lost"]: ...
+
+    def publish_result(self, attempt_id: Id, manifest: Ref) -> None: ...
+
+
+class AttemptStaging(ObjectStore, Protocol):
+    """A view of one attempt's staging prefix that also tells whether it was claimed or finished."""
+
+    def lease_present(self) -> bool: ...
+
+    def result_pointer(self) -> Ref | None: ...
 
 
 class Executor(Protocol):
@@ -265,6 +286,16 @@ class ControlContext:
     output_store_id: str
     store: ObjectStore = field(repr=False)
     transport_limits: ContractLimits = field(repr=False)
+    staged_reader: Callable[[Id, Id], ObjectStore] | None = field(default=None, repr=False)
+    """Read-only view of one (project, attempt) staging prefix; None keeps local-only results."""
+    stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = field(
+        default=None, repr=False
+    )
+    """Puts every object the worker reads at its staging key, before any grant is minted."""
+    project_max_live_attempts: int | None = None
+    """Project-wide cap on non-terminal attempts, unknown outcomes included; None is no cap."""
+    deadline_token: object | None = field(default=None, repr=False)
+    """The live session's private deadline token, matched by identity; None means there is none."""
 
 
 @dataclass(frozen=True)

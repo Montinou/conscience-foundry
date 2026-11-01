@@ -29,7 +29,7 @@ CONTEXT = AccessContext(PROJECT, ACTOR, frozenset({"read", "extract"}))
 def limits(**overrides: int) -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.storage-limits.v1",
             "maxJsonBytes": 4096,
             "maxStringScalars": 256,
@@ -46,12 +46,12 @@ def limits(**overrides: int) -> ContractLimits:
 
 def ref(data: bytes, *, locations: tuple[ArtifactLocation, ...] = ()) -> ArtifactRef:
     return ArtifactRef(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=PROJECT,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
         media_type="text/plain",
-        artifact_schema="kf.raw-original.v1",
+        artifact_schema="cf.raw-original.v1",
         locations=locations,
     )
 

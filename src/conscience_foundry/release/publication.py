@@ -62,15 +62,15 @@ from conscience_foundry.release.importer import (
 # Reports are excluded: they need audit metadata handling and are not stage proof.
 PUBLICATION_EVIDENCE: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "candidate": frozenset({"kf.library-release.v1"}),
-        "validated": frozenset({"kf.revision-review.v1"}),
+        "candidate": frozenset({"cf.library-release.v1"}),
+        "validated": frozenset({"cf.revision-review.v1"}),
         # F1 has no transport or transport-completion schema: `transferred` accepts the
         # release ref as evidence, so it is operator-attested only (exact release-authority
         # approval) and proves no transport. Accepted F1 limitation; revisit at T21/F5.
-        "transferred": frozenset({"kf.library-release.v1"}),
-        "local_verified": frozenset({"kf.import-receipt.v1"}),
-        "published": frozenset({"kf.import-receipt.v1"}),
-        "retired": frozenset({"kf.import-receipt.v1"}),
+        "transferred": frozenset({"cf.library-release.v1"}),
+        "local_verified": frozenset({"cf.import-receipt.v1"}),
+        "published": frozenset({"cf.import-receipt.v1"}),
+        "retired": frozenset({"cf.import-receipt.v1"}),
     }
 )
 
@@ -105,11 +105,11 @@ def _evidence(record: PublicationRecord, loaded: LoadedRelease, release: Release
     for ref in record.evidence_refs:
         if ref.artifact_schema not in allowed:
             raise ContractError("unsupported_schema")
-        if ref.artifact_schema == "kf.library-release.v1":
+        if ref.artifact_schema == "cf.library-release.v1":
             if ref.digest != record.release_digest:
                 raise ContractError("forbidden")
         read_artifact_value = read_artifact(ref, release)[1]
-        if ref.artifact_schema == "kf.import-receipt.v1":
+        if ref.artifact_schema == "cf.import-receipt.v1":
             receipt = loaded.row.import_receipt_ref
             if (
                 type(read_artifact_value) is not ImportReceipt
@@ -120,7 +120,7 @@ def _evidence(record: PublicationRecord, loaded: LoadedRelease, release: Release
                 or identity(receipt) != identity(ref)
             ):
                 raise ContractError("forbidden")
-        elif ref.artifact_schema == "kf.revision-review.v1":
+        elif ref.artifact_schema == "cf.revision-review.v1":
             if (
                 type(read_artifact_value) is not RevisionReview
                 or read_artifact_value.decision != "accepted"
@@ -175,8 +175,8 @@ def append_publication(
     checked_context(context, release.store, release)
     if type(record) is not PublicationRecord:
         raise ContractError("invalid_schema")
-    raw = bounded_model(record, release, "kf.publication-record.v1")
-    if PublicationRecord.from_wire(raw, limits_for(release, "kf.publication-record.v1")) != record:
+    raw = bounded_model(record, release, "cf.publication-record.v1")
+    if PublicationRecord.from_wire(raw, limits_for(release, "cf.publication-record.v1")) != record:
         raise ContractError("forbidden")
     if (
         record.project_id != context.project_id
@@ -273,8 +273,8 @@ def activate(
     checked_context(context, release.store, release)
     if type(record) is not ActivationRecord:
         raise ContractError("invalid_schema")
-    raw = bounded_model(record, release, "kf.activation.v1")
-    if ActivationRecord.from_wire(raw, limits_for(release, "kf.activation.v1")) != record:
+    raw = bounded_model(record, release, "cf.activation.v1")
+    if ActivationRecord.from_wire(raw, limits_for(release, "cf.activation.v1")) != record:
         raise ContractError("forbidden")
     if (
         record.project_id != context.project_id

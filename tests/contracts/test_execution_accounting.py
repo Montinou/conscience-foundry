@@ -47,7 +47,7 @@ AFTER = "2026-10-25T03:00:00.000Z"
 def limits() -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.v1",
             "maxJsonBytes": 131072,
             "maxStringScalars": 256,
@@ -63,7 +63,7 @@ def limits() -> ContractLimits:
 
 def ref(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": "a" * 64,
         "sizeBytes": 17,
@@ -103,7 +103,7 @@ def budget(**updates: object) -> dict[str, object]:
 
 def plan(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.execution-plan.v1",
+        "schemaVersion": "cf.execution-plan.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "planId": PLAN,
@@ -125,7 +125,7 @@ def plan(**updates: object) -> dict[str, object]:
 
 def authorization(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.run-authorization.v1",
+        "schemaVersion": "cf.run-authorization.v1",
         "authorizationId": AUTH,
         "projectId": PROJECT,
         "runId": RUN,
@@ -149,7 +149,7 @@ def usage(**updates: object) -> dict[str, object]:
 
 def event(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.budget-event.v1",
+        "schemaVersion": "cf.budget-event.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "reservationId": RESERVATION,
@@ -166,7 +166,7 @@ def event(**updates: object) -> dict[str, object]:
 
 def attempt(**updates: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.stage-attempt.v1",
+        "schemaVersion": "cf.stage-attempt.v1",
         "projectId": PROJECT,
         "planId": PLAN,
         "operationKey": "b" * 64,
@@ -179,10 +179,10 @@ def attempt(**updates: object) -> dict[str, object]:
 
 
 def result(**updates: object) -> dict[str, object]:
-    revision = ref(artifactSchema="kf.document-revision.v1", digest="d" * 64)
-    quality = ref(artifactSchema="kf.quality-report.v1", digest="e" * 64)
+    revision = ref(artifactSchema="cf.document-revision.v1", digest="d" * 64)
+    quality = ref(artifactSchema="cf.quality-report.v1", digest="e" * 64)
     return {
-        "schemaVersion": "kf.result.v1",
+        "schemaVersion": "cf.result.v1",
         "projectId": PROJECT,
         "planId": PLAN,
         "operationKey": "b" * 64,
@@ -281,7 +281,7 @@ def test_stage_attempt_terminal_and_timestamp_conditions() -> None:
         state="succeeded",
         dispatchedAt=TIME,
         finishedAt=LATER,
-        resultManifestRef=ref(artifactSchema="kf.result.v1"),
+        resultManifestRef=ref(artifactSchema="cf.result.v1"),
     )
     assert StageAttempt.model_validate(succeeded).state == "succeeded"
     for updates in (
@@ -303,7 +303,7 @@ def test_result_success_requires_unique_correlated_outputs() -> None:
     for updates in (
         {"errors": [reason()]},
         {"outputs": []},
-        {"outputs": [ref(artifactSchema="kf.document-revision.v1")]},
+        {"outputs": [ref(artifactSchema="cf.document-revision.v1")]},
         {"qualityReportRef": ref(projectId=OTHER_PROJECT)},
         {"inputDigests": []},
     ):
@@ -322,9 +322,9 @@ def test_result_success_requires_unique_correlated_outputs() -> None:
 
 
 def test_operation_result_initial_selection_and_later_outcomes() -> None:
-    selected_ref = ref(artifactSchema="kf.result.v1")
+    selected_ref = ref(artifactSchema="cf.result.v1")
     selected = {
-        "schemaVersion": "kf.operation-result-record.v1",
+        "schemaVersion": "cf.operation-result-record.v1",
         "projectId": PROJECT,
         "operationKey": "b" * 64,
         "eventId": EVENT,
@@ -351,7 +351,7 @@ def test_operation_result_initial_selection_and_later_outcomes() -> None:
 
 def test_billing_adjustment_replacement_amounts_preserve_original_events() -> None:
     adjustment = {
-        "schemaVersion": "kf.billing-adjustment.v1",
+        "schemaVersion": "cf.billing-adjustment.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "reservationId": RESERVATION,
@@ -373,7 +373,7 @@ def test_billing_adjustment_replacement_amounts_preserve_original_events() -> No
 
 def test_report_retains_every_outcome_and_unknown_cost_flag() -> None:
     payload = {
-        "schemaVersion": "kf.run-report.v1",
+        "schemaVersion": "cf.run-report.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "batchId": PLAN,
@@ -404,7 +404,7 @@ def test_report_retains_every_outcome_and_unknown_cost_flag() -> None:
 
 def test_execution_config_exact_fields_and_no_project_invention() -> None:
     payload = {
-        "schemaVersion": "kf.execution-config.v1",
+        "schemaVersion": "cf.execution-config.v1",
         "adapterId": "synthetic-modal",
         "deploymentVersion": "synthetic.v1",
         "imageDigest": "a" * 64,
@@ -437,7 +437,7 @@ def test_collections_are_immutable_and_wire_shapes_roundtrip() -> None:
 def test_run_report_context_requires_complete_manifest_universe_and_pinned_policy() -> None:
     manifest = IntakeManifest.model_validate(
         {
-            "schemaVersion": "kf.intake.v1",
+            "schemaVersion": "cf.intake.v1",
             "projectId": PROJECT,
             "batchId": PLAN,
             "profileId": "technical_minimal",
@@ -459,7 +459,7 @@ def test_run_report_context_requires_complete_manifest_universe_and_pinned_polic
     )
     policy = PolicyArtifact.model_validate(
         {
-            "schemaVersion": "kf.policy.v1",
+            "schemaVersion": "cf.policy.v1",
             "projectId": PROJECT,
             "policyVersion": "1",
             "sources": [
@@ -481,7 +481,7 @@ def test_run_report_context_requires_complete_manifest_universe_and_pinned_polic
     )
     admission = AdmissionReport.model_validate(
         {
-            "schemaVersion": "kf.admission-report.v1",
+            "schemaVersion": "cf.admission-report.v1",
             "projectId": PROJECT,
             "batchId": PLAN,
             "manifestDigest": "a" * 64,
@@ -498,7 +498,7 @@ def test_run_report_context_requires_complete_manifest_universe_and_pinned_polic
         }
     )
     payload = {
-        "schemaVersion": "kf.run-report.v1",
+        "schemaVersion": "cf.run-report.v1",
         "projectId": PROJECT,
         "runId": RUN,
         "batchId": PLAN,

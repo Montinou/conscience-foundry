@@ -44,7 +44,7 @@ def _unique(values: tuple[object, ...]) -> None:
 
 
 class ProjectConfig(WireModel):
-    schema_version: Literal["kf.project.v1"]
+    schema_version: Literal["cf.project.v1"]
     project_id: Id
     profile_id: NonemptyString
     profile_version: Version
@@ -69,7 +69,7 @@ class ProjectConfig(WireModel):
 
 
 class StorageConfig(WireModel):
-    schema_version: Literal["kf.storage-config.v1"]
+    schema_version: Literal["cf.storage-config.v1"]
     project_id: Id
     local_store_id: NonemptyString
     staging_store_id: NonemptyString
@@ -84,7 +84,7 @@ class StorageConfig(WireModel):
 
 
 class ProfileDescriptor(WireModel):
-    schema_version: Literal["kf.profile.v1"]
+    schema_version: Literal["cf.profile.v1"]
     profile_id: NonemptyString
     version: Version
     metadata_schema_ref: Ref
@@ -130,7 +130,7 @@ class SourcePolicy(WireModel):
 
 
 class PolicyArtifact(WireModel):
-    schema_version: Literal["kf.policy.v1"]
+    schema_version: Literal["cf.policy.v1"]
     project_id: Id
     policy_version: Version
     sources: Annotated[tuple[SourcePolicy, ...], BeforeValidator(_json_array)]

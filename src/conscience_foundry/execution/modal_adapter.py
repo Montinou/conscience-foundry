@@ -20,6 +20,12 @@ Trust model:
   is ``unknown_outcome`` (``cancel_requested`` while a cancel stands): expired
   output does not mean no work happened or nothing is owed. A cancel request is
   only a request until the SDK reports the call cancelled.
+* The result manifest is read through ``reader_for(project_id, attempt_id)``, a reader
+  confined to that one attempt's staging prefix: a nominated reference outside it is
+  unreadable, hence unresolved. The same reader says whether the attempt's lease was ever taken
+  (``lease_present``): a worker that lost the lease race (``{"duplicate": true}``) and a function
+  that errored after a worker may have claimed the attempt are unknown outcomes, never failed
+  ones; an unreadable lease is not "no lease".
 * Every observation carries a stored evidence record that names only the
   attempt, the call id and the states; no grant material, payload or provider
   response is retained or logged. Independent attestation of that evidence stays
@@ -40,6 +46,7 @@ from conscience_foundry.contracts.common import (
     ContractError,
     ContractLimits,
     Digest,
+    Id,
     Instant,
     Ref,
 )
@@ -50,12 +57,26 @@ from conscience_foundry.contracts.execution import (
     StageAttempt,
 )
 from conscience_foundry.execution.capabilities import CapabilityRecord, validate_capabilities
-from conscience_foundry.execution.ports import Observation, Submission, TransportGrants
+from conscience_foundry.execution.ports import (
+    AttemptStaging,
+    Observation,
+    Submission,
+    TransportGrants,
+)
 from conscience_foundry.policy.access import AccessContext
-from conscience_foundry.storage.local import ObjectStore
 
 _INSTANT = TypeAdapter(Instant)
-OBSERVATION_SCHEMA = "kf.modal-call-observation.v1"
+_CORE_PAYLOAD_KEYS = frozenset({"plan_bytes", "attempt_bytes", "grants"})
+OBSERVATION_SCHEMA = "cf.modal-call-observation.v1"
+
+
+def _is_duplicate(raw: bytes | None) -> bool:
+    """Exactly ``{"duplicate": true}``: the container's answer when it lost the lease race."""
+    try:
+        value = json.loads(raw) if type(raw) is bytes else None
+    except Exception:
+        return False
+    return type(value) is dict and len(value) == 1 and value.get("duplicate") is True
 
 
 @dataclass(frozen=True)
@@ -101,11 +122,14 @@ class ModalExecutor:
     pin: ModalPin
     record: CapabilityRecord = field(repr=False)
     execution_config_digest: Digest
-    store: ObjectStore = field(repr=False)
+    reader_for: Callable[[Id, Id], AttemptStaging] = field(repr=False)
     access: AccessContext
     limits: ContractLimits = field(repr=False)
     clock: Callable[[], Instant] = field(repr=False)
     evidence: EvidenceSink = field(repr=False)
+    payload_extras: Mapping[str, object] = field(default_factory=dict, repr=False)
+    """Labels merged into the spawn payload (the live staging settings and account id); never
+    secrets, and never a replacement for one of the core payload keys."""
     _claimed: set[str] = field(default_factory=set, init=False, repr=False)
 
     # -- submit ---------------------------------------------------------------------
@@ -114,9 +138,12 @@ class ModalExecutor:
         self, plan: ExecutionPlan, attempt: StageAttempt, grants: TransportGrants
     ) -> Submission:
         plan_bytes = self._admit(plan, attempt, grants)
+        if any(name in _CORE_PAYLOAD_KEYS for name in self.payload_extras):
+            raise ContractError("invalid_schema")  # extras add to the payload, never replace it
         # Claimed before the call: whatever happens next, this instance never spawns twice.
         self._claimed.add(attempt.attempt_id)
         payload: dict[str, object] = {
+            **self.payload_extras,
             "plan_bytes": plan_bytes,
             "attempt_bytes": attempt.model_dump_json(by_alias=True, exclude_none=True).encode(),
             "grants": {
@@ -224,8 +251,13 @@ class ModalExecutor:
         if poll.state == "cancelled":
             return self._finish(action, attempt, poll.state, "cancelled", None)
         if poll.state == "remote_error":
+            if self._lease_held(attempt):
+                return self._finish(action, attempt, poll.state, unresolved, None)
             return self._finish(action, attempt, poll.state, "failed", None)
         if poll.state == "completed":
+            if _is_duplicate(poll.result):
+                # A loser found no pointer: a worker holds the lease and its result is unknown.
+                return self._finish(action, attempt, "duplicate", unresolved, None)
             outcome = self._result(attempt, poll.result)
             if outcome is None:
                 return self._finish(action, attempt, "result_unverified", unresolved, None)
@@ -233,6 +265,15 @@ class ModalExecutor:
         # timed_out, output_expired and anything unrecognized prove neither effect nor absence.
         sdk_state = poll.state if poll.state in {"timed_out", "output_expired"} else "unrecognized"
         return self._finish(action, attempt, sdk_state, unresolved, None)
+
+    def _lease_held(self, attempt: StageAttempt) -> bool:
+        """Whether a worker may have claimed the attempt; anything unreadable counts as yes."""
+        try:
+            return (
+                self.reader_for(attempt.project_id, attempt.attempt_id).lease_present() is not False
+            )
+        except Exception:
+            return True
 
     def _result(
         self, attempt: StageAttempt, raw: bytes | None
@@ -244,12 +285,14 @@ class ModalExecutor:
             ref = Ref.from_wire(raw, self.limits)
             if (
                 ref.project_id != attempt.project_id
-                or ref.artifact_schema != "kf.result.v1"
+                or ref.artifact_schema != "cf.result.v1"
                 or ref.media_type != "application/json"
                 or ref.size_bytes > self.limits.max_output_bytes
             ):
                 return None
-            value = self.store.read_verified(ref, self.access, ref.size_bytes)
+            # Only the attempt's own prefix is readable: the reader is built per attempt.
+            reader = self.reader_for(attempt.project_id, attempt.attempt_id)
+            value = reader.read_verified(ref, self.access, ref.size_bytes)
             manifest = ResultManifest.from_wire(value.data, self.limits)
             if (
                 hashlib.sha256(value.data).hexdigest() != ref.digest

@@ -38,7 +38,7 @@ REQUIRED = (
 def limits() -> ContractLimits:
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "synthetic.v1",
             "maxJsonBytes": 65536,
             "maxStringScalars": 256,
@@ -54,7 +54,7 @@ def limits() -> ContractLimits:
 
 def ref(**changes: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1",
+        "schemaVersion": "cf.artifact-ref.v1",
         "projectId": PROJECT,
         "digest": "a" * 64,
         "sizeBytes": 11,
@@ -66,7 +66,7 @@ def ref(**changes: object) -> dict[str, object]:
 
 def revision(**changes: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.document-revision.v1",
+        "schemaVersion": "cf.document-revision.v1",
         "projectId": PROJECT,
         "sourceId": SOURCE,
         "assetId": ASSET,
@@ -84,7 +84,7 @@ def revision(**changes: object) -> dict[str, object]:
 
 def span(**changes: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.document-span.v1",
+        "schemaVersion": "cf.document-span.v1",
         "projectId": PROJECT,
         "sourceId": SOURCE,
         "revisionId": "b" * 64,
@@ -97,7 +97,7 @@ def span(**changes: object) -> dict[str, object]:
 
 def quality(**changes: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.quality-report.v1",
+        "schemaVersion": "cf.quality-report.v1",
         "sourceId": SOURCE,
         "checks": [{"checkId": check, "outcome": "pass"} for check in REQUIRED],
         "disposition": "valid",
@@ -106,7 +106,7 @@ def quality(**changes: object) -> dict[str, object]:
 
 def review(**changes: object) -> dict[str, object]:
     return {
-        "schemaVersion": "kf.revision-review.v1",
+        "schemaVersion": "cf.revision-review.v1",
         "projectId": PROJECT,
         "revisionId": "b" * 64,
         "decision": "accepted",
@@ -243,7 +243,7 @@ def test_whitespace_cannot_enter_accepted_f1_release() -> None:
 
 def test_extraction_and_mapping_literals_and_equal_digests() -> None:
     extraction = {
-        "schemaVersion": "kf.extraction-spec.v1",
+        "schemaVersion": "cf.extraction-spec.v1",
         "processorId": "text.utf8.v1",
         "processorVersion": "synthetic.v1",
         "codeVersion": "synthetic.v1",
@@ -263,7 +263,7 @@ def test_extraction_and_mapping_literals_and_equal_digests() -> None:
         with pytest.raises(ValidationError):
             ExtractionSpec.model_validate(extraction | {key: wrong})
     mapping = {
-        "schemaVersion": "kf.origin-map.v1",
+        "schemaVersion": "cf.origin-map.v1",
         "kind": "identity_utf8",
         "originalDigest": "a" * 64,
         "textDigest": "a" * 64,

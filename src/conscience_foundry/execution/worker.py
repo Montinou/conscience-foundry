@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
@@ -51,7 +52,7 @@ from conscience_foundry.processing.text_utf8 import process_text
 from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 
 if TYPE_CHECKING:
-    from conscience_foundry.execution.ports import TransportGrants
+    from conscience_foundry.execution.ports import LeaseStore, TransportGrants
 
 _INSTANT = TypeAdapter(Instant)
 _ARTIFACT_MEDIA = "application/json"
@@ -64,6 +65,11 @@ _WORKER_SCOPES = frozenset({"read", "remoteTransfer", "extract"})
 
 class Clock(Protocol):
     def now(self) -> Instant: ...
+
+
+@dataclass(frozen=True)
+class DuplicateExecution:
+    """Another worker holds this attempt's lease and has published no result yet."""
 
 
 def _parse(value: str) -> datetime:
@@ -84,7 +90,7 @@ def _bootstrap(size: int) -> ContractLimits:
     bound = max(size, 1)
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "worker.bootstrap.v1",
             "maxJsonBytes": bound,
             "maxStringScalars": bound,
@@ -115,7 +121,7 @@ def _encode(record: WireModel, limits: ContractLimits) -> bytes:
 
 def _ref(project_id: str, data: bytes, schema: str, media_type: str) -> Ref:
     return Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project_id,
         digest=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
@@ -169,6 +175,50 @@ def _checked_grants(
     return expires_at
 
 
+def _bound_to_grants(grants: TransportGrants, store: object) -> None:
+    """A store that declares where it writes must write exactly where the grants allow.
+
+    The reservation gate sees refs, not keys: a store configured with another prefix, bucket or
+    attempt would pass it while writing outside the credential's scope. No I/O is done here.
+    """
+    try:
+        declared = getattr(store, "write_scope", None)
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("forbidden") from None
+    if declared is not None and declared != grants.output_scope:
+        raise ContractError("forbidden")
+
+
+def _claim(
+    lease: LeaseStore, store: object, attempt_id: str, nonce: str | None
+) -> Ref | DuplicateExecution | None:
+    """Claim the attempt's single execution; None means this worker won and may proceed."""
+    if type(nonce) is not str or not nonce:
+        raise ContractError("invalid_schema")
+    try:
+        outcome = lease.claim_lease(attempt_id, nonce)
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("dispatch_unknown") from None
+    if outcome == "won":
+        return None
+    if outcome != "lost":
+        raise ContractError("dispatch_unknown")
+    pointer_of = getattr(store, "result_pointer", None)
+    if not callable(pointer_of):
+        return DuplicateExecution()
+    try:
+        pointer = pointer_of()
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("unavailable") from None
+    return pointer if type(pointer) is Ref else DuplicateExecution()
+
+
 def _quantity(delta: timedelta) -> str:
     return f"{max(delta.total_seconds(), 0):.3f}"
 
@@ -179,8 +229,17 @@ def run_worker(
     grants: TransportGrants,
     store: ObjectStore,
     clock: Clock,
-) -> Ref:
-    """Process the one planned input and return the reference of the result manifest."""
+    *,
+    lease: LeaseStore | None = None,
+    nonce: str | None = None,
+) -> Ref | DuplicateExecution:
+    """Process the one planned input and return the reference of the result manifest.
+
+    With a ``lease``, exactly one worker per attempt executes: the claim follows the grant and
+    entry bound checks and precedes every input read, and the winner publishes a pointer to its
+    manifest after writing it. A loser returns the winner's pointer when there is one and
+    ``DuplicateExecution`` when there is not yet; it reads and writes nothing else.
+    """
     if type(plan_bytes) is not bytes or type(attempt_bytes) is not bytes:
         raise ContractError("invalid_schema")
     if not callable(getattr(clock, "now", None)) or not (
@@ -198,10 +257,15 @@ def run_worker(
     ):
         raise ContractError("forbidden")
     grant_expiry = _checked_grants(grants, plan, attempt, plan_bytes)
+    _bound_to_grants(grants, store)
 
     bounds = _Deadline(clock, min(grant_expiry, plan.expires_at, plan.budget.valid_until))
     started = bounds.check()  # entry: an expired envelope stops here, before any store access
     bounds.tighten(_format(_parse(started) + timedelta(seconds=plan.resources.max_wall_seconds)))
+    if lease is not None:
+        duplicate = _claim(lease, store, attempt.attempt_id, nonce)
+        if duplicate is not None:
+            return duplicate
     context = AccessContext(plan.project_id, attempt.attempt_id, _WORKER_SCOPES)
     memory_bytes = plan.resources.memory_mib * 1024 * 1024
     transferred = 0
@@ -246,18 +310,18 @@ def run_worker(
     # Pinned inputs. The limits are known only after the recipe names them, so the
     # first two reads are bounded by the approved output ceiling of the plan.
     pinned = plan.resources.max_output_bytes
-    spec_raw = read(plan.extraction_spec_ref, "kf.extraction-spec.v1", pinned)
+    spec_raw = read(plan.extraction_spec_ref, "cf.extraction-spec.v1", pinned)
     spec = _wire(ExtractionSpec, spec_raw, _bootstrap(len(spec_raw)))
     if spec.limits_ref.digest not in {ref.digest for ref in plan.limits_refs}:
         raise ContractError("forbidden")
-    limits_raw = read(spec.limits_ref, "kf.contract-limits.v1", pinned)
+    limits_raw = read(spec.limits_ref, "cf.contract-limits.v1", pinned)
     limits = _wire(ContractLimits, limits_raw, _bootstrap(len(limits_raw)))
     if _wire(ExecutionPlan, plan_bytes, limits) != plan:
         raise ContractError("hash_mismatch")
     if _wire(StageAttempt, attempt_bytes, limits) != attempt:
         raise ContractError("hash_mismatch")
 
-    report_raw = read(plan.admission_report_ref, "kf.admission-report.v1", limits.max_json_bytes)
+    report_raw = read(plan.admission_report_ref, "cf.admission-report.v1", limits.max_json_bytes)
     report = _wire(AdmissionReport, report_raw, limits)
     (source_ref,) = plan.input_refs
     rows = [
@@ -274,9 +338,9 @@ def run_worker(
     ceiling = min(plan.resources.max_output_bytes, limits.max_output_bytes)
     if source_ref.size_bytes * _WORKING_COPIES > memory_bytes:
         raise ContractError("limit_exceeded")
-    source = read(source_ref, "kf.raw-original.v1", limits.max_source_bytes)
+    source = read(source_ref, "cf.raw-original.v1", limits.max_source_bytes)
     asset = SourceAsset(
-        schema_version="kf.source-asset.v1",
+        schema_version="cf.source-asset.v1",
         project_id=plan.project_id,
         asset_id=row.asset_id,
         source_id=row.source_id,
@@ -295,7 +359,7 @@ def run_worker(
         moved: int,
     ) -> ResultManifest:
         return ResultManifest(
-            schema_version="kf.result.v1",
+            schema_version="cf.result.v1",
             project_id=plan.project_id,
             plan_id=plan.plan_id,
             operation_key=plan.operation_key,
@@ -365,8 +429,15 @@ def run_worker(
             transferred,
         )
         raw = _encode(manifest, limits)
-        manifest_ref = _ref(plan.project_id, raw, "kf.result.v1", _ARTIFACT_MEDIA)
+        manifest_ref = _ref(plan.project_id, raw, "cf.result.v1", _ARTIFACT_MEDIA)
         write(manifest_ref, raw, checked=True)  # strictly last: it names only verified outputs
+        if lease is not None:
+            try:
+                lease.publish_result(attempt.attempt_id, manifest_ref)
+            except ContractError:
+                raise
+            except Exception:
+                raise ContractError("unavailable") from None
         return manifest_ref
 
     try:
@@ -384,13 +455,13 @@ def run_worker(
         projected((), verdict, None, None, 0)
         return conclude((), verdict, None, None)
 
-    text_ref = _ref(plan.project_id, output.text, "kf.canonical-text.v1", "text/plain")
+    text_ref = _ref(plan.project_id, output.text, "cf.canonical-text.v1", "text/plain")
     origin_raw = _encode(output.origin_map, limits)
-    origin_ref = _ref(plan.project_id, origin_raw, "kf.origin-map.v1", _ARTIFACT_MEDIA)
+    origin_ref = _ref(plan.project_id, origin_raw, "cf.origin-map.v1", _ARTIFACT_MEDIA)
     quality_raw = _encode(output.quality, limits)
-    quality_ref = _ref(plan.project_id, quality_raw, "kf.quality-report.v1", _ARTIFACT_MEDIA)
+    quality_ref = _ref(plan.project_id, quality_raw, "cf.quality-report.v1", _ARTIFACT_MEDIA)
     revision = DocumentRevision(
-        schema_version="kf.document-revision.v1",
+        schema_version="cf.document-revision.v1",
         project_id=plan.project_id,
         source_id=row.source_id,
         asset_id=row.asset_id,
@@ -416,7 +487,7 @@ def run_worker(
         quality_report_ref=quality_ref,
     )
     revision_raw = _encode(revision, limits)
-    revision_ref = _ref(plan.project_id, revision_raw, "kf.document-revision.v1", _ARTIFACT_MEDIA)
+    revision_ref = _ref(plan.project_id, revision_raw, "cf.document-revision.v1", _ARTIFACT_MEDIA)
     parts = (
         (text_ref, output.text),
         (origin_ref, origin_raw),

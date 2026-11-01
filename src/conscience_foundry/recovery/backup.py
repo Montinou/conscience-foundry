@@ -363,7 +363,7 @@ def backup(
         content, excluded = _verified_closure(tx, project, release)
         audit = _audit_refs(tx, project, content)
     snapshot_ref = Ref(
-        schema_version="kf.artifact-ref.v1",
+        schema_version="cf.artifact-ref.v1",
         project_id=project,
         digest=hashlib.sha256(snapshot).hexdigest(),
         size_bytes=len(snapshot),
@@ -384,10 +384,10 @@ def backup(
             project, snapshot_ref, recovery_point, content_refs, audit_refs, pending, excluded
         ),
     )
-    # The operator restores this manifest under the kf.library-release.v1 limits (no manifest
+    # The operator restores this manifest under the cf.library-release.v1 limits (no manifest
     # schema is registered), so a manifest those limits would refuse is refused here, before
     # anything is copied, instead of being discovered at restore time.
-    restore_bound = limits_for(release, "kf.library-release.v1")
+    restore_bound = limits_for(release, "cf.library-release.v1")
     RecoveryManifest.from_wire(manifest_wire(manifest), restore_bound)
     destination.put_verified(io.BytesIO(snapshot), snapshot_ref, context)
     for ref in (*content_refs, *audit_refs):

@@ -41,7 +41,7 @@ NonemptyString = Annotated[ScalarString, Field(min_length=1)]
 
 
 class ExecutionConfig(WireModel):
-    schema_version: Literal["kf.execution-config.v1"]
+    schema_version: Literal["cf.execution-config.v1"]
     adapter_id: NonemptyString
     deployment_version: Version
     image_digest: Digest
@@ -83,7 +83,7 @@ class BudgetEnvelope(WireModel):
 
 
 class ExecutionPlan(WireModel):
-    schema_version: Literal["kf.execution-plan.v1"]
+    schema_version: Literal["cf.execution-plan.v1"]
     project_id: Id
     run_id: Id
     plan_id: Id
@@ -125,7 +125,7 @@ class ExecutionPlan(WireModel):
 
 
 class RunAuthorization(WireModel):
-    schema_version: Literal["kf.run-authorization.v1"]
+    schema_version: Literal["cf.run-authorization.v1"]
     authorization_id: Id
     project_id: Id
     run_id: Id
@@ -205,7 +205,7 @@ AttemptState = Literal[
 
 
 class StageAttempt(WireModel):
-    schema_version: Literal["kf.stage-attempt.v1"]
+    schema_version: Literal["cf.stage-attempt.v1"]
     project_id: Id
     plan_id: Id
     operation_key: Digest
@@ -250,14 +250,14 @@ class StageAttempt(WireModel):
             raise ValueError("successful attempt requires verified result reference")
         if self.result_manifest_ref is not None and (
             self.result_manifest_ref.project_id != self.project_id
-            or self.result_manifest_ref.artifact_schema != "kf.result.v1"
+            or self.result_manifest_ref.artifact_schema != "cf.result.v1"
         ):
             raise ValueError("invalid result manifest reference")
         return self
 
 
 class ResultManifest(WireModel):
-    schema_version: Literal["kf.result.v1"]
+    schema_version: Literal["cf.result.v1"]
     project_id: Id
     plan_id: Id
     operation_key: Digest
@@ -285,8 +285,8 @@ class ResultManifest(WireModel):
         if len({(r.digest, r.artifact_schema) for r in self.outputs}) != len(self.outputs):
             raise ValueError("duplicate output artifact")
         for reference, schema in (
-            (self.document_revision_ref, "kf.document-revision.v1"),
-            (self.quality_report_ref, "kf.quality-report.v1"),
+            (self.document_revision_ref, "cf.document-revision.v1"),
+            (self.quality_report_ref, "cf.quality-report.v1"),
         ):
             if reference is not None and (
                 reference.project_id != self.project_id
@@ -297,7 +297,7 @@ class ResultManifest(WireModel):
         if self.status == "succeeded":
             if self.errors or self.document_revision_ref is None or self.quality_report_ref is None:
                 raise ValueError("successful result requires complete outputs and no errors")
-            for schema in ("kf.document-revision.v1", "kf.quality-report.v1"):
+            for schema in ("cf.document-revision.v1", "cf.quality-report.v1"):
                 if sum(output.artifact_schema == schema for output in self.outputs) != 1:
                     raise ValueError(
                         "successful result requires unique document and quality report"

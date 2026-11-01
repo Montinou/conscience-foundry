@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal, localcontext
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from psycopg import sql
@@ -49,8 +49,11 @@ from conscience_foundry.ledger._budget_inputs import (
     _proof,
     _stored_ref,
 )
-from conscience_foundry.ledger.db import AdmissionRegistrationEvidence, LedgerTxn
-from conscience_foundry.policy.access import require_permission
+from conscience_foundry.ledger.db import AdmissionRegistrationEvidence, Ledger, LedgerTxn
+from conscience_foundry.policy.access import AccessContext, require_permission
+
+if TYPE_CHECKING:  # staging imports the execution ports, which import this module
+    from conscience_foundry.storage.staging_s3 import StorageReservationGate
 
 
 def _json(ref: Ref) -> Jsonb:
@@ -144,7 +147,7 @@ def install_run_authorization(
             RunAuthorization,
             auth_bytes,
             auth_ref,
-            "kf.run-authorization.v1",
+            "cf.run-authorization.v1",
             context.access.project_id,
             context,
         )
@@ -237,12 +240,12 @@ def _admitted(
     tx: LedgerTxn,
     context: BudgetContext,
 ) -> str:
-    manifest = IntakeManifest.from_wire(admission.manifest_bytes, _limits(context, "kf.intake.v1"))
+    manifest = IntakeManifest.from_wire(admission.manifest_bytes, _limits(context, "cf.intake.v1"))
     report = _parse(
         AdmissionReport,
         admission.report_bytes,
         plan.admission_report_ref,
-        "kf.admission-report.v1",
+        "cf.admission-report.v1",
         plan.project_id,
         context,
     )
@@ -250,7 +253,7 @@ def _admitted(
         PolicyArtifact,
         admission.policy_bytes,
         plan.policy_ref,
-        "kf.policy.v1",
+        "cf.policy.v1",
         plan.project_id,
         context,
     )
@@ -314,7 +317,7 @@ def _admitted(
             plan.contract_set_ref.digest,
             tuple(ref.digest for ref in plan.limits_refs),
         ),
-        limits=_limits(context, "kf.execution-plan.v1"),
+        limits=_limits(context, "cf.execution-plan.v1"),
     )
     if plan.operation_key != expected:
         raise ContractError("hash_mismatch")
@@ -362,7 +365,7 @@ def _reserve_event(
 ) -> None:
     event = BudgetEvent.model_validate(
         {
-            "schema_version": "kf.budget-event.v1",
+            "schema_version": "cf.budget-event.v1",
             "project_id": context.access.project_id,
             "run_id": run,
             "reservation_id": reservation,
@@ -377,7 +380,7 @@ def _reserve_event(
         }
     )
     data = event.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8")
-    tx.append_budget_event(event, event_bytes=data, limits=_limits(context, "kf.budget-event.v1"))
+    tx.append_budget_event(event, event_bytes=data, limits=_limits(context, "cf.budget-event.v1"))
 
 
 def reserve_attempt(
@@ -403,7 +406,7 @@ def reserve_attempt(
             ExecutionPlan,
             plan_bytes,
             plan_ref,
-            "kf.execution-plan.v1",
+            "cf.execution-plan.v1",
             context.access.project_id,
             context,
         )
@@ -411,7 +414,7 @@ def reserve_attempt(
             RunAuthorization,
             authorization_bytes,
             authorization_ref,
-            "kf.run-authorization.v1",
+            "cf.run-authorization.v1",
             context.access.project_id,
             context,
         )
@@ -428,13 +431,13 @@ def reserve_attempt(
             auth,
             context.now,
             plan_bytes=plan_bytes,
-            limits=_limits(context, "kf.execution-plan.v1"),
+            limits=_limits(context, "cf.execution-plan.v1"),
         )
         config = _parse(
             ExecutionConfig,
             execution_config_bytes,
             plan.execution_config_ref,
-            "kf.execution-config.v1",
+            "cf.execution-config.v1",
             plan.project_id,
             context,
         )
@@ -543,6 +546,20 @@ def reserve_attempt(
         assert live is not None
         if live[0] >= min(installed[2], plan.resources.max_concurrent_attempts):
             raise ContractError("limit_exceeded")
+        # Project-wide: the project row is already locked above, so this count and the insert
+        # below are one critical section. `unknown_outcome` is non-terminal and counts.
+        cap = context.project_max_live_attempts
+        if cap is not None:
+            project_live = tx.connection.execute(
+                sql.SQL(
+                    "SELECT count(*) FROM {} WHERE project_id=%s "
+                    "AND state NOT IN ('succeeded','failed','cancelled')"
+                ).format(tx.table("attempts")),
+                (plan.project_id,),
+            ).fetchone()
+            assert project_live is not None
+            if project_live[0] >= cap:
+                raise ContractError("project_concurrency_limit")
         old = tx.connection.execute(
             sql.SQL("SELECT plan_ref FROM {} WHERE project_id=%s AND plan_id=%s").format(
                 tx.table("plans")
@@ -579,7 +596,7 @@ def reserve_attempt(
         )
         number = operation[1] + 1
         attempt = StageAttempt(
-            schema_version="kf.stage-attempt.v1",
+            schema_version="cf.stage-attempt.v1",
             project_id=plan.project_id,
             plan_id=plan.plan_id,
             operation_key=plan.operation_key,
@@ -631,13 +648,18 @@ def reserve_storage(
     *,
     context: BudgetContext,
 ) -> Id:
-    """Reserve the separately evidenced funded storage horizon before upload."""
+    """Reserve the separately evidenced funded storage horizon before upload.
+
+    A run holds at most one open storage horizon: while a ``run_storage`` reservation is neither
+    finally billed nor released, another one (a repeated ``reserve-storage``, whatever its
+    evidence) is refused with ``activation_conflict`` and nothing is funded twice.
+    """
     with tx.connection.transaction():
         project = context.access.project_id
         _context(context, project, run_id, "reserve_storage")
         if type(amount) is not str:
             raise ContractError("invalid_schema")
-        if len(amount) > _limits(context, "kf.budget-event.v1").max_string_scalars:
+        if len(amount) > _limits(context, "cf.budget-event.v1").max_string_scalars:
             raise ContractError("limit_exceeded")
         try:
             TypeAdapter(Money).validate_python(amount)
@@ -646,6 +668,8 @@ def reserve_storage(
         if type(amount) is not str or Decimal(amount) <= 0:
             raise ContractError("invalid_schema")
         installed = _installed(tx, project, run_id)
+        if _open_storage(tx, project, run_id):
+            raise ContractError("activation_conflict")
         _spending(tx, project, run_id, installed, context, Decimal(amount))
         auth_ref = _stored_ref(installed[4])
         request = json.dumps(
@@ -662,7 +686,7 @@ def reserve_storage(
         # The finite internal request uses the same explicitly pinned JSON ceiling.
         from conscience_foundry.contracts.codec import load_json
 
-        load_json(request, _limits(context, "kf.budget-event.v1"))
+        load_json(request, _limits(context, "cf.budget-event.v1"))
         reservation = str(uuid4())
         _proof(
             context, "reserve_storage", evidence, run_id, auth_ref, request, reservation=reservation
@@ -670,6 +694,41 @@ def reserve_storage(
         _reservation(tx, project, run_id, amount, evidence, reservation, None, installed[0])
         _reserve_event(tx, context, run_id, reservation, amount, evidence, None)
         return reservation
+
+
+def _open_storage(tx: LedgerTxn, project: Id, run: Id) -> bool:
+    """Whether the run holds a ``run_storage`` reservation that is neither billed nor released."""
+    row = tx.connection.execute(
+        sql.SQL(
+            "SELECT EXISTS(SELECT 1 FROM {} WHERE project_id=%s AND run_id=%s "
+            "AND scope='run_storage' AND NOT final_billing AND released_usd<reserved_usd)"
+        ).format(tx.table("reservations")),
+        (project, run),
+    ).fetchone()
+    return row is not None and row[0] is True
+
+
+def ledger_storage_gate(ledger: Ledger, run_id: Id) -> StorageReservationGate:
+    """Control-side gate: true only while the run holds an open ``run_storage`` reservation.
+
+    Open means a ``reserve_storage`` row that is neither finally billed nor released, so staging
+    stops the moment the funded horizon is closed. It answers for the run's project only and
+    reads the ledger on every call; an unreadable ledger raises, which the store treats as a
+    refusal.
+    """
+    TypeAdapter(Id).validate_python(run_id)
+
+    def gate(ref: Ref, context: AccessContext) -> bool:
+        if (
+            type(ref) is not Ref
+            or type(context) is not AccessContext
+            or ref.project_id != context.project_id
+        ):
+            return False
+        with ledger.transaction() as tx:
+            return _open_storage(tx, context.project_id, run_id)
+
+    return gate
 
 
 def _reservation_row(tx: LedgerTxn, project: Id, run: Id, reservation: Id) -> tuple[Any, ...]:
@@ -710,7 +769,7 @@ def _prior_kind(
         (event.project_id, event.run_id, event.reservation_id),
     ).fetchall()
     for row in rows:
-        parsed = BudgetEvent.from_wire(bytes(row[0]), _limits(context, "kf.budget-event.v1"))
+        parsed = BudgetEvent.from_wire(bytes(row[0]), _limits(context, "cf.budget-event.v1"))
         if parsed.event_type == kind:
             return parsed
     return None
@@ -758,7 +817,7 @@ def apply_budget_event(
 ) -> None:
     """Record observations, or final authoritative settlement without clipping."""
     with tx.connection.transaction():
-        parsed = BudgetEvent.from_wire(event_bytes, _limits(context, "kf.budget-event.v1"))
+        parsed = BudgetEvent.from_wire(event_bytes, _limits(context, "cf.budget-event.v1"))
         if type(event) is not BudgetEvent or parsed != event:
             raise ContractError("hash_mismatch")
         _context(context, event.project_id, event.run_id, "apply_budget_event")
@@ -897,7 +956,7 @@ def apply_budget_event(
                     (event.project_id, event.run_id),
                 )
         tx.append_budget_event(
-            event, event_bytes=event_bytes, limits=_limits(context, "kf.budget-event.v1")
+            event, event_bytes=event_bytes, limits=_limits(context, "cf.budget-event.v1")
         )
 
 
@@ -911,7 +970,7 @@ def apply_billing_adjustment(
     """CAS a final settlement's effective actual total; never reopen its balance."""
     with tx.connection.transaction():
         parsed = BillingAdjustment.from_wire(
-            adjustment_bytes, _limits(context, "kf.billing-adjustment.v1")
+            adjustment_bytes, _limits(context, "cf.billing-adjustment.v1")
         )
         if type(adjustment) is not BillingAdjustment or parsed != adjustment:
             raise ContractError("hash_mismatch")
@@ -944,7 +1003,7 @@ def apply_billing_adjustment(
         if settlement_row is None or not row[5]:
             raise ContractError("determinism_conflict")
         settlement = BudgetEvent.from_wire(
-            bytes(settlement_row[0]), _limits(context, "kf.budget-event.v1")
+            bytes(settlement_row[0]), _limits(context, "cf.budget-event.v1")
         )
         if settlement.event_type != "settle" or adjustment.created_at > context.now:
             raise ContractError("forbidden")

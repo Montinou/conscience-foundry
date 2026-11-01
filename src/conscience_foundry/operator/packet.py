@@ -84,12 +84,14 @@ ADVISORY_GATES = (
 
 _GATE_DETAIL = {
     STAGING_STORE_TRANSFER: (
-        "no staging-to-store transfer exists: verify_result reads only the local store, so a "
-        "remote result cannot be verified and imported"
+        "closed only when the runtime wiring supplies an attempt-scoped staging reader "
+        "(staged_reader) that probes as bound to exactly the probed project and attempt, so a "
+        "staged result can be imported into the local store before it is verified"
     ),
     SCOPED_EXECUTOR_STORE: (
-        "the remote executor must be wired with a store scoped to the plan and attempt "
-        "(scoped_to) before any live use"
+        "closed only when the runtime wiring gives the remote executor an attempt-scoped reader "
+        "(reader_for) and the credential issuer reports exactly the plan's read keys and the "
+        "attempt's write prefix (issuer_scopes); the packet cannot close it"
     ),
     PLATFORM_RESTART_BOUND: (
         "platform crash restarts must be evidenced as bounded for the exact deployment; "
@@ -113,8 +115,30 @@ _GATE_DETAIL = {
     ),
 }
 
-PILOT_STEP_COMMANDS = ("backup", "prepare-run", "authorize-run", "dispatch", "reconcile")
+PILOT_STEP_COMMANDS = (
+    "backup",
+    "prepare-run",
+    "authorize-run",
+    "reserve-storage",
+    "dispatch",
+    "reconcile",
+)
 """The existing commands a granted pilot may orchestrate; nothing else is reachable."""
+
+
+def pilot_step_order_ok(commands: tuple[str, ...]) -> bool:
+    """`reserve-storage` runs only after `authorize-run` and before `dispatch`.
+
+    Storage is funded under the installed authorization and before any spend begins, so it can
+    neither precede the authorization nor follow the dispatch it must already cover.
+    """
+    return all(
+        "authorize-run" in commands[:index] and "dispatch" in commands[index + 1 :]
+        for index, name in enumerate(commands)
+        if name == "reserve-storage"
+    )
+
+
 REQUIRED_SCOPES = ("extract", "remoteTransfer")
 
 Name = Annotated[ScalarString, StringConstraints(min_length=1)]
@@ -627,6 +651,8 @@ def live_grant_blockers(
         refuse("forbidden", "grant:actor")
     if any(command not in PILOT_STEP_COMMANDS for command in grant.commands):
         refuse("forbidden", "grant:command")
+    if not pilot_step_order_ok(tuple(grant.commands)):
+        refuse("forbidden", "grant:step_order")
     if now < grant.granted_at or now >= grant.expires_at:
         refuse("authorization_expired", "grant:window")
     if packet.expires_at is None or grant.expires_at > packet.expires_at:

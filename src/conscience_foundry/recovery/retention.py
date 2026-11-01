@@ -134,7 +134,7 @@ def retention_report(
 
     `store` holds the local copy to verify and must be the store `release` was built with;
     `backup` is the independent backup store, required to verify a copy when the policy demands
-    one. `release` supplies current source permission and the trusted `kf.result.v1` limits that
+    one. `release` supplies current source permission and the trusted `cf.result.v1` limits that
     bound the read of each result manifest (an output list that cannot be read within them is
     reported, never assumed present).
     """
@@ -142,7 +142,7 @@ def retention_report(
     require_recovery_scopes(context)
     if type(policy) is not RetentionPolicy:
         raise ContractError("invalid_schema")
-    limits = limits_for(release, "kf.result.v1")
+    limits = limits_for(release, "cf.result.v1")
     at = _moment(now)
     project = context.project_id
     with ledger.transaction() as tx:

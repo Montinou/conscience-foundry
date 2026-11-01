@@ -430,14 +430,14 @@ class LedgerTxn:
 
 def _limits(evidence: AdmissionRegistrationEvidence, schema: str) -> ContractLimits:
     value = evidence.limits_by_schema.get(schema)
-    if not isinstance(value, ContractLimits) or value.schema_version != "kf.contract-limits.v1":
+    if not isinstance(value, ContractLimits) or value.schema_version != "cf.contract-limits.v1":
         raise ContractError("limits_missing")
     return value
 
 
 def _verify_ref(data: bytes, reference: Ref, schema: str, project_id: Id) -> None:
     if (
-        reference.schema_version != "kf.artifact-ref.v1"
+        reference.schema_version != "cf.artifact-ref.v1"
         or reference.project_id != project_id
         or reference.artifact_schema != schema
         or reference.media_type != "application/json"
@@ -463,19 +463,19 @@ def register_admission(
     # A caught domain conflict must not commit a half-registered admission.
     with tx.connection.transaction():
         manifest = IntakeManifest.from_wire(
-            evidence.manifest_bytes, _limits(evidence, "kf.intake.v1")
+            evidence.manifest_bytes, _limits(evidence, "cf.intake.v1")
         )
         parsed_report = AdmissionReport.from_wire(
-            evidence.report_bytes, _limits(evidence, "kf.admission-report.v1")
+            evidence.report_bytes, _limits(evidence, "cf.admission-report.v1")
         )
-        policy = PolicyArtifact.from_wire(evidence.policy_bytes, _limits(evidence, "kf.policy.v1"))
+        policy = PolicyArtifact.from_wire(evidence.policy_bytes, _limits(evidence, "cf.policy.v1"))
         if parsed_report != report or policy != evidence.pinned_policy:
             raise ContractError("hash_mismatch")
-        _verify_ref(evidence.manifest_bytes, manifest_ref, "kf.intake.v1", manifest.project_id)
+        _verify_ref(evidence.manifest_bytes, manifest_ref, "cf.intake.v1", manifest.project_id)
         _verify_ref(
-            evidence.report_bytes, report_ref, "kf.admission-report.v1", manifest.project_id
+            evidence.report_bytes, report_ref, "cf.admission-report.v1", manifest.project_id
         )
-        _verify_ref(evidence.policy_bytes, manifest.policy_ref, "kf.policy.v1", manifest.project_id)
+        _verify_ref(evidence.policy_bytes, manifest.policy_ref, "cf.policy.v1", manifest.project_id)
         if report.manifest_digest != manifest_ref.digest:
             raise ContractError("hash_mismatch")
         report.validate_manifest(manifest, policy)

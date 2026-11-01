@@ -28,7 +28,7 @@ SAMPLE = "A😀e\u0301\r\nB".encode()
 
 def limits(**changes: object) -> ContractLimits:
     return ContractLimits.model_validate({
-        "schemaVersion": "kf.contract-limits.v1", "version": "synthetic.spans.v1",
+        "schemaVersion": "cf.contract-limits.v1", "version": "synthetic.spans.v1",
         "maxJsonBytes": 65536, "maxStringScalars": 1024, "maxArrayItems": 128,
         "maxDepth": 16, "maxManifestItems": 4, "maxSourceBytes": 65536,
         "maxOutputBytes": 65536, "maxErrorMessageScalars": 80,
@@ -37,18 +37,18 @@ def limits(**changes: object) -> ContractLimits:
 
 def reference(data: bytes, schema: str = "synthetic.v1") -> dict[str, object]:
     return {
-        "schemaVersion": "kf.artifact-ref.v1", "projectId": PROJECT,
+        "schemaVersion": "cf.artifact-ref.v1", "projectId": PROJECT,
         "digest": hashlib.sha256(data).hexdigest(), "sizeBytes": len(data),
-        "mediaType": "text/plain" if schema == "kf.canonical-text.v1" else "application/json",
+        "mediaType": "text/plain" if schema == "cf.canonical-text.v1" else "application/json",
         "artifactSchema": schema, "locations": [],
     }
 
 
 def revision(data: bytes, **changes: object) -> DocumentRevision:
     return DocumentRevision.model_validate({
-        "schemaVersion": "kf.document-revision.v1", "projectId": PROJECT,
+        "schemaVersion": "cf.document-revision.v1", "projectId": PROJECT,
         "sourceId": SOURCE, "assetId": ASSET, "revisionId": REVISION,
-        "originalRef": reference(data), "textRef": reference(data, "kf.canonical-text.v1"),
+        "originalRef": reference(data), "textRef": reference(data, "cf.canonical-text.v1"),
         "extractionSpecRef": reference(b"synthetic extraction"),
         "textEncoding": "utf-8", "offsetUnit": "unicode_scalar",
         "sections": [{"sectionId": "body", "start": 0, "end": len(data.decode())}],
@@ -59,7 +59,7 @@ def revision(data: bytes, **changes: object) -> DocumentRevision:
 
 def span(first: int, last: int, **changes: object) -> DocumentSpan:
     return DocumentSpan.model_validate({
-        "schemaVersion": "kf.document-span.v1", "projectId": PROJECT,
+        "schemaVersion": "cf.document-span.v1", "projectId": PROJECT,
         "sourceId": SOURCE, "revisionId": REVISION, "sectionId": "body",
         "start": first, "end": last, "offsetUnit": "unicode_scalar",
     } | changes)
@@ -189,11 +189,11 @@ def test_empty_coordinate_mapping_is_not_empty_evidence() -> None:
 
 def test_quote_requires_canonical_artifact_role_and_bounded_section() -> None:
     verified = VerifiedBytes(SAMPLE, hashlib.sha256(SAMPLE).hexdigest())
-    for change in ({"artifactSchema": "kf.raw-original.v1"}, {"mediaType": "application/json"}):
-        rev = revision(SAMPLE, textRef=reference(SAMPLE, "kf.canonical-text.v1") | change)
+    for change in ({"artifactSchema": "cf.raw-original.v1"}, {"mediaType": "application/json"}):
+        rev = revision(SAMPLE, textRef=reference(SAMPLE, "cf.canonical-text.v1") | change)
         with pytest.raises(ContractError, match="unsupported_format"):
             check_exact_quote(verified, span(1, 2), "😀", revision=rev, limits=limits())
-    wrong_size = revision(SAMPLE, textRef=reference(SAMPLE, "kf.canonical-text.v1") | {
+    wrong_size = revision(SAMPLE, textRef=reference(SAMPLE, "cf.canonical-text.v1") | {
         "sizeBytes": len(SAMPLE) + 1,
     })
     with pytest.raises(ContractError, match="hash_mismatch"):

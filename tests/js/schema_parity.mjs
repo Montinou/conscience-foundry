@@ -42,7 +42,7 @@ const fixtures = JSON.parse(readFileSync(options.fixtures, 'utf8'));
 // an array) fails compilation instead of being ignored.
 const ajv = new Ajv2020({ strict: true, strictTypes: true, allErrors: false });
 const ids = [];
-// Raw byte roles (kf.raw-original.v1, kf.canonical-text.v1) are exported as {"not": {}}: they
+// Raw byte roles (cf.raw-original.v1, cf.canonical-text.v1) are exported as {"not": {}}: they
 // compile, but no JSON instance validates, so they sit outside JSON-instance parity by design.
 const outsideInstanceParity = [];
 for (const file of readdirSync(options.bundle).filter((name) => name.endsWith('.schema.json')).sort()) {

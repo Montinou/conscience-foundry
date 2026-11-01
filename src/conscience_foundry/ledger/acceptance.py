@@ -86,7 +86,7 @@ def verify_result(
             or identity(revision.original_ref) != identity(plan.source_asset.original_ref)
             or identity(revision.extraction_spec_ref) != identity(plan.model.extraction_spec_ref)
             or identity(revision.quality_report_ref) != identity(result.quality_report_ref)
-            or revision.text_ref.artifact_schema != "kf.canonical-text.v1"
+            or revision.text_ref.artifact_schema != "cf.canonical-text.v1"
             or revision.text_ref.digest != revision.original_ref.digest
             or revision.text_ref.size_bytes != revision.original_ref.size_bytes
         ):
@@ -99,25 +99,25 @@ def verify_result(
         }
         if any(
             identity(output) not in expected_refs
-            and output.artifact_schema != "kf.artifact-manifest.v1"
+            and output.artifact_schema != "cf.artifact-manifest.v1"
             for output in result.outputs
         ):
             raise ContractError("result_incomplete")
     elif any(
-        output.artifact_schema not in {"kf.quality-report.v1", "kf.artifact-manifest.v1"}
+        output.artifact_schema not in {"cf.quality-report.v1", "cf.artifact-manifest.v1"}
         for output in result.outputs
     ):
         raise ContractError("unsupported_schema")
     allowed = {
-        "kf.document-revision.v1",
-        "kf.quality-report.v1",
-        "kf.origin-map.v1",
-        "kf.canonical-text.v1",
-        "kf.artifact-manifest.v1",
+        "cf.document-revision.v1",
+        "cf.quality-report.v1",
+        "cf.origin-map.v1",
+        "cf.canonical-text.v1",
+        "cf.artifact-manifest.v1",
     }
     if any(output.artifact_schema not in allowed for output in result.outputs):
         raise ContractError("unsupported_schema")
-    bound = limits_for(control, "kf.result.v1")
+    bound = limits_for(control, "cf.result.v1")
     if len(result.outputs) > bound.max_array_items:
         raise ContractError("limit_exceeded")
     total = len(raw)
@@ -293,7 +293,7 @@ def select_result(
     )
     selected = result_ref if row[0] is None else Ref.model_validate(row[0])
     record = OperationResultRecord(
-        schema_version="kf.operation-result-record.v1",
+        schema_version="cf.operation-result-record.v1",
         project_id=attempt.project_id,
         operation_key=attempt.operation_key,
         event_id=str(uuid4()),

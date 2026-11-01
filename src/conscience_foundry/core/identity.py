@@ -125,7 +125,7 @@ def operation_key(projection: F1Operation, *, limits: ContractLimits) -> Digest:
     if len(inputs) != 1:
         raise ContractError("invalid_schema")
     pinned_limits = sorted(set(_digest_array(projection.limits_digests, limits)))
-    return _bounded_hash("kf.operation.v1", {
+    return _bounded_hash("cf.operation.v1", {
         "projectId": _string(projection.project_id, _ID, limits),
         "assetId": _string(projection.asset_id, _ID, limits),
         "sourceId": _string(projection.source_id, _ID, limits),
@@ -144,7 +144,7 @@ def revision_id(projected_inputs: RevisionInputs, *, limits: ContractLimits) -> 
     _limits(limits)
     if type(projected_inputs) is not RevisionInputs:
         raise ContractError("invalid_schema")
-    return _bounded_hash("kf.revision.v1", {
+    return _bounded_hash("cf.revision.v1", {
         "projectId": _string(projected_inputs.project_id, _ID, limits),
         "sourceId": _string(projected_inputs.source_id, _ID, limits),
         "originalDigest": _string(projected_inputs.original_digest, _DIGEST, limits),
@@ -179,4 +179,4 @@ def structure_digest(sections: tuple[Section, ...], *, limits: ContractLimits) -
         except ValidationError:
             raise ContractError("invalid_schema") from None
         projection.append(value)
-    return _bounded_hash("kf.structure.v1", projection, limits)
+    return _bounded_hash("cf.structure.v1", projection, limits)

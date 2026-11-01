@@ -22,32 +22,32 @@ class ReferenceEdge:
 # Paths are Python field names in installed models, not executable corpus data.
 _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = MappingProxyType(
     {
-        "kf.project.v1": (
+        "cf.project.v1": (
             ("policy_ref", "content"),
             ("limits_refs.*", "content"),
             ("contract_set_ref", "content"),
             ("storage_config_ref", "content"),
             ("execution_config_ref", "content"),
         ),
-        "kf.storage-config.v1": (("retention_policy_ref", "content"),),
-        "kf.profile.v1": (
+        "cf.storage-config.v1": (("retention_policy_ref", "content"),),
+        "cf.profile.v1": (
             ("metadata_schema_ref", "content"),
             ("extension_schema_refs.*", "content"),
         ),
-        "kf.intake.v1": (("policy_ref", "audit"),),
-        "kf.admission-report.v1": (("entries.*.snapshot_ref", "audit"),),
-        "kf.source-asset.v1": (("original_ref", "content"), ("admission_report_ref", "audit")),
-        "kf.artifact-manifest.v1": (("artifact", "audit"), ("input_refs.*", "audit")),
-        "kf.extraction-spec.v1": (("limits_ref", "content"),),
-        "kf.document-revision.v1": (
+        "cf.intake.v1": (("policy_ref", "audit"),),
+        "cf.admission-report.v1": (("entries.*.snapshot_ref", "audit"),),
+        "cf.source-asset.v1": (("original_ref", "content"), ("admission_report_ref", "audit")),
+        "cf.artifact-manifest.v1": (("artifact", "audit"), ("input_refs.*", "audit")),
+        "cf.extraction-spec.v1": (("limits_ref", "content"),),
+        "cf.document-revision.v1": (
             ("original_ref", "content"),
             ("text_ref", "content"),
             ("extraction_spec_ref", "content"),
             ("origin_map_ref", "content"),
             ("quality_report_ref", "content"),
         ),
-        "kf.execution-config.v1": (("tariff_ref", "audit"), ("resource_policy_ref", "audit")),
-        "kf.execution-plan.v1": (
+        "cf.execution-config.v1": (("tariff_ref", "audit"), ("resource_policy_ref", "audit")),
+        "cf.execution-plan.v1": (
             ("execution_config_ref", "audit"),
             ("admission_report_ref", "audit"),
             ("extraction_spec_ref", "audit"),
@@ -57,52 +57,52 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
             ("input_refs.*", "audit"),
             ("budget.tariff_ref", "audit"),
         ),
-        "kf.stage-attempt.v1": (("result_manifest_ref", "audit"),),
-        "kf.result.v1": (
+        "cf.stage-attempt.v1": (("result_manifest_ref", "audit"),),
+        "cf.result.v1": (
             ("outputs.*", "audit"),
             ("document_revision_ref", "audit"),
             ("quality_report_ref", "audit"),
             ("usage.tariff_ref", "audit"),
         ),
-        "kf.budget-event.v1": (("evidence_ref", "audit"),),
-        "kf.billing-adjustment.v1": (("evidence_ref", "audit"),),
-        "kf.operation-result-record.v1": (
+        "cf.budget-event.v1": (("evidence_ref", "audit"),),
+        "cf.billing-adjustment.v1": (("evidence_ref", "audit"),),
+        "cf.operation-result-record.v1": (
             ("result_ref", "audit"),
             ("selected_result_ref", "audit"),
             ("evidence_ref", "audit"),
         ),
-        "kf.run-report.v1": (
+        "cf.run-report.v1": (
             ("admission_report_ref", "audit"),
             ("attempts.*", "audit"),
             ("item_outcomes.*.revision_ref", "audit"),
         ),
-        "kf.library-release.v1": (
+        "cf.library-release.v1": (
             ("source_entries.*.revision_ref", "content"),
             ("source_entries.*.review_ref", "content"),
             ("component_refs.*.artifact_ref", "content"),
             ("coverage_report_ref", "content"),
             ("provenance_report_ref", "content"),
         ),
-        "kf.provenance-report.v1": (
+        "cf.provenance-report.v1": (
             ("entries.*.revision_ref", "content"),
             ("entries.*.review_ref", "content"),
             ("entries.*.operation_result_ref", "audit"),
             ("entries.*.attempt_refs.*", "audit"),
             ("entries.*.run_report_refs.*", "audit"),
         ),
-        "kf.import-receipt.v1": (("release_ref", "audit"), ("verified_artifacts.*", "audit")),
-        "kf.publication-record.v1": (
+        "cf.import-receipt.v1": (("release_ref", "audit"), ("verified_artifacts.*", "audit")),
+        "cf.publication-record.v1": (
             ("policy_ref", "audit"),
             ("evidence_refs.*", "audit"),
             ("publication_authorization_ref", "audit"),
         ),
-        "kf.publication-authorization.v1": (("policy_ref", "audit"),),
-        "kf.contract-set.v1": (
+        "cf.publication-authorization.v1": (("policy_ref", "audit"),),
+        "cf.contract-set.v1": (
             ("contracts.*.schema_ref", "content"),
             ("contracts.*.semantic_rules_ref", "content"),
             ("compatible_pairs.*.compatibility_evidence_ref", "content"),
         ),
-        "kf.enrichment-spec.v1": (
+        "cf.enrichment-spec.v1": (
             ("input_schema_ref", "content"),
             ("output_schema_ref", "content"),
             ("validation_policy_ref", "content"),
@@ -115,32 +115,32 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
             ("runtime_ref", "audit"),
             ("graph_spec_ref", "audit"),
         ),
-        "kf.enrichment-request.v1": (
+        "cf.enrichment-request.v1": (
             ("spec_ref", "audit"),
             ("policy_ref", "audit"),
             ("canonical_revision_refs.*", "audit"),
             ("omitted_context_refs.*", "audit"),
             ("input_ref", "audit"),
         ),
-        "kf.enrichment-result.v1": (
+        "cf.enrichment-result.v1": (
             ("spec_ref", "content"),
             ("candidate_annotations_ref", "content"),
             ("raw_response_ref", "audit"),
             ("validation_report_ref", "audit"),
             ("attempt_report_ref", "audit"),
         ),
-        "kf.annotation-set.v1": (
+        "cf.annotation-set.v1": (
             ("spec_ref", "content"),
             ("canonical_revision_refs.*", "content"),
             ("results.*", "content"),
             ("coverage_report_ref", "content"),
         ),
-        "kf.decision-task.v1": (
+        "cf.decision-task.v1": (
             ("input_schema_ref", "content"),
             ("output_schema_ref", "content"),
             ("fallback_policy_ref", "content"),
         ),
-        "kf.decision-release.v1": (
+        "cf.decision-release.v1": (
             ("task_spec_refs.*", "content"),
             ("decision_policy_ref", "content"),
             ("model_ref", "audit"),
@@ -151,14 +151,14 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
             ("calibration_ref", "audit"),
             ("evaluation_ref", "audit"),
         ),
-        "kf.decision-request.v1": (
+        "cf.decision-request.v1": (
             ("task_spec_ref", "audit"),
             ("decision_release_ref", "audit"),
             ("input_ref", "audit"),
             ("policy_ref", "audit"),
             ("context_revision_refs.*", "audit"),
         ),
-        "kf.decision-result.v1": (
+        "cf.decision-result.v1": (
             ("task_spec_ref", "audit"),
             ("decision_release_ref", "audit"),
             ("trace_ref", "audit"),
@@ -167,18 +167,18 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
         # grant raw/provider/model/dataset payload access under auditMetadataRead.
         # Future runtime acquisition has its own policy gate; F1 has no components.
         # Explicit no-reference registrations; an added Ref is detected below.
-        "kf.artifact-ref.v1": (),
-        "kf.contract-limits.v1": (),
-        "kf.policy.v1": (),
-        "kf.technical-metadata.v1": (),
-        "kf.document-span.v1": (),
-        "kf.origin-map.v1": (),
-        "kf.quality-report.v1": (),
-        "kf.revision-review.v1": (),
-        "kf.run-authorization.v1": (),
-        "kf.retention.v1": (),
-        "kf.activation.v1": (),
-        "kf.semantic-rules.v1": (),
+        "cf.artifact-ref.v1": (),
+        "cf.contract-limits.v1": (),
+        "cf.policy.v1": (),
+        "cf.technical-metadata.v1": (),
+        "cf.document-span.v1": (),
+        "cf.origin-map.v1": (),
+        "cf.quality-report.v1": (),
+        "cf.revision-review.v1": (),
+        "cf.run-authorization.v1": (),
+        "cf.retention.v1": (),
+        "cf.activation.v1": (),
+        "cf.semantic-rules.v1": (),
     }
 )
 
@@ -248,7 +248,7 @@ def edge_roles(schema_id: Version, record: object) -> tuple[ReferenceEdge, ...]:
         raise ContractError("invalid_schema") from None
     all_refs = _all_refs(checked) if not isinstance(checked, ArtifactRef) else []
     classified: list[tuple[str, ReferenceEdge]] = []
-    if schema_id == "kf.coverage-report.v1":
+    if schema_id == "cf.coverage-report.v1":
         from conscience_foundry.contracts.release import CoverageReport
 
         if not isinstance(checked, CoverageReport):

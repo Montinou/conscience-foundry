@@ -293,7 +293,7 @@ class Flow:
             "revisionId"
         ]
         review = RevisionReview(
-            schema_version="kf.revision-review.v1",
+            schema_version="cf.revision-review.v1",
             project_id=PROJECT,
             revision_id=logical,
             decision=decision,  # type: ignore[arg-type]
@@ -405,7 +405,7 @@ class Flow:
         from conscience_foundry.contracts.canonical import DocumentSpan
 
         fields: dict[str, Any] = {
-            "schema_version": "kf.document-span.v1",
+            "schema_version": "cf.document-span.v1",
             "project_id": PROJECT,
             "source_id": source.source_id,
             "revision_id": revision["revisionId"],

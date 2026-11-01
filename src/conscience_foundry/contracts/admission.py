@@ -102,7 +102,7 @@ class IntakeItem(_MetadataRecord):
 
 
 class IntakeManifest(WireModel):
-    schema_version: Literal["kf.intake.v1"]
+    schema_version: Literal["cf.intake.v1"]
     project_id: Id
     batch_id: Id
     profile_id: NonemptyString
@@ -175,7 +175,7 @@ class AdmissionEntry(WireModel):
 
 
 class AdmissionReport(WireModel):
-    schema_version: Literal["kf.admission-report.v1"]
+    schema_version: Literal["cf.admission-report.v1"]
     project_id: Id
     batch_id: Id
     manifest_digest: Digest
@@ -226,7 +226,7 @@ class AdmissionReport(WireModel):
 
 
 class SourceAsset(_MetadataRecord):
-    schema_version: Literal["kf.source-asset.v1"]
+    schema_version: Literal["cf.source-asset.v1"]
     project_id: Id
     asset_id: Id
     source_id: Id

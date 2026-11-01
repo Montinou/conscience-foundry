@@ -55,7 +55,7 @@ def process_text(
     if reference.project_id != asset.project_id:
         raise ContractError("forbidden")
     if (
-        reference.artifact_schema != "kf.contract-limits.v1"
+        reference.artifact_schema != "cf.contract-limits.v1"
         or reference.media_type != "application/json"
     ):
         raise ContractError("unsupported_schema")
@@ -70,7 +70,7 @@ def process_text(
     original = asset.original_ref
     if original.project_id != asset.project_id:
         raise ContractError("forbidden")
-    if original.artifact_schema != "kf.raw-original.v1" or original.media_type != "text/plain":
+    if original.artifact_schema != "cf.raw-original.v1" or original.media_type != "text/plain":
         raise ContractError("unsupported_format")
     if not isinstance(data, VerifiedBytes) or not isinstance(data.data, bytes):
         raise ContractError("hash_mismatch")
@@ -100,11 +100,11 @@ def process_text(
         text=data.data,
         sections=(Section(section_id="body", start=0, end=len(decoded)),),
         origin_map=OriginMap(
-            schema_version="kf.origin-map.v1", kind="identity_utf8",
+            schema_version="cf.origin-map.v1", kind="identity_utf8",
             original_digest=actual, text_digest=actual, offset_unit="unicode_scalar",
         ),
         quality=QualityReport(
-            schema_version="kf.quality-report.v1", source_id=asset.source_id, checks=checks,
+            schema_version="cf.quality-report.v1", source_id=asset.source_id, checks=checks,
             disposition="needs_review" if whitespace_only else "valid",
         ),
     )

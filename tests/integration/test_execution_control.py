@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -253,7 +254,7 @@ class Case:
         self.store.put_verified(io.BytesIO(source_bytes), self.original, self.access)
         self.limits_ref = self.put(self.bound)
         self.spec = ExtractionSpec(
-            schema_version="kf.extraction-spec.v1",
+            schema_version="cf.extraction-spec.v1",
             processor_id="text.utf8.v1",
             processor_version="synthetic.v1",
             code_version="synthetic.v1",
@@ -267,7 +268,7 @@ class Case:
         tariff = self.proof()
         resource = self.proof()
         self.config = ExecutionConfig(
-            schema_version="kf.execution-config.v1",
+            schema_version="cf.execution-config.v1",
             adapter_id="synthetic.worker",
             deployment_version="synthetic.v1",
             image_digest="a" * 64,
@@ -311,7 +312,7 @@ class Case:
         auth_id = str(uuid4())
         self.plan = ExecutionPlan.model_validate(
             {
-                "schemaVersion": "kf.execution-plan.v1",
+                "schemaVersion": "cf.execution-plan.v1",
                 "projectId": PROJECT,
                 "runId": RUN,
                 "planId": str(uuid4()),
@@ -348,7 +349,7 @@ class Case:
         )
         self.plan_ref = self.put(self.plan)
         self.auth = RunAuthorization(
-            schema_version="kf.run-authorization.v1",
+            schema_version="cf.run-authorization.v1",
             authorization_id=auth_id,
             project_id=PROJECT,
             run_id=RUN,
@@ -422,7 +423,7 @@ class Case:
             material,
             scope,
         )
-        digest = hashlib.sha256(b"kf.transport-material.internal.v1\n")
+        digest = hashlib.sha256(b"cf.transport-material.internal.v1\n")
         digest.update(len(material).to_bytes(8, "big"))
         for piece in material:
             digest.update(len(piece).to_bytes(8, "big"))
@@ -462,7 +463,7 @@ class Case:
     def result(self, attempt: Any, *, extra_check: bool = False) -> Ref:
         source = self.data.report.entries[0].source_id
         asset = SourceAsset(
-            schema_version="kf.source-asset.v1",
+            schema_version="cf.source-asset.v1",
             project_id=PROJECT,
             asset_id=ASSET,
             source_id=source,
@@ -488,12 +489,12 @@ class Case:
                 }
             )
         quality_ref, map_ref = self.put(quality), self.put(output.origin_map)
-        text_ref = reference(output.text, "kf.canonical-text.v1").model_copy(
+        text_ref = reference(output.text, "cf.canonical-text.v1").model_copy(
             update={"media_type": "text/plain"}
         )
         self.store.put_verified(io.BytesIO(output.text), text_ref, self.access)
         revision = DocumentRevision(
-            schema_version="kf.document-revision.v1",
+            schema_version="cf.document-revision.v1",
             project_id=PROJECT,
             source_id=source,
             asset_id=ASSET,
@@ -521,7 +522,7 @@ class Case:
         revision_ref = self.put(revision)
         return self.put(
             ResultManifest(
-                schema_version="kf.result.v1",
+                schema_version="cf.result.v1",
                 project_id=PROJECT,
                 plan_id=self.plan.plan_id,
                 operation_key=self.plan.operation_key,
@@ -942,7 +943,7 @@ def test_terminal_snapshot_storage_rejects_a_stale_direct_write(
         with pytest.raises(ContractError, match="determinism_conflict"):
             save_attempt(tx, running, c.control)
         current, _, _, _ = _load(tx, running.attempt_id, c.control)
-        assert save_attempt(tx, current, c.control).artifact_schema == "kf.stage-attempt.v1"
+        assert save_attempt(tx, current, c.control).artifact_schema == "cf.stage-attempt.v1"
     assert attempt_row(ledger, running.attempt_id) == before
 
 
@@ -1151,7 +1152,7 @@ def test_result_rejects_foreign_input_before_content_read(ledger: Ledger, tmp_pa
         c.store.read_verified(result.document_revision_ref, c.access, 65536).data, c.bound
     )
     foreign_bytes = b"Unselected synthetic source"
-    foreign = reference(foreign_bytes, "kf.raw-original.v1").model_copy(
+    foreign = reference(foreign_bytes, "cf.raw-original.v1").model_copy(
         update={"media_type": "text/plain"}
     )
     c.store.put_verified(io.BytesIO(foreign_bytes), foreign, c.access)
@@ -1282,7 +1283,7 @@ def test_snapshot_and_explicit_financial_reconciliation_cas(ledger: Ledger, tmp_
     final_ref = c.proof()
     c.authority.billings[final_ref.digest] = ("actual", "4", True, True, False)
     settled = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1302,7 +1303,7 @@ def test_snapshot_and_explicit_financial_reconciliation_cas(ledger: Ledger, tmp_
     adjustment_ref = c.proof()
     c.authority.billings[adjustment_ref.digest] = ("actual", "3", True, True, False)
     adjustment = BillingAdjustment(
-        schema_version="kf.billing-adjustment.v1",
+        schema_version="cf.billing-adjustment.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1369,7 +1370,7 @@ def test_final_bill_actual_and_release_residual_are_distinct(
     receipt = c.proof()
     c.authority.billings[receipt.digest] = ("actual", "3", True, True, False)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -1628,7 +1629,7 @@ def test_storage_billing_resolves_original_funding_plans_after_amendment(
     c.authority.billings[receipt.digest] = ("actual", "2", True, True, False)
     c.authority.billing_plans[receipt.digest] = (c.plan_ref.digest,)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=reservation,
@@ -1957,7 +1958,7 @@ def settle_final(c: Case, ledger: Ledger, attempt: Any, amount: str = "4") -> No
     receipt = c.proof()
     c.authority.billings[receipt.digest] = ("actual", amount, True, True, False)
     settlement = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -2145,7 +2146,7 @@ def test_active_attempt_reservation_cannot_be_finalized_on_evidence_alone(
         c.authority.billings[receipt.digest] = ("actual", "0", True, True, True)
         kind, amount = "release_unspent", "4"
     event = BudgetEvent(
-        schema_version="kf.budget-event.v1",
+        schema_version="cf.budget-event.v1",
         project_id=PROJECT,
         run_id=RUN,
         reservation_id=attempt.reservation_id,
@@ -2193,6 +2194,22 @@ class PendingModal:
         self.cancelled.append(call_id)
 
 
+class AttemptView:
+    """The case store seen as one attempt's staging prefix: nothing has claimed the attempt."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def lease_present(self) -> bool:
+        return False
+
+    def result_pointer(self) -> Ref | None:
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+
 def modal_over(c: Case, sdk: PendingModal) -> Any:
     """The real ModalExecutor over the case store, with a test authority that echoes its record."""
     from conscience_foundry.execution.capabilities import CapabilityRecord
@@ -2226,7 +2243,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
     c.authority.observation = observation  # type: ignore[method-assign]
     record = CapabilityRecord.model_validate(
         {
-            "schema_version": "kf.modal-capability-record.v1",
+            "schema_version": "cf.modal-capability-record.v1",
             "project_id": PROJECT,
             "execution_config_ref": c.plan.execution_config_ref,
             "sdk_version": "synthetic-sdk.1",
@@ -2246,7 +2263,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
             "cancellation": "terminates_containers",
             "deadline_enforcement": "entry_and_every_bounded_step",
             "valid_until": c.plan.budget.valid_until,
-            "source_evidence_refs": (reference(b"synthetic evidence", "kf.capability-source.v1"),),
+            "source_evidence_refs": (reference(b"synthetic evidence", "cf.capability-source.v1"),),
         }
     )
     return ModalExecutor(
@@ -2262,7 +2279,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
         ),
         record=record,
         execution_config_digest=c.plan.execution_config_ref.digest,
-        store=c.store,
+        reader_for=lambda _project, _attempt: AttemptView(c.store),
         access=c.access,
         limits=c.bound,
         clock=lambda: TIME,
@@ -2323,9 +2340,7 @@ class Issuer:
         self.seen: list[tuple[Any, list[tuple[str, str, str | None]], int]] = []
 
     def __call__(self, attempt: Any) -> TransportGrants:
-        claims = count_of(
-            self.ledger, "dispatch_claims", "attempt_id=%s", (attempt.attempt_id,)
-        )
+        claims = count_of(self.ledger, "dispatch_claims", "attempt_id=%s", (attempt.attempt_id,))
         self.seen.append((attempt, attempts_of(self.ledger), claims))
         if self.fail:
             raise RuntimeError("synthetic issuer outage")
@@ -2397,7 +2412,7 @@ def test_a_noncanonical_stored_plan_is_refused_before_any_reservation(
     budget = c.plan.budget.model_copy(update={"authorization_id": auth_id})
     c.plan = c.plan.model_copy(update={"run_id": run, "plan_id": str(uuid4()), "budget": budget})
     pretty = json.dumps(json.loads(encoded(c.plan)), indent=2, sort_keys=True).encode()
-    c.plan_ref = reference(pretty, "kf.execution-plan.v1")
+    c.plan_ref = reference(pretty, "cf.execution-plan.v1")
     c.store.put_verified(io.BytesIO(pretty), c.plan_ref, c.access)
     c.auth = c.auth.model_copy(
         update={
@@ -2423,3 +2438,185 @@ def test_a_noncanonical_stored_plan_is_refused_before_any_reservation(
         dispatch_with(c, ledger, executor, Issuer(c, ledger))
     assert refused.value.code == "invalid_schema"
     assert executor.calls == 0 and attempts_of(ledger) == []
+
+
+# --- Deadline cancel: the live session's token, not the operator's cancel command --------------
+
+
+def authorize_as(command: str) -> Any:
+    """The CLI's rule: an action is allowed only to the commands ``ACTION_COMMANDS`` names."""
+    from conscience_foundry.cli.config import ACTION_COMMANDS
+
+    def authorize(action: str, project: str, run: str | None, actor: str) -> bool:
+        return (
+            project == PROJECT
+            and actor == ACTOR
+            and command in ACTION_COMMANDS.get(action, frozenset())
+        )
+
+    return authorize
+
+
+DEADLINE = Reason(code="limit_exceeded", message="synthetic deadline")
+
+
+class Unreachable(Executor):
+    """An executor whose cancel request cannot be delivered, so the request stays on record."""
+
+    def __init__(self, case: Case) -> None:
+        super().__init__(case)
+        self.cancels = 0
+
+    def cancel(self, attempt: Any) -> Observation:
+        self.cancels += 1
+        raise TimeoutError
+
+
+def test_deadline_cancel_goes_through_cancel_requested(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.execution.control import cancel_attempt
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    assert attempt.state == "running"
+    before = count_of(ledger, "attempt_observations", "attempt_id=%s", (attempt.attempt_id,))
+    token = object()
+    reconciling = replace(c.control, authorize=authorize_as("reconcile"), deadline_token=token)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+
+    requested = cancel_attempt(
+        attempt.attempt_id,
+        ledger,
+        executor,
+        control=reconciling,
+        reason=DEADLINE,
+        evidence_ref=command,
+        deadline_token=token,
+    )
+
+    assert requested.state == "cancel_requested"
+    assert executor.cancels == 1
+    # the cancel is only a request: the attempt is not terminal and keeps its funds
+    assert attempts_of(ledger)[0][1] == "cancel_requested"
+    assert count_of(ledger, "attempt_observations", "attempt_id=%s", (attempt.attempt_id,)) == (
+        before
+    )
+    assert requested.finished_at is None
+    # only the provider reporting the call cancelled settles it, through reconcile as before
+    observed = c.proof()
+    executor.next = Observation("cancelled", None, None, observed)
+    c.authority.observations[observed.digest] = (
+        requested.remote_call_id,
+        "cancelled",
+        None,
+        False,
+        True,
+    )
+    assert reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control) is None
+    assert attempts_of(ledger)[0][1] == "cancelled"
+
+
+def test_reconcile_cannot_cancel_without_deadline_token(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.execution.control import cancel_attempt, mark_unknown_outcome
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    before = count_of(ledger, "attempt_observations")
+    token = object()
+    reconciling = replace(c.control, authorize=authorize_as("reconcile"), deadline_token=token)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+    marking = c.proof()
+    c.authority.controls[marking.digest] = ("mark_unknown_outcome", None, (), False, False)
+
+    def cancel(control: Any, **extra: Any) -> Any:
+        return cancel_attempt(
+            attempt.attempt_id,
+            ledger,
+            executor,
+            control=control,
+            reason=extra.pop("reason", DEADLINE),
+            evidence_ref=command,
+            **extra,
+        )
+
+    def mark(control: Any, **extra: Any) -> Any:
+        return mark_unknown_outcome(
+            attempt.attempt_id,
+            ledger,
+            control=control,
+            reason=extra.pop("reason", DEADLINE),
+            evidence_ref=marking,
+            **extra,
+        )
+
+    refusals: list[Callable[[], Any]] = [
+        # no token: the ordinary action check, which the reconcile command does not pass
+        lambda: cancel(reconciling),
+        lambda: mark(reconciling),
+        # a forged token fails the identity check, however it is built
+        lambda: cancel(reconciling, deadline_token=object()),
+        lambda: mark(reconciling, deadline_token=object()),
+        lambda: cancel(reconciling, deadline_token=str(token)),
+        # the right token for another reason is no deadline
+        lambda: cancel(
+            reconciling,
+            deadline_token=token,
+            reason=Reason(code="unavailable", message="synthetic"),
+        ),
+        lambda: mark(
+            reconciling,
+            deadline_token=token,
+            reason=Reason(code="unavailable", message="synthetic"),
+        ),
+        # a control context with no token at all can never be matched, not even by None
+        lambda: cancel(replace(reconciling, deadline_token=None), deadline_token=object()),
+        # the operator's cancel command is not the deadline path either
+        lambda: cancel(
+            replace(reconciling, authorize=authorize_as("cancel")), deadline_token=token
+        ),
+    ]
+    for refused in refusals:
+        with pytest.raises(ContractError) as error:
+            refused()
+        assert error.value.code == "forbidden"
+    assert attempts_of(ledger)[0][1] == "running" and executor.cancels == 0
+    assert count_of(ledger, "attempt_observations") == before
+
+    # the same token under the same command is what makes the deadline marks possible
+    marked = mark(reconciling, deadline_token=token)
+    assert marked.state == "unknown_outcome"
+    assert attempts_of(ledger)[0][1] == "unknown_outcome"
+
+
+def test_operator_cancel_still_works_without_token(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.cli.config import ACTION_COMMANDS
+    from conscience_foundry.execution.control import cancel_attempt
+
+    assert ACTION_COMMANDS["cancel_attempt"] == frozenset({"cancel"})
+    assert ACTION_COMMANDS["deadline_cancel"] == frozenset({"dispatch", "reconcile"})
+    assert ACTION_COMMANDS["deadline_unknown"] == frozenset({"dispatch", "reconcile"})
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    operator = replace(c.control, authorize=authorize_as("cancel"), deadline_token=object())
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+
+    requested = cancel_attempt(
+        attempt.attempt_id,
+        ledger,
+        executor,
+        control=operator,
+        reason=Reason(code="unavailable", message="synthetic operator cancellation"),
+        evidence_ref=command,
+    )
+
+    assert requested.state == "cancel_requested" and executor.cancels == 1
+    assert attempts_of(ledger)[0][1] == "cancel_requested"

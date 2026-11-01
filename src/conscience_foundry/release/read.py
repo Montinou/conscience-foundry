@@ -78,7 +78,7 @@ def resolve_span(
             raise ContractError("revision_mismatch")
         raw, _ = read_artifact(revision.text_ref, release)
         full = VerifiedBytes(raw, revision.text_ref.digest)
-        limits = limits_for(release, "kf.canonical-text.v1")
+        limits = limits_for(release, "cf.canonical-text.v1")
         text = raw.decode("utf-8")[span.start : span.end]
         check_exact_quote(full, span, text, revision=revision, limits=limits)
         return ResolvedSlice(

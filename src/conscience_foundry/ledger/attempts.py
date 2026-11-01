@@ -215,7 +215,7 @@ def snapshot(
 ) -> str:
     """Fixed metadata projection; counts and serialized bytes are bounded before hashing."""
     tx.lock(project, run, operation)
-    bound = limits_for(control, "kf.stage-attempt.v1")
+    bound = limits_for(control, "cf.stage-attempt.v1")
     filters: list[tuple[str, tuple[str, ...], str, tuple[object, ...], str]] = [
         (
             "runs",
@@ -378,5 +378,5 @@ def snapshot(
         ).fetchall()
         payload[table] = [list(row) for row in rows]
     return hashlib.sha256(
-        b"kf.control-snapshot.v1\n" + bounded_request(payload, control)
+        b"cf.control-snapshot.v1\n" + bounded_request(payload, control)
     ).hexdigest()

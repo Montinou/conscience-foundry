@@ -49,7 +49,7 @@ def _ref_role(ref: Ref, role: str) -> None:
 
 
 class EnrichmentSpec(WireModel):
-    schema_version: Literal["kf.enrichment-spec.v1"]
+    schema_version: Literal["cf.enrichment-spec.v1"]
     spec_id: Version
     task_id: NonemptyString
     profile_id: NonemptyString
@@ -95,7 +95,7 @@ class EnrichmentSpec(WireModel):
 
 
 class EnrichmentRequest(WireModel):
-    schema_version: Literal["kf.enrichment-request.v1"]
+    schema_version: Literal["cf.enrichment-request.v1"]
     project_id: Id
     operation_key: Digest
     attempt_id: Id
@@ -120,10 +120,10 @@ class EnrichmentRequest(WireModel):
             ),
             self.project_id,
         )
-        _ref_role(self.spec_ref, "kf.enrichment-spec.v1")
-        _ref_role(self.policy_ref, "kf.policy.v1")
+        _ref_role(self.spec_ref, "cf.enrichment-spec.v1")
+        _ref_role(self.policy_ref, "cf.policy.v1")
         for ref in self.canonical_revision_refs:
-            _ref_role(ref, "kf.document-revision.v1")
+            _ref_role(ref, "cf.document-revision.v1")
         _unique_refs(self.canonical_revision_refs)
         _unique_refs(self.omitted_context_refs)
         if any(span.project_id != self.project_id for span in self.context_spans):
@@ -132,7 +132,7 @@ class EnrichmentRequest(WireModel):
 
 
 class EnrichmentResult(WireModel):
-    schema_version: Literal["kf.enrichment-result.v1"]
+    schema_version: Literal["cf.enrichment-result.v1"]
     project_id: Id
     operation_key: Digest
     attempt_id: Id
@@ -169,7 +169,7 @@ class EnrichmentResult(WireModel):
             ),
             self.project_id,
         )
-        _ref_role(self.spec_ref, "kf.enrichment-spec.v1")
+        _ref_role(self.spec_ref, "cf.enrichment-spec.v1")
         if self.schema_status == "not_run":
             if (
                 self.anchor_status != "not_run"
@@ -193,7 +193,7 @@ class EnrichmentResult(WireModel):
 
 
 class AnnotationSet(WireModel):
-    schema_version: Literal["kf.annotation-set.v1"]
+    schema_version: Literal["cf.annotation-set.v1"]
     project_id: Id
     spec_ref: Ref
     canonical_revision_refs: Annotated[tuple[Ref, ...], BeforeValidator(_array)]
@@ -206,11 +206,11 @@ class AnnotationSet(WireModel):
             (self.spec_ref, self.coverage_report_ref, *self.canonical_revision_refs, *self.results),
             self.project_id,
         )
-        _ref_role(self.spec_ref, "kf.enrichment-spec.v1")
+        _ref_role(self.spec_ref, "cf.enrichment-spec.v1")
         for ref in self.canonical_revision_refs:
-            _ref_role(ref, "kf.document-revision.v1")
+            _ref_role(ref, "cf.document-revision.v1")
         for ref in self.results:
-            _ref_role(ref, "kf.enrichment-result.v1")
+            _ref_role(ref, "cf.enrichment-result.v1")
         _unique_refs(self.canonical_revision_refs)
         _unique_refs(self.results)
         return self
@@ -235,7 +235,7 @@ class Probability(WireModel):
 
 
 class DecisionTaskSpec(WireModel):
-    schema_version: Literal["kf.decision-task.v1"]
+    schema_version: Literal["cf.decision-task.v1"]
     task_id: NonemptyString
     version: Version
     input_schema_ref: Ref
@@ -255,7 +255,7 @@ class DecisionTaskSpec(WireModel):
 
 
 class DecisionRelease(WireModel):
-    schema_version: Literal["kf.decision-release.v1"]
+    schema_version: Literal["cf.decision-release.v1"]
     release_id: Id
     implementation: Literal["rules", "classifier", "laya"]
     task_spec_refs: Annotated[tuple[Ref, ...], BeforeValidator(_array), Field(min_length=1)]
@@ -295,7 +295,7 @@ class DecisionRelease(WireModel):
             )
         )
         for ref in self.task_spec_refs:
-            _ref_role(ref, "kf.decision-task.v1")
+            _ref_role(ref, "cf.decision-task.v1")
         _unique_refs(self.task_spec_refs)
         if len(set(self.certified_cohorts)) != len(self.certified_cohorts):
             raise ValueError("duplicate certified cohort")
@@ -303,7 +303,7 @@ class DecisionRelease(WireModel):
 
 
 class DecisionRequest(WireModel):
-    schema_version: Literal["kf.decision-request.v1"]
+    schema_version: Literal["cf.decision-request.v1"]
     project_id: Id
     task_spec_ref: Ref
     decision_release_ref: Ref
@@ -327,17 +327,17 @@ class DecisionRequest(WireModel):
             ),
             self.project_id,
         )
-        _ref_role(self.task_spec_ref, "kf.decision-task.v1")
-        _ref_role(self.decision_release_ref, "kf.decision-release.v1")
-        _ref_role(self.policy_ref, "kf.policy.v1")
+        _ref_role(self.task_spec_ref, "cf.decision-task.v1")
+        _ref_role(self.decision_release_ref, "cf.decision-release.v1")
+        _ref_role(self.policy_ref, "cf.policy.v1")
         for ref in self.context_revision_refs:
-            _ref_role(ref, "kf.document-revision.v1")
+            _ref_role(ref, "cf.document-revision.v1")
         _unique_refs(self.context_revision_refs)
         return self
 
 
 class DecisionResult(WireModel):
-    schema_version: Literal["kf.decision-result.v1"]
+    schema_version: Literal["cf.decision-result.v1"]
     project_id: Id
     operation_key: Digest
     attempt_id: Id
@@ -361,8 +361,8 @@ class DecisionResult(WireModel):
         _refs_project(
             (self.task_spec_ref, self.decision_release_ref, self.trace_ref), self.project_id
         )
-        _ref_role(self.task_spec_ref, "kf.decision-task.v1")
-        _ref_role(self.decision_release_ref, "kf.decision-release.v1")
+        _ref_role(self.task_spec_ref, "cf.decision-task.v1")
+        _ref_role(self.decision_release_ref, "cf.decision-release.v1")
         if self.status == "prediction":
             if self.prediction is None:
                 raise ValueError("prediction status requires a prediction")

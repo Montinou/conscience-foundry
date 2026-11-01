@@ -150,7 +150,7 @@ class WireModel(BaseModel):
 
 
 class ContractLimits(WireModel):
-    schema_version: Literal["kf.contract-limits.v1"]
+    schema_version: Literal["cf.contract-limits.v1"]
     version: Version
     max_json_bytes: PositiveInteger
     max_string_scalars: PositiveInteger
@@ -227,7 +227,7 @@ class ArtifactLocation(WireModel):
 
 
 class ArtifactRef(WireModel):
-    schema_version: Literal["kf.artifact-ref.v1"]
+    schema_version: Literal["cf.artifact-ref.v1"]
     project_id: Id
     digest: Digest
     size_bytes: SafeInteger

@@ -19,11 +19,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, cast
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
-from pydantic import AfterValidator, BeforeValidator, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    Discriminator,
+    Field,
+    StringConstraints,
+    Tag,
+    model_validator,
+)
 from pydantic.json_schema import SkipJsonSchema
 
 from conscience_foundry.contracts.codec import load_json
@@ -40,6 +48,7 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.contracts.project import EFFECT_NAMES, PolicyArtifact
+from conscience_foundry.execution.modal_live import staging_config
 from conscience_foundry.execution.ports import (
     ControlContext,
     EvidenceAuthority,
@@ -49,8 +58,13 @@ from conscience_foundry.execution.ports import (
 from conscience_foundry.ledger.db import Connection, Ledger
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.release.context import ReleaseAuthority, ReleaseContext, TrustedReleasePin
-from conscience_foundry.storage.local import LocalObjectStore
+from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
+from conscience_foundry.storage.r2 import R2ObjectStore, r2_static_client
+from conscience_foundry.storage.staging_s3 import StagingConfig
+
+if TYPE_CHECKING:
+    from conscience_foundry.cli.live import LiveWiring
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -60,14 +74,24 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "admission": frozenset({"admit"}),
         "execution": frozenset(
-            {"prepare-run", "authorize-run", "dispatch", "reconcile", "cancel", "pause", "resume"}
+            {
+                "prepare-run",
+                "authorize-run",
+                "reserve-storage",
+                "dispatch",
+                "reconcile",
+                "cancel",
+                "pause",
+                "resume",
+                "record-billing",
+            }
         ),
         "review": frozenset({"review"}),
         "release": frozenset({"build-release", "import-release"}),
         "publication": frozenset({"publish"}),
         "activation": frozenset({"activate"}),
         "read": frozenset({"read-span"}),
-        "recovery": frozenset({"backup", "restore", "retention-report"}),
+        "recovery": frozenset({"backup", "restore", "retention-report", "restore-drill"}),
         "pilot": frozenset({"preflight", "run-pilot"}),
     }
 )
@@ -75,10 +99,16 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
 
 # Library control actions (including budget-evidence purposes) and the only CLI commands whose
 # grant may perform them. Cancellation observes and settles through the reconcile path, so it may
-# perform those internal actions. Nothing else is reachable: storage reservations, billing
-# corrections, manual unknown-outcome marks, budget reconciliation and control reads have no CLI
-# command in this task, so no grant can authorize them here.
+# perform those internal actions; `record-billing` alone adds the final settlement of an attempt
+# from the operator's billing document. `deadline_cancel` and `deadline_unknown` are the live
+# session's own cancel and unknown mark at its deadline: the library checks them only for a caller
+# holding the session's private deadline token, and only the commands that run the live attempt
+# (`dispatch` and `reconcile`) may perform them. Nothing else is reachable: corrections to a
+# recorded settlement, manual unknown-outcome marks, budget reconciliation and control reads
+# still have no CLI command, so no grant can authorize them.
 _SETTLEMENT = frozenset({"reconcile", "cancel"})
+_BILLING = _SETTLEMENT | {"record-billing"}
+_DEADLINE = frozenset({"dispatch", "reconcile"})
 ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "install_run_authorization": frozenset({"authorize-run"}),
@@ -87,12 +117,15 @@ ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "reserve": frozenset({"dispatch"}),
         "manual_retry": frozenset({"dispatch"}),
         "reconcile": _SETTLEMENT,
-        "apply_budget_event": _SETTLEMENT,
+        "reserve_storage": frozenset({"reserve-storage"}),
+        "apply_budget_event": _BILLING,
         "record_usage": _SETTLEMENT,
-        "final_billing": _SETTLEMENT,
+        "final_billing": _BILLING,
         "release_unspent": _SETTLEMENT,
         "final_no_effect": _SETTLEMENT,
         "cancel_attempt": frozenset({"cancel"}),
+        "deadline_cancel": _DEADLINE,
+        "deadline_unknown": _DEADLINE,
         "pause": frozenset({"pause"}),
         "resume": frozenset({"resume"}),
     }
@@ -113,6 +146,10 @@ Name = Annotated[ScalarString, StringConstraints(min_length=1)]
 AbsolutePath = Annotated[ScalarString, AfterValidator(_absolute)]
 EnvName = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
 SchemaName = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9_]{0,62}$")]
+AccountId = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9-]{1,63}$")]
+BucketName = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+]
 
 
 class LedgerSettings(WireModel):
@@ -136,10 +173,134 @@ class LedgerSettings(WireModel):
         return self
 
 
-class StoreSettings(WireModel):
+class LocalStoreSettings(WireModel):
+    """A store in a directory of this machine; ``kind`` may be omitted, as in older configs."""
+
+    kind: Literal["local"] = "local"
     store_id: Name
     root_path: AbsolutePath
     limits: ContractLimits
+
+
+class R2StoreSettings(WireModel):
+    """An R2 bucket reached with an access key held in two environment variables, by name only.
+
+    Allowed for ``backup_store`` alone: the working object store stays local. Neither the
+    account id nor the bucket nor the credentials have a default; the variable *names* are
+    config labels and their values are read when the store is opened.
+    """
+
+    kind: Literal["r2"]
+    store_id: Name
+    account_id: AccountId
+    bucket: BucketName
+    access_key_env: EnvName
+    secret_env: EnvName
+    limits: ContractLimits
+
+    @model_validator(mode="after")
+    def distinct_credential_variables(self) -> Self:
+        if self.access_key_env == self.secret_env:
+            raise ValueError("the access key and the secret need separate variables")
+        return self
+
+
+def _staging_prefix(value: str) -> str:
+    if any(part in {"", ".", ".."} for part in value.split("/")):
+        raise ValueError("a relative prefix without empty or dot segments is required")
+    return value
+
+
+StagingPrefix = Annotated[
+    ScalarString, StringConstraints(min_length=1), AfterValidator(_staging_prefix)
+]
+PythonVersion = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[0-9]+\.[0-9]+(\.[0-9]+)?$")
+]
+ReadResumes = Annotated[int, Field(strict=True, ge=0, le=16)]
+
+
+class StagingSettings(WireModel):
+    """The R2 staging destination: labels and bounds only, every field required.
+
+    Maps one-to-one onto ``StagingConfig``; the destination id comes from the grants the control
+    side mints, the store id is that same label and the region is R2's fixed ``auto``. Nothing
+    here is a credential: the endpoint and credential source are names registered outside the
+    repository.
+    """
+
+    bucket: BucketName
+    prefix: StagingPrefix
+    endpoint_id: Name
+    credential_source: Name
+    max_object_bytes: PositiveInteger
+    transfer_chunk_bytes: PositiveInteger
+    max_read_resumes: ReadResumes
+    max_parts: PositiveInteger
+    grant_ttl_seconds: PositiveInteger
+    checksum_mode: Literal["sha256_header", "readback"]
+
+    def to_config(self, destination_id: str) -> StagingConfig:
+        return staging_config(
+            {name: getattr(self, name) for name in type(self).model_fields}, destination_id
+        )
+
+
+class LiveSettings(WireModel):
+    """Everything the live Modal and R2 run needs, from the operator's config; no defaults.
+
+    The ledger DSN comes from ``LedgerSettings`` and the backup bucket from ``R2StoreSettings``;
+    neither is repeated here. The parent R2 key id and API token are read from the two named
+    environment variables when a credential is minted, never stored in the config.
+    """
+
+    modal_profile: Name
+    app_name: Name
+    function_name: Name
+    python_version: PythonVersion
+    requirements_path: AbsolutePath
+    cpu_milli: PositiveInteger
+    memory_mib: PositiveInteger
+    scheduling_timeout_seconds: PositiveInteger
+    startup_timeout_seconds: PositiveInteger
+    execution_timeout_seconds: PositiveInteger
+    cancel_margin_seconds: PositiveInteger
+    cloudflare_timeout_seconds: PositiveInteger
+    """Bound on each Cloudflare API request that mints a temporary R2 credential."""
+    capability_valid_seconds: PositiveInteger
+    r2_account_id: AccountId
+    parent_access_key_id_env: EnvName
+    parent_token_env: EnvName
+    staging: StagingSettings
+
+    @model_validator(mode="after")
+    def distinct_parent_variables(self) -> Self:
+        if self.parent_access_key_id_env == self.parent_token_env:
+            raise ValueError("the parent key id and the API token need separate variables")
+        return self
+
+    @property
+    def total_bound_seconds(self) -> int:
+        """Scheduling, startup, execution and the cancel margin: the longest a call may take."""
+        return (
+            self.scheduling_timeout_seconds
+            + self.startup_timeout_seconds
+            + self.execution_timeout_seconds
+            + self.cancel_margin_seconds
+        )
+
+
+def _store_kind(value: object) -> object:
+    """An entry without ``kind`` is a local store, so older configs keep validating."""
+    if isinstance(value, Mapping):
+        return value.get("kind", "local")
+    return getattr(value, "kind", None)
+
+
+StoreSettings = Annotated[
+    Annotated[LocalStoreSettings, Tag("local")] | Annotated[R2StoreSettings, Tag("r2")],
+    Discriminator(_store_kind),
+]
 
 
 class InputRoot(WireModel):
@@ -210,7 +371,7 @@ class RuntimeConfig(WireModel):
     project_id: Id
     operator: OperatorSettings
     ledger: LedgerSettings
-    object_store: StoreSettings
+    object_store: LocalStoreSettings
     backup_store: StoreSettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -221,6 +382,19 @@ class RuntimeConfig(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
     release_pins: Annotated[tuple[PinSettings, ...], BeforeValidator(_array)] = ()
+    project_max_live_attempts: PositiveInteger | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    live: LiveSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def live_needs_a_project_cap(self) -> Self:
+        """A live section always carries the project-wide cap; there is no default for it."""
+        if self.live is not None and self.project_max_live_attempts is None:
+            raise ValueError("a live section requires project_max_live_attempts")
+        return self
 
 
 @dataclass(frozen=True)
@@ -236,7 +410,14 @@ class TrustedServices:
     transport_grants: Callable[[ExecutionPlan, StageAttempt, Ref], TransportGrants] | None = None
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
-    pilot_gates_closed: frozenset[str] = frozenset()
+    staged_reader: Callable[[Id, Id], ObjectStore] | None = None
+    stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = None
+    issuer_scopes: Callable[[ExecutionPlan, Id], tuple[frozenset[str], str]] | None = None
+    """Reports what the credential issuer would mint for a plan and attempt: (read keys, write
+    prefix). Preflight compares it with the plan; it never mints anything."""
+    live: LiveWiring | None = None
+    """The live wiring a config's ``live`` section stands for (``cli.live.build_services``); its
+    session is set only by ``run-pilot``, and only while that session is open."""
 
 
 class _Refusing:
@@ -255,7 +436,7 @@ def _bootstrap(size: int) -> ContractLimits:
     bound = max(size, 1)
     return ContractLimits.model_validate(
         {
-            "schemaVersion": "kf.contract-limits.v1",
+            "schemaVersion": "cf.contract-limits.v1",
             "version": "cli.bootstrap.v1",
             "maxJsonBytes": bound,
             "maxStringScalars": bound,
@@ -368,6 +549,14 @@ def resolve_dsn(settings: LedgerSettings) -> str:
     return value
 
 
+def resolve_r2_credentials(settings: R2StoreSettings) -> tuple[str, str]:
+    """The access key and secret named by the config; never defaulted, discovered or printed."""
+    values = (os.environ.get(settings.access_key_env, ""), os.environ.get(settings.secret_env, ""))
+    if not all(values):
+        raise ContractError("credential_unavailable")
+    return values
+
+
 def now() -> Instant:
     moment = datetime.now(UTC)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
@@ -383,7 +572,7 @@ class Runtime:
         self._stack = ExitStack()
         self._limits: dict[str, ContractLimits] | None = None
         self._store: LocalObjectStore | None = None
-        self._backup: LocalObjectStore | None = None
+        self._backup: ObjectStore | None = None
         self._ledger: Ledger | None = None
         self.access = AccessContext(
             config.project_id, config.operator.actor_id, frozenset(config.operator.scopes)
@@ -408,24 +597,37 @@ class Runtime:
         return (self.services.clock or now)()
 
     def read_policy_bytes(self) -> bytes:
-        return read_trusted(self.config.policy_path, self.limit("kf.policy.v1").max_json_bytes)
+        return read_trusted(self.config.policy_path, self.limit("cf.policy.v1").max_json_bytes)
 
     def current_policy(self, project: Id) -> PolicyArtifact:
         """Re-read on every call so each effect boundary sees the policy as it is now."""
-        return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("kf.policy.v1"))
+        return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("cf.policy.v1"))
 
-    def _local_store(self, settings: StoreSettings) -> LocalObjectStore:
+    def _authority(self) -> Callable[[Any, AccessContext, str], None]:
         project, access = self.config.project_id, self.access
 
         def authority(ref: Any, context: AccessContext, effect: str) -> None:
             if ref.project_id != project or context != access:
                 raise ContractError("forbidden")
 
+        return authority
+
+    def _local_store(self, settings: LocalStoreSettings) -> LocalObjectStore:
         registry = LocationRegistry(
-            {settings.store_id: Path(settings.root_path)}, settings.limits, authority
+            {settings.store_id: Path(settings.root_path)}, settings.limits, self._authority()
         )
         self._stack.callback(registry.close)
         return LocalObjectStore(settings.store_id, registry)
+
+    def _r2_store(self, settings: R2StoreSettings) -> R2ObjectStore:
+        access_key, secret = resolve_r2_credentials(settings)
+        return R2ObjectStore(
+            r2_static_client(settings.account_id, access_key, secret),
+            settings.bucket,
+            settings.store_id,
+            authorize=self._authority(),
+            limits=settings.limits,
+        )
 
     @property
     def store(self) -> LocalObjectStore:
@@ -434,13 +636,16 @@ class Runtime:
         return self._store
 
     @property
-    def backup(self) -> LocalObjectStore:
+    def backup(self) -> ObjectStore:
         """The separately configured backup store; commands that need it are gated on it."""
         settings = self.config.backup_store
         if settings is None:
             raise ContractError("config_required")
         if self._backup is None:
-            self._backup = self._local_store(settings)
+            if isinstance(settings, R2StoreSettings):
+                self._backup = self._r2_store(settings)
+            else:
+                self._backup = self._local_store(settings)
         return self._backup
 
     @property
@@ -482,7 +687,17 @@ class Runtime:
             output_store_id=settings.store_id,
             store=self.store,
             transport_limits=self.config.transport_limits,
+            staged_reader=self.services.staged_reader,
+            stage_inputs=self.services.stage_inputs,
+            project_max_live_attempts=self.config.project_max_live_attempts,
+            deadline_token=self._deadline_token(),
         )
+
+    def _deadline_token(self) -> object | None:
+        """The open live session's private token; only a pilot's dispatch or reconcile has one."""
+        wiring = self.services.live
+        session = wiring.session if wiring is not None else None
+        return session.deadline_token if session is not None else None
 
     @property
     def release(self) -> ReleaseContext:
