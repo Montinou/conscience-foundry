@@ -79,6 +79,7 @@ from conscience_foundry.contracts.release import (
     PublicationRecord,
     RetentionPolicy,
 )
+from conscience_foundry.intake.metadata_schema import MetadataSchemaDocument
 
 JSON_SCHEMA_ID = "json-schema.2020-12"
 JSON_SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -185,6 +186,7 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.publication-authorization.v1": PublicationAuthorization,
         "cf.activation.v1": ActivationRecord,
         "cf.contract-set.v1": ContractSet,
+        "cf.metadata-schema.v1": MetadataSchemaDocument,
         "cf.enrichment-spec.v1": EnrichmentSpec,
         "cf.enrichment-request.v1": EnrichmentRequest,
         "cf.enrichment-result.v1": EnrichmentResult,

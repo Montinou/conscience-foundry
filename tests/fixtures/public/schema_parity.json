@@ -997,6 +997,599 @@
         "completedAt": "2026-01-01T00:00:00.000Z"
       },
       "note": "array bound: the export carries minItems, so Ajv rejects the empty array exactly as Python does"
+    },
+    {
+      "caseId": "metadata-schema-valid-minimal",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "valid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "flag": {
+            "type": "boolean"
+          }
+        }
+      },
+      "note": "minimal subset document"
+    },
+    {
+      "caseId": "metadata-schema-valid-depth-two",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "valid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "count"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z ]+$"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 8,
+            "enum": [
+              "alpha",
+              "beta"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "flag": {
+            "type": "boolean"
+          },
+          "origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "place"
+            ],
+            "properties": {
+              "place": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3000
+              }
+            }
+          }
+        }
+      },
+      "note": "every property kind and one nested object (depth 2)"
+    },
+    {
+      "caseId": "metadata-schema-ref",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "$ref": "#/$defs/x"
+          }
+        }
+      },
+      "note": "$ref is outside the subset"
+    },
+    {
+      "caseId": "metadata-schema-id",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "count"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z ]+$"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 8,
+            "enum": [
+              "alpha",
+              "beta"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "flag": {
+            "type": "boolean"
+          },
+          "origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "place"
+            ],
+            "properties": {
+              "place": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3000
+              }
+            }
+          }
+        },
+        "$id": "urn:synthetic"
+      },
+      "note": "$id is outside the subset"
+    },
+    {
+      "caseId": "metadata-schema-format",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 8,
+            "format": "date"
+          }
+        }
+      },
+      "note": "format is outside the subset"
+    },
+    {
+      "caseId": "metadata-schema-missing-max-length",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "string"
+          }
+        }
+      },
+      "note": "string requires maxLength"
+    },
+    {
+      "caseId": "metadata-schema-max-length-too-large",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 1025
+          }
+        }
+      },
+      "note": "maxLength above 1024"
+    },
+    {
+      "caseId": "metadata-schema-additional-true",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "title",
+          "count"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z ]+$"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 8,
+            "enum": [
+              "alpha",
+              "beta"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "flag": {
+            "type": "boolean"
+          },
+          "origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "place"
+            ],
+            "properties": {
+              "place": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3000
+              }
+            }
+          }
+        }
+      },
+      "note": "additionalProperties must be false"
+    },
+    {
+      "caseId": "metadata-schema-additional-absent",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "required": [
+          "title",
+          "count"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z ]+$"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 8,
+            "enum": [
+              "alpha",
+              "beta"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "flag": {
+            "type": "boolean"
+          },
+          "origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "place"
+            ],
+            "properties": {
+              "place": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3000
+              }
+            }
+          }
+        }
+      },
+      "note": "additionalProperties is required"
+    },
+    {
+      "caseId": "metadata-schema-depth-three",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "a": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "b": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "c": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "note": "nesting deeper than two levels"
+    },
+    {
+      "caseId": "metadata-schema-65-properties",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "p0": {
+            "type": "boolean"
+          },
+          "p1": {
+            "type": "boolean"
+          },
+          "p2": {
+            "type": "boolean"
+          },
+          "p3": {
+            "type": "boolean"
+          },
+          "p4": {
+            "type": "boolean"
+          },
+          "p5": {
+            "type": "boolean"
+          },
+          "p6": {
+            "type": "boolean"
+          },
+          "p7": {
+            "type": "boolean"
+          },
+          "p8": {
+            "type": "boolean"
+          },
+          "p9": {
+            "type": "boolean"
+          },
+          "p10": {
+            "type": "boolean"
+          },
+          "p11": {
+            "type": "boolean"
+          },
+          "p12": {
+            "type": "boolean"
+          },
+          "p13": {
+            "type": "boolean"
+          },
+          "p14": {
+            "type": "boolean"
+          },
+          "p15": {
+            "type": "boolean"
+          },
+          "p16": {
+            "type": "boolean"
+          },
+          "p17": {
+            "type": "boolean"
+          },
+          "p18": {
+            "type": "boolean"
+          },
+          "p19": {
+            "type": "boolean"
+          },
+          "p20": {
+            "type": "boolean"
+          },
+          "p21": {
+            "type": "boolean"
+          },
+          "p22": {
+            "type": "boolean"
+          },
+          "p23": {
+            "type": "boolean"
+          },
+          "p24": {
+            "type": "boolean"
+          },
+          "p25": {
+            "type": "boolean"
+          },
+          "p26": {
+            "type": "boolean"
+          },
+          "p27": {
+            "type": "boolean"
+          },
+          "p28": {
+            "type": "boolean"
+          },
+          "p29": {
+            "type": "boolean"
+          },
+          "p30": {
+            "type": "boolean"
+          },
+          "p31": {
+            "type": "boolean"
+          },
+          "p32": {
+            "type": "boolean"
+          },
+          "p33": {
+            "type": "boolean"
+          },
+          "p34": {
+            "type": "boolean"
+          },
+          "p35": {
+            "type": "boolean"
+          },
+          "p36": {
+            "type": "boolean"
+          },
+          "p37": {
+            "type": "boolean"
+          },
+          "p38": {
+            "type": "boolean"
+          },
+          "p39": {
+            "type": "boolean"
+          },
+          "p40": {
+            "type": "boolean"
+          },
+          "p41": {
+            "type": "boolean"
+          },
+          "p42": {
+            "type": "boolean"
+          },
+          "p43": {
+            "type": "boolean"
+          },
+          "p44": {
+            "type": "boolean"
+          },
+          "p45": {
+            "type": "boolean"
+          },
+          "p46": {
+            "type": "boolean"
+          },
+          "p47": {
+            "type": "boolean"
+          },
+          "p48": {
+            "type": "boolean"
+          },
+          "p49": {
+            "type": "boolean"
+          },
+          "p50": {
+            "type": "boolean"
+          },
+          "p51": {
+            "type": "boolean"
+          },
+          "p52": {
+            "type": "boolean"
+          },
+          "p53": {
+            "type": "boolean"
+          },
+          "p54": {
+            "type": "boolean"
+          },
+          "p55": {
+            "type": "boolean"
+          },
+          "p56": {
+            "type": "boolean"
+          },
+          "p57": {
+            "type": "boolean"
+          },
+          "p58": {
+            "type": "boolean"
+          },
+          "p59": {
+            "type": "boolean"
+          },
+          "p60": {
+            "type": "boolean"
+          },
+          "p61": {
+            "type": "boolean"
+          },
+          "p62": {
+            "type": "boolean"
+          },
+          "p63": {
+            "type": "boolean"
+          },
+          "p64": {
+            "type": "boolean"
+          }
+        }
+      },
+      "note": "more than 64 properties"
+    },
+    {
+      "caseId": "metadata-schema-unsupported-type",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "number"
+          }
+        }
+      },
+      "note": "number is outside the subset"
+    },
+    {
+      "caseId": "metadata-schema-required-undeclared",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "b"
+        ],
+        "properties": {
+          "a": {
+            "type": "boolean"
+          }
+        }
+      },
+      "note": "required name is not a declared property"
+    },
+    {
+      "caseId": "metadata-schema-pattern-uncompilable",
+      "schemaId": "cf.metadata-schema.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 8,
+            "pattern": "("
+          }
+        }
+      },
+      "note": "pattern that does not compile"
     }
   ],
   "unicodeCases": [

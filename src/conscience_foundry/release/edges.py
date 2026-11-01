@@ -179,6 +179,7 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
         "cf.retention.v1": (),
         "cf.activation.v1": (),
         "cf.semantic-rules.v1": (),
+        "cf.metadata-schema.v1": (),
     }
 )
 
