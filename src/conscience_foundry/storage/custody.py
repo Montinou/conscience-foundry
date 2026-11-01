@@ -25,10 +25,10 @@ from conscience_foundry.contracts.common import (
     WireModel,
 )
 from conscience_foundry.contracts.project import (
+    MetadataBinding,
     PolicyArtifact,
     ProfileDescriptor,
     ProjectConfig,
-    TechnicalMetadataBinding,
 )
 from conscience_foundry.policy.access import AccessContext, require_permission
 from conscience_foundry.storage.local import ObjectStore
@@ -113,7 +113,7 @@ def inspect_intake(
     manifest_bytes: bytes,
     policy_bytes: bytes,
     profile: ProfileDescriptor,
-    metadata_binding: TechnicalMetadataBinding,
+    metadata_binding: MetadataBinding,
     input_roots: Mapping[str, Path],
     limits_by_schema: Mapping[str, ContractLimits],
     checked_at: Instant,

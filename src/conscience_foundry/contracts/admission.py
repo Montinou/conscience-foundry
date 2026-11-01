@@ -31,10 +31,10 @@ from conscience_foundry.contracts.common import (
     safe_object_key,
 )
 from conscience_foundry.contracts.project import (
+    MetadataBinding,
     PolicyArtifact,
     ProfileDescriptor,
     ProjectConfig,
-    TechnicalMetadataBinding,
 )
 
 
@@ -128,7 +128,7 @@ class IntakeManifest(WireModel):
         project: ProjectConfig,
         profile: ProfileDescriptor,
         policy: PolicyArtifact,
-        metadata_binding: TechnicalMetadataBinding,
+        metadata_binding: MetadataBinding,
     ) -> None:
         """Apply an explicitly supplied trusted allowlisted profile and current policy."""
         if (
@@ -146,8 +146,6 @@ class IntakeManifest(WireModel):
             )
         ):
             raise ContractError("invalid_schema")
-        if profile.profile_id != "technical_minimal":
-            raise ContractError("unsupported_schema")
         policy_sources = {source.source_id for source in policy.sources}
         if any(item.source_id not in policy_sources for item in self.items):
             raise ContractError("forbidden")

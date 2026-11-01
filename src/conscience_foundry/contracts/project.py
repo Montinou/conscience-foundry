@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Protocol, Self
 
 from pydantic import BeforeValidator, Field, ValidationError, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -17,6 +17,7 @@ from conscience_foundry.contracts.common import (
     Version,
     WireModel,
 )
+from conscience_foundry.intake.metadata_schema import MetadataSchema
 
 NonemptyString = Annotated[ScalarString, Field(min_length=1)]
 Permission = Literal["allow", "deny", "unknown"]
@@ -155,6 +156,21 @@ class TechnicalMetadata(WireModel):
     )
 
 
+class MetadataBinding(Protocol):
+    """A trusted pin of one metadata validator; the profile only names the schema it expects."""
+
+    def validate(self, schema_ref: Ref, metadata: dict[str, object]) -> None: ...
+
+
+def _same_schema_pin(actual: Ref, expected: Ref) -> bool:
+    return (actual.project_id, actual.artifact_schema, actual.digest, actual.size_bytes) == (
+        expected.project_id,
+        expected.artifact_schema,
+        expected.digest,
+        expected.size_bytes,
+    )
+
+
 @dataclass(frozen=True)
 class TechnicalMetadataBinding:
     """Trusted registry pin for the static technical validator, never wire input.
@@ -167,20 +183,26 @@ class TechnicalMetadataBinding:
     expected_schema_ref: Ref
 
     def validate(self, schema_ref: Ref, metadata: dict[str, object]) -> None:
-        expected = self.expected_schema_ref
-        if (
-            schema_ref.project_id,
-            schema_ref.artifact_schema,
-            schema_ref.digest,
-            schema_ref.size_bytes,
-        ) != (
-            expected.project_id,
-            expected.artifact_schema,
-            expected.digest,
-            expected.size_bytes,
-        ):
+        if not _same_schema_pin(schema_ref, self.expected_schema_ref):
             raise ContractError("unsupported_schema")
         try:
             TechnicalMetadata.model_validate(metadata)
         except ValidationError:
             raise ContractError("invalid_schema") from None
+
+
+@dataclass(frozen=True)
+class ProfileMetadataBinding:
+    """Trusted pin of an operator-supplied metadata schema document, never wire input.
+
+    The caller verifies the document bytes against `expected_schema_ref` before parsing it, so the
+    profile descriptor can only select this binding by naming exactly the pinned schema.
+    """
+
+    expected_schema_ref: Ref
+    schema: MetadataSchema
+
+    def validate(self, schema_ref: Ref, metadata: dict[str, object]) -> None:
+        if not _same_schema_pin(schema_ref, self.expected_schema_ref):
+            raise ContractError("unsupported_schema")
+        self.schema.validate(metadata)

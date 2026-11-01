@@ -175,6 +175,7 @@ SOURCE_A = "00000000-0000-0000-0000-000000000005"
 SOURCE_B = "00000000-0000-0000-0000-000000000008"
 ASSET_B = "00000000-0000-0000-0000-000000000009"
 SERVICES = TrustedServices(clock=lambda: TIME)
+RENAMED_BATCH = "00000000-0000-0000-0000-0000000000b1"
 
 
 def synthetic_id(index: int) -> str:
@@ -1275,10 +1276,13 @@ def a16(h: Harness) -> None:
     )
     assert json.loads(done.stdout) == {"attempted": [], "loaded": []}
 
-    # 2. A consumer-shaped profile is refused at admission; the technical profile still works.
+    # 2. Admission binds the profile's own pinned metadata schema, never a profile name: a
+    #    consumer-shaped profile pinning neither the technical schema nor a configured schema file
+    #    is refused with nothing registered; the technical schema still admits, whatever the name.
     env, root, policy_ref = admission_environment(h)
     good = b"generic synthetic bytes"
     (root / "a.txt").write_bytes(good)
+    (root / "b.txt").write_bytes(good)
     items = [(ASSET, SOURCE_A, "a.txt", good)]
     mismatch = env.input("m.json", intake_document(policy_ref, BATCH, items, "agora_eve"))
     refused = env.invoke("admit", "--manifest", mismatch, "--execute", services=SERVICES)
@@ -1288,10 +1292,25 @@ def a16(h: Harness) -> None:
         path = env.private / name
         originals[path] = path.read_text()
         path.write_text(originals[path].replace("technical_minimal", "agora_eve"))
+    profile_path = env.private / "profile.json"
+    renamed = originals[profile_path].replace("technical_minimal", "agora_eve")
+    foreign = json.loads(renamed)
+    foreign["metadataSchemaRef"]["digest"] = hashlib.sha256(b"unrelated schema").hexdigest()
+    foreign["metadataSchemaRef"]["sizeBytes"] = len(b"unrelated schema")
+    profile_path.write_text(json.dumps(foreign))
     consistent = env.input("c.json", intake_document(policy_ref, BATCH, items, "agora_eve"))
     unsupported = env.invoke("admit", "--manifest", consistent, "--execute", services=SERVICES)
     assert unsupported.exit == 3 and unsupported.code == "unsupported_schema", unsupported.raw
     assert table_rows(h.ledger, "admission_reports") == 0  # nothing was registered
+    # The same renamed profile still pinning the technical schema is admitted (profile.json
+    # restored to the renamed original): the name carries no meaning.
+    profile_path.write_text(renamed)
+    renamed_items = [(ASSET_B, SOURCE_B, "b.txt", good)]
+    renamed_doc = env.input(
+        "r.json", intake_document(policy_ref, RENAMED_BATCH, renamed_items, "agora_eve")
+    )
+    renamed_ok = env.invoke("admit", "--manifest", renamed_doc, "--execute", services=SERVICES)
+    assert renamed_ok.exit == 0, renamed_ok.raw
     for path, text in originals.items():
         path.write_text(text)
     generic = env.input("g.json", intake_document(policy_ref, BATCH, items))
@@ -1317,7 +1336,7 @@ def a16(h: Harness) -> None:
         assert sum(lib.value.count(table) for table in base.CONSUMER_TABLES) == 0
     h.note(
         package_import_without_consumers=True,
-        agora_profile=f"{refused.code}+{unsupported.code}",
+        agora_profile=f"{refused.code}+{unsupported.code}+renamed_technical_admitted",
         unknown_bridge="unsupported_capability",
         consumer_receipts=consumer_rows,
     )

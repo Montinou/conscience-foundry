@@ -312,6 +312,9 @@ class AdmissionSettings(WireModel):
     project_config_path: AbsolutePath
     profile_path: AbsolutePath
     contract_set_path: AbsolutePath
+    profile_metadata_schema_path: AbsolutePath | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     input_roots: Annotated[tuple[InputRoot, ...], BeforeValidator(_array), Field(min_length=1)]
 
     @model_validator(mode="after")

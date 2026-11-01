@@ -25,6 +25,7 @@ from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
 from conscience_foundry.cli import live
 from conscience_foundry.cli.config import (
+    AdmissionSettings,
     R2StoreSettings,
     Runtime,
     TrustedServices,
@@ -52,7 +53,13 @@ from conscience_foundry.contracts.common import (
     WireModel,
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, RunAuthorization, StageAttempt
-from conscience_foundry.contracts.project import PolicyArtifact, ProfileDescriptor, ProjectConfig
+from conscience_foundry.contracts.project import (
+    MetadataBinding,
+    PolicyArtifact,
+    ProfileDescriptor,
+    ProfileMetadataBinding,
+    ProjectConfig,
+)
 from conscience_foundry.contracts.registry import (
     SCHEMA_MODELS,
     ContractSet,
@@ -79,6 +86,7 @@ from conscience_foundry.execution.evidence import (
     source_asset,
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
+from conscience_foundry.intake.metadata_schema import MetadataSchema
 from conscience_foundry.ledger.attempts import load_attempt
 from conscience_foundry.ledger.budget import (
     apply_budget_event,
@@ -293,6 +301,36 @@ def _admit_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--manifest", required=True, help="intake manifest document")
 
 
+def _metadata_binding(
+    rt: Runtime, settings: AdmissionSettings, profile: ProfileDescriptor, bundle: ContractSet
+) -> MetadataBinding:
+    """Pick the trusted validator: the built-in technical one, or the configured schema file.
+
+    A profile that pins the technical schema gets the technical binding, whether or not a schema
+    file is configured (the file is not read). Any other pin is refused as `unsupported_schema`
+    without a configured file; with one, the profile must pin that file's exact bytes.
+    """
+    technical = technical_metadata_binding(
+        bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
+    )
+    pinned = profile.metadata_schema_ref
+    expected = technical.expected_schema_ref
+    if (pinned.project_id, pinned.artifact_schema, pinned.digest, pinned.size_bytes) == (
+        expected.project_id,
+        expected.artifact_schema,
+        expected.digest,
+        expected.size_bytes,
+    ) or settings.profile_metadata_schema_path is None:
+        return technical
+    limit = rt.limit("cf.metadata-schema.v1")
+    data = read_trusted(settings.profile_metadata_schema_path, limit.max_json_bytes)
+    if hashlib.sha256(data).hexdigest() != pinned.digest or len(data) != pinned.size_bytes:
+        raise ContractError("hash_mismatch")
+    if pinned.artifact_schema != "cf.metadata-schema.v1":
+        raise ContractError("unsupported_schema")
+    return ProfileMetadataBinding(pinned, MetadataSchema.parse(data, limit))
+
+
 def _admit(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     settings = rt.config.admission
@@ -313,9 +351,7 @@ def _admit(inv: Invocation) -> Outcome:
         read_trusted(settings.contract_set_path, rt.limit("cf.contract-set.v1").max_json_bytes),
         rt.limit("cf.contract-set.v1"),
     )
-    binding = technical_metadata_binding(
-        bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
-    )
+    binding = _metadata_binding(rt, settings, profile, bundle)
     policy_bytes = rt.read_policy_bytes()
     policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("cf.policy.v1"))
     store = rt.store
