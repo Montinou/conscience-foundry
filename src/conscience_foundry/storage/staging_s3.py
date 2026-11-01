@@ -51,7 +51,7 @@ from conscience_foundry.contracts.common import (
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.execution.ports import TransportGrants
 from conscience_foundry.policy.access import AccessContext
-from conscience_foundry.storage.local import VerifiedBytes
+from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 from conscience_foundry.storage.locator import Authorizer
 
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -280,6 +280,7 @@ class S3StagingStore:
     credential_issuer: CredentialIssuer | None = field(default=None, repr=False)
     attempt_id: Id | None = None
     declared_inputs: frozenset[str] = field(default=frozenset(), repr=False)
+    read_scope: tuple[Id, Id] | None = field(default=None, repr=False)
     _unresolved: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -324,6 +325,59 @@ class S3StagingStore:
             declared_inputs=frozenset(self._key(ref) for ref in readable_refs(plan)),
         )
 
+    def attempt_reader(self, project_id: Id, attempt_id: Id) -> S3StagingStore:
+        """A read-only view of one attempt's prefix: it reads nothing outside it, writes nothing."""
+        _label(project_id, _LABEL)
+        _label(attempt_id, _LABEL)
+        return replace(
+            self,
+            attempt_id=attempt_id,
+            declared_inputs=frozenset(),
+            read_scope=(project_id, attempt_id),
+        )
+
+    @property
+    def scope(self) -> tuple[Id, Id]:
+        """The (project, attempt) a reader is bound to; only an attempt reader has one."""
+        if self.read_scope is None:
+            raise ContractError("forbidden")
+        return self.read_scope
+
+    def _within_scope(self, key: str) -> None:
+        if self.read_scope is None:
+            return
+        prefix = _attempt_prefix(self.config.prefix, *self.read_scope)
+        if not key.startswith(prefix) or ".." in key.split("/"):
+            raise ContractError("forbidden")
+
+    def stage_inputs(
+        self, plan: ExecutionPlan, local: ObjectStore, context: AccessContext
+    ) -> tuple[Ref, ...]:
+        """Control side: put every object the worker reads at its shared key, once.
+
+        Each shared key is looked at first. An object already there is verified by
+        read-back and never written again; a missing one goes through the normal
+        ``put_verified`` path (authorization, storage reservation, conditional create,
+        write-time verification). An unproven result stops staging as ``dispatch_unknown``.
+        """
+        if type(plan) is not ExecutionPlan or self.attempt_id is not None:
+            raise ContractError("forbidden")
+        refs = readable_refs(plan)
+        for ref in refs:  # every bound is checked before the first remote request
+            self._check(ref, context, "write")
+        for ref in refs:
+            self._reserved(ref, context)  # a head and a read-back are billable requests too
+            key = self._key(ref)
+            state = self._reconcile_key(ref, key)
+            if state == "unknown":
+                raise ContractError("dispatch_unknown")
+            if state == "present":
+                self._unresolved.discard(key)
+                continue
+            with local.open_verified(ref, context) as stream:
+                self.put_verified(stream, ref, context)
+        return refs
+
     def _check(self, ref: Ref, context: AccessContext, effect: str) -> None:
         if type(ref) is not Ref or type(context) is not AccessContext:
             raise ContractError("forbidden")
@@ -365,7 +419,8 @@ class S3StagingStore:
         The attested scope check stays with the control-side evidence authority.
         """
         if (
-            type(plan) is not ExecutionPlan
+            self.read_scope is not None  # an attempt reader is read-only: it mints nothing
+            or type(plan) is not ExecutionPlan
             or type(attempt) is not StageAttempt
             or type(context) is not AccessContext
         ):
@@ -441,6 +496,8 @@ class S3StagingStore:
     # -- writes ---------------------------------------------------------------------
 
     def put_verified(self, stream: BinaryIO, expected: Ref, context: AccessContext) -> Ref:
+        if self.read_scope is not None:
+            raise ContractError("forbidden")
         self._check(expected, context, "write")
         self._reserved(expected, context)  # D05: reservation precedes any remote request
         data = _read_exact(
@@ -527,6 +584,7 @@ class S3StagingStore:
         return state
 
     def _reconcile_key(self, ref: Ref, key: str) -> Literal["present", "absent", "unknown"]:
+        self._within_scope(key)
         try:
             head = self.client.head_object(Bucket=self.config.bucket, Key=key)
         except Exception as error:
@@ -563,6 +621,7 @@ class S3StagingStore:
 
     def _download(self, ref: Ref, key: str) -> BinaryIO:
         """Ranged, bounded read that resumes from the verified offset a limited number of times."""
+        self._within_scope(key)
         chunk = self.config.transfer_chunk_bytes
         output = tempfile.TemporaryFile(mode="w+b")
         try:

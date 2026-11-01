@@ -25,6 +25,7 @@ from conscience_foundry.storage.staging_s3 import (
     CredentialRequest,
     S3StagingStore,
     StagingConfig,
+    readable_refs,
 )
 
 PROJECT = "00000000-0000-0000-0000-000000000001"
@@ -668,3 +669,205 @@ def test_staging_config_resolves_only_registered_destinations() -> None:
     ):
         with pytest.raises(ContractError):
             config(**bad)
+
+
+# -- attempt-scoped reader and input staging ---------------------------------------------
+
+
+OTHER_ATTEMPT = "00000000-0000-0000-0000-0000000000b3"
+
+
+class LocalDouble:
+    """Control-side local ObjectStore double: digest -> bytes, verified on open."""
+
+    def __init__(self, blobs: Mapping[str, bytes]) -> None:
+        self.blobs = dict(blobs)
+        self.opened: list[str] = []
+
+    def put_verified(self, stream: Any, expected: ArtifactRef, context: AccessContext) -> Any:
+        raise AssertionError("staging never writes to the local store")
+
+    def open_verified(self, ref: ArtifactRef, context: AccessContext) -> io.BytesIO:
+        self.opened.append(ref.digest)
+        return io.BytesIO(self.blobs[ref.digest])
+
+    def read_verified(self, ref: ArtifactRef, context: AccessContext, limit: int) -> Any:
+        raise AssertionError("staging streams, it never reads whole objects")
+
+
+def staged_plan(sizes: tuple[int, ...] = (22, 30, 18, 12)) -> tuple[ExecutionPlan, LocalDouble]:
+    """A plan whose input, spec, report and limits refs are backed by real local bytes."""
+    names = ("input", "spec", "report", "limits")
+    blobs = {name: (name.encode() * 64)[:size] for name, size in zip(names, sizes, strict=True)}
+    refs = {name: ref_for(data).model_dump(by_alias=True) for name, data in blobs.items()}
+    payload = make_plan().model_dump(by_alias=True, exclude_none=True, mode="json")
+    payload["inputRefs"] = [refs["input"]]
+    payload["extractionSpecRef"] = refs["spec"]
+    payload["admissionReportRef"] = refs["report"]
+    payload["limitsRefs"] = [refs["limits"]]
+    plan = ExecutionPlan.model_validate(payload)
+    return plan, LocalDouble({ref_for(data).digest: data for data in blobs.values()})
+
+
+def shared_key(ref: ArtifactRef) -> str:
+    return f"staging/f1/{ref.project_id}/sha256/{ref.digest[:2]}/{ref.digest}"
+
+
+def test_attempt_reader_reads_only_its_prefix() -> None:
+    data = b"synthetic attempt output"
+    expected = ref_for(data)
+    client = FakeS3()
+    reader = make_store(client).attempt_reader(PROJECT, ATTEMPT_ID)
+    assert reader.scope == (PROJECT, ATTEMPT_ID)
+    prefix = f"staging/f1/{PROJECT}/attempts/{ATTEMPT_ID}/"
+    own = f"{prefix}sha256/{expected.digest[:2]}/{expected.digest}"
+    client.objects[own] = data
+    client.objects[shared_key(expected)] = b"shared bytes are not this attempt's"
+
+    # a read maps to the attempt's own key, never to the shared one
+    assert reader.read_verified(expected, CONTEXT, len(data)).data == data
+    assert {key for op, key in client.calls if op == "get"} == {own}
+
+    # a key under another attempt, or a shared key, is forbidden before any request
+    client.calls.clear()
+    other = own.replace(ATTEMPT_ID, OTHER_ATTEMPT)
+    for foreign in (other, shared_key(expected)):
+        with pytest.raises(ContractError) as refused:
+            reader._download(expected, foreign)
+        assert refused.value.code == "forbidden"
+    assert client.calls == []
+
+    # a ref of another project would map outside the scoped prefix
+    mine = make_store(client).attempt_reader(OTHER_PROJECT, ATTEMPT_ID)
+    with pytest.raises(ContractError) as wrong_project:
+        mine.read_verified(expected, CONTEXT, len(data))
+    assert wrong_project.value.code == "forbidden"
+    assert client.calls == []
+
+    # scope values are labels, never paths
+    for bad in ("../x", "a/b", ""):
+        with pytest.raises(ContractError):
+            make_store(client).attempt_reader(PROJECT, bad)
+        with pytest.raises(ContractError):
+            make_store(client).attempt_reader(bad, ATTEMPT_ID)
+
+
+def test_attempt_reader_is_read_only() -> None:
+    data = b"synthetic attempt output"
+    client = FakeS3()
+    reader = make_store(client).attempt_reader(PROJECT, ATTEMPT_ID)
+    with pytest.raises(ContractError) as refused:
+        reader.put_verified(io.BytesIO(data), ref_for(data), CONTEXT)
+    assert refused.value.code == "forbidden"
+    with pytest.raises(ContractError) as manifest:
+        reader.put_with_manifest([], (ref_for(data), io.BytesIO(data)), CONTEXT)
+    assert manifest.value.code == "forbidden"
+    plan = make_plan()
+    issued: list[CredentialRequest] = []
+
+    def issuer(request: CredentialRequest) -> tuple[bytes, ...]:
+        issued.append(request)
+        return (b"synthetic-material",)
+
+    granting = make_store(client, issuer=issuer).attempt_reader(PROJECT, ATTEMPT_ID)
+    with pytest.raises(ContractError) as grant:
+        granting.grant_transport(plan, make_attempt(plan), CONTEXT)
+    assert grant.value.code == "forbidden"
+    assert issued == []
+    assert client.calls == []
+    assert client.objects == {}
+
+
+def test_stage_inputs_uploads_exactly_readable_refs() -> None:
+    plan, local = staged_plan()
+    client = FakeS3()
+    staged = make_store(client).stage_inputs(plan, local, CONTEXT)
+    expected = readable_refs(plan)
+    assert staged == expected
+    assert set(client.objects) == {shared_key(ref) for ref in expected}
+    assert len(client.objects) == 4
+    for ref in expected:
+        assert client.objects[shared_key(ref)] == local.blobs[ref.digest]
+
+
+def test_stage_inputs_rerun_verifies_without_rewrite() -> None:
+    plan, local = staged_plan()
+    client = FakeS3()
+    store = make_store(client)
+    store.stage_inputs(plan, local, CONTEXT)
+    assert len(client.puts()) == 4
+    client.calls.clear()
+    assert store.stage_inputs(plan, local, CONTEXT) == readable_refs(plan)
+    assert client.puts() == []
+    assert [op for op, _ in client.calls].count("get") >= 4  # verified by read-back
+
+    # a present object with other bytes is a hash mismatch, never overwritten
+    victim = shared_key(readable_refs(plan)[0])
+    client.objects[victim] = b"Z" * len(client.objects[victim])
+    client.calls.clear()
+    with pytest.raises(ContractError) as mismatch:
+        store.stage_inputs(plan, local, CONTEXT)
+    assert mismatch.value.code == "hash_mismatch"
+    assert client.puts() == []
+
+
+def test_stage_inputs_ambiguous_write_is_dispatch_unknown() -> None:
+    class ReadbackDies(FakeS3):
+        def put_object(self, **kwargs: Any) -> Mapping[str, Any]:
+            try:
+                return super().put_object(**kwargs)
+            finally:
+                self.head_error = FakeClientError("InternalError", 500)
+                self.get_faults = [ConnectionError("a"), ConnectionError("b"), ConnectionError("c")]
+
+    plan, local = staged_plan()
+    client = ReadbackDies()
+    client.lose_put_response = True
+    store = make_store(client)
+    with pytest.raises(ContractError) as unknown:
+        store.stage_inputs(plan, local, CONTEXT)
+    assert unknown.value.code == "dispatch_unknown"
+    assert len(client.puts()) == 1  # stops at the first unproven write; no blind retry
+    # the unproven key stays blocked in this store until reconciled
+    client.head_error = None
+    with pytest.raises(ContractError) as blocked:
+        store.stage_inputs(plan, local, CONTEXT)
+    assert blocked.value.code == "dispatch_unknown"
+    assert len(client.puts()) == 1
+
+
+def test_stage_inputs_unknown_head_is_not_missing() -> None:
+    plan, local = staged_plan()
+    client = FakeS3()
+    client.head_error = FakeClientError("InternalError", 500)
+    with pytest.raises(ContractError) as unknown:
+        make_store(client).stage_inputs(plan, local, CONTEXT)
+    assert unknown.value.code == "dispatch_unknown"
+    assert client.puts() == []
+
+
+def test_stage_inputs_refuses_oversize_before_upload() -> None:
+    plan, local = staged_plan(sizes=(22, 30, 18, 200))  # the last readable ref is oversize
+    client = FakeS3()
+    with pytest.raises(ContractError) as large:
+        make_store(client, max_object_bytes=64).stage_inputs(plan, local, CONTEXT)
+    assert large.value.code == "limit_exceeded"
+    assert client.calls == []
+    assert local.opened == []
+
+
+def test_stage_inputs_keeps_the_reservation_and_attempt_boundaries() -> None:
+    plan, local = staged_plan()
+    client = FakeS3()
+    with pytest.raises(ContractError) as unreserved:
+        make_store(client, reserved=lambda _r, _c: False).stage_inputs(plan, local, CONTEXT)
+    assert unreserved.value.code == "forbidden"
+    assert client.calls == []
+
+    # only the unbound control side stages; an attempt view or reader never does
+    store = make_store(client)
+    for bound in (store.scoped_to(plan, ATTEMPT_ID), store.attempt_reader(PROJECT, ATTEMPT_ID)):
+        with pytest.raises(ContractError) as refused:
+            bound.stage_inputs(plan, local, CONTEXT)
+        assert refused.value.code == "forbidden"
+    assert client.calls == []
