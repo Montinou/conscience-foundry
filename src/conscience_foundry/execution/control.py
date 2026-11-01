@@ -868,6 +868,30 @@ def _resume_grants(tx: LedgerTxn, project: Id, run: Id | None, control: ControlC
             raise ContractError("authorization_expired")
 
 
+DEADLINE_REASON = "limit_exceeded"
+"""The only reason code a deadline cancel or unknown mark may carry."""
+
+
+def _permission(
+    control: ControlContext, reason: Reason, deadline_token: object | None, deadline_action: str
+) -> str | None:
+    """The grant to check instead of the operator's, when the live session's token is held.
+
+    ``None`` means the ordinary action. A token is a capability held by identity: it must be the
+    very object the control context carries (never ``None`` against ``None``), and it only
+    stands for a deadline, so the reason must say so.
+    """
+    if deadline_token is None:
+        return None
+    if (
+        control.deadline_token is None
+        or deadline_token is not control.deadline_token
+        or reason.code != DEADLINE_REASON
+    ):
+        raise ContractError("forbidden")
+    return deadline_action
+
+
 def cancel_attempt(
     attempt_id: Id,
     ledger: Ledger,
@@ -876,8 +900,16 @@ def cancel_attempt(
     control: ControlContext,
     reason: Reason,
     evidence_ref: Ref,
+    deadline_token: object | None = None,
 ) -> StageAttempt:
+    """Request cancellation of an attempt's remote call; the provider alone settles it.
+
+    Without ``deadline_token`` the operator's ``cancel_attempt`` grant is checked. With the live
+    session's token (and ``limit_exceeded``) the ``deadline_cancel`` grant is checked instead, so
+    the reconcile step can cancel a call at its deadline and nothing else.
+    """
     reason = checked_reason(reason, control)
+    permission = _permission(control, reason, deadline_token, "deadline_cancel")
     with ledger.transaction() as tx:
         attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
         tx.lock(attempt.project_id, run, attempt.operation_key)
@@ -902,6 +934,7 @@ def cancel_attempt(
             attempt=attempt_id,
             authorization_ref=auth_ref,
             plan_ref=plan_ref,
+            permission=permission,
         )
         if attempt.state in TERMINAL:
             return attempt
@@ -936,14 +969,19 @@ def mark_unknown_outcome(
     control: ControlContext,
     reason: Reason,
     evidence_ref: Ref,
+    deadline_token: object | None = None,
 ) -> StageAttempt:
     """Evidenced resolution of a stale claim: dispatching/running -> unknown_outcome.
 
     A crash after provider acceptance strands `dispatching` with no remote id. This is the
     only way out besides reconciliation; it asserts uncertainty, never absence of effect,
     so the reservation keeps its funds and the manual-retry gate still applies.
+
+    With the live session's ``deadline_token`` (and ``limit_exceeded``) the ``deadline_unknown``
+    grant is checked instead of ``mark_unknown_outcome``, which no CLI command holds.
     """
     reason = checked_reason(reason, control)
+    permission = _permission(control, reason, deadline_token, "deadline_unknown")
     with ledger.transaction() as tx:
         attempt, run, plan_ref, auth_ref = _load(tx, attempt_id, control)
         tx.lock(attempt.project_id, run, attempt.operation_key)
@@ -968,6 +1006,7 @@ def mark_unknown_outcome(
             attempt=attempt_id,
             authorization_ref=auth_ref,
             plan_ref=plan_ref,
+            permission=permission,
         )
         if attempt.state == "unknown_outcome":
             return attempt

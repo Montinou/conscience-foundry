@@ -97,11 +97,15 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
 # Library control actions (including budget-evidence purposes) and the only CLI commands whose
 # grant may perform them. Cancellation observes and settles through the reconcile path, so it may
 # perform those internal actions; `record-billing` alone adds the final settlement of an attempt
-# from the operator's billing document. Nothing else is reachable: corrections to a recorded
-# settlement, manual unknown-outcome marks, budget reconciliation and control reads still have
-# no CLI command, so no grant can authorize them.
+# from the operator's billing document. `deadline_cancel` and `deadline_unknown` are the live
+# session's own cancel and unknown mark at its deadline: the library checks them only for a caller
+# holding the session's private deadline token, and only the commands that run the live attempt
+# (`dispatch` and `reconcile`) may perform them. Nothing else is reachable: corrections to a
+# recorded settlement, manual unknown-outcome marks, budget reconciliation and control reads
+# still have no CLI command, so no grant can authorize them.
 _SETTLEMENT = frozenset({"reconcile", "cancel"})
 _BILLING = _SETTLEMENT | {"record-billing"}
+_DEADLINE = frozenset({"dispatch", "reconcile"})
 ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "install_run_authorization": frozenset({"authorize-run"}),
@@ -117,6 +121,8 @@ ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
         "release_unspent": _SETTLEMENT,
         "final_no_effect": _SETTLEMENT,
         "cancel_attempt": frozenset({"cancel"}),
+        "deadline_cancel": _DEADLINE,
+        "deadline_unknown": _DEADLINE,
         "pause": frozenset({"pause"}),
         "resume": frozenset({"resume"}),
     }

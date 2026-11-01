@@ -308,8 +308,15 @@ def control_facts(
     authorization_ref: Ref | None = None,
     plan_ref: Ref | None = None,
     snapshot: str | None = None,
+    permission: str | None = None,
 ) -> ControlFacts:
-    authorize(control, action, control.access.project_id, run)
+    """Authenticated facts for one control action.
+
+    ``permission`` is the action name the grant is checked under when it differs from ``action``,
+    which is what the evidence and the decision record carry (the deadline cancel is a
+    ``cancel_attempt`` on the record but a ``deadline_cancel`` to the grant).
+    """
+    authorize(control, permission or action, control.access.project_id, run)
     raw, _ = read_artifact(evidence_ref, control, evidence=True)
     binding = EvidenceBinding(
         evidence_ref.digest,

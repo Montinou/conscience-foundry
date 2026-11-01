@@ -294,6 +294,8 @@ class ControlContext:
     """Puts every object the worker reads at its staging key, before any grant is minted."""
     project_max_live_attempts: int | None = None
     """Project-wide cap on non-terminal attempts, unknown outcomes included; None is no cap."""
+    deadline_token: object | None = field(default=None, repr=False)
+    """The live session's private deadline token, matched by identity; None means there is none."""
 
 
 @dataclass(frozen=True)

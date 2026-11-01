@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -2193,6 +2194,22 @@ class PendingModal:
         self.cancelled.append(call_id)
 
 
+class AttemptView:
+    """The case store seen as one attempt's staging prefix: nothing has claimed the attempt."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def lease_present(self) -> bool:
+        return False
+
+    def result_pointer(self) -> Ref | None:
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+
 def modal_over(c: Case, sdk: PendingModal) -> Any:
     """The real ModalExecutor over the case store, with a test authority that echoes its record."""
     from conscience_foundry.execution.capabilities import CapabilityRecord
@@ -2262,7 +2279,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
         ),
         record=record,
         execution_config_digest=c.plan.execution_config_ref.digest,
-        reader_for=lambda _project, _attempt: c.store,
+        reader_for=lambda _project, _attempt: AttemptView(c.store),
         access=c.access,
         limits=c.bound,
         clock=lambda: TIME,
@@ -2323,9 +2340,7 @@ class Issuer:
         self.seen: list[tuple[Any, list[tuple[str, str, str | None]], int]] = []
 
     def __call__(self, attempt: Any) -> TransportGrants:
-        claims = count_of(
-            self.ledger, "dispatch_claims", "attempt_id=%s", (attempt.attempt_id,)
-        )
+        claims = count_of(self.ledger, "dispatch_claims", "attempt_id=%s", (attempt.attempt_id,))
         self.seen.append((attempt, attempts_of(self.ledger), claims))
         if self.fail:
             raise RuntimeError("synthetic issuer outage")
@@ -2423,3 +2438,185 @@ def test_a_noncanonical_stored_plan_is_refused_before_any_reservation(
         dispatch_with(c, ledger, executor, Issuer(c, ledger))
     assert refused.value.code == "invalid_schema"
     assert executor.calls == 0 and attempts_of(ledger) == []
+
+
+# --- Deadline cancel: the live session's token, not the operator's cancel command --------------
+
+
+def authorize_as(command: str) -> Any:
+    """The CLI's rule: an action is allowed only to the commands ``ACTION_COMMANDS`` names."""
+    from conscience_foundry.cli.config import ACTION_COMMANDS
+
+    def authorize(action: str, project: str, run: str | None, actor: str) -> bool:
+        return (
+            project == PROJECT
+            and actor == ACTOR
+            and command in ACTION_COMMANDS.get(action, frozenset())
+        )
+
+    return authorize
+
+
+DEADLINE = Reason(code="limit_exceeded", message="synthetic deadline")
+
+
+class Unreachable(Executor):
+    """An executor whose cancel request cannot be delivered, so the request stays on record."""
+
+    def __init__(self, case: Case) -> None:
+        super().__init__(case)
+        self.cancels = 0
+
+    def cancel(self, attempt: Any) -> Observation:
+        self.cancels += 1
+        raise TimeoutError
+
+
+def test_deadline_cancel_goes_through_cancel_requested(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.execution.control import cancel_attempt
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    assert attempt.state == "running"
+    before = count_of(ledger, "attempt_observations", "attempt_id=%s", (attempt.attempt_id,))
+    token = object()
+    reconciling = replace(c.control, authorize=authorize_as("reconcile"), deadline_token=token)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+
+    requested = cancel_attempt(
+        attempt.attempt_id,
+        ledger,
+        executor,
+        control=reconciling,
+        reason=DEADLINE,
+        evidence_ref=command,
+        deadline_token=token,
+    )
+
+    assert requested.state == "cancel_requested"
+    assert executor.cancels == 1
+    # the cancel is only a request: the attempt is not terminal and keeps its funds
+    assert attempts_of(ledger)[0][1] == "cancel_requested"
+    assert count_of(ledger, "attempt_observations", "attempt_id=%s", (attempt.attempt_id,)) == (
+        before
+    )
+    assert requested.finished_at is None
+    # only the provider reporting the call cancelled settles it, through reconcile as before
+    observed = c.proof()
+    executor.next = Observation("cancelled", None, None, observed)
+    c.authority.observations[observed.digest] = (
+        requested.remote_call_id,
+        "cancelled",
+        None,
+        False,
+        True,
+    )
+    assert reconcile(attempt.attempt_id, ledger, executor, c.store, control=c.control) is None
+    assert attempts_of(ledger)[0][1] == "cancelled"
+
+
+def test_reconcile_cannot_cancel_without_deadline_token(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.execution.control import cancel_attempt, mark_unknown_outcome
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    before = count_of(ledger, "attempt_observations")
+    token = object()
+    reconciling = replace(c.control, authorize=authorize_as("reconcile"), deadline_token=token)
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+    marking = c.proof()
+    c.authority.controls[marking.digest] = ("mark_unknown_outcome", None, (), False, False)
+
+    def cancel(control: Any, **extra: Any) -> Any:
+        return cancel_attempt(
+            attempt.attempt_id,
+            ledger,
+            executor,
+            control=control,
+            reason=extra.pop("reason", DEADLINE),
+            evidence_ref=command,
+            **extra,
+        )
+
+    def mark(control: Any, **extra: Any) -> Any:
+        return mark_unknown_outcome(
+            attempt.attempt_id,
+            ledger,
+            control=control,
+            reason=extra.pop("reason", DEADLINE),
+            evidence_ref=marking,
+            **extra,
+        )
+
+    refusals: list[Callable[[], Any]] = [
+        # no token: the ordinary action check, which the reconcile command does not pass
+        lambda: cancel(reconciling),
+        lambda: mark(reconciling),
+        # a forged token fails the identity check, however it is built
+        lambda: cancel(reconciling, deadline_token=object()),
+        lambda: mark(reconciling, deadline_token=object()),
+        lambda: cancel(reconciling, deadline_token=str(token)),
+        # the right token for another reason is no deadline
+        lambda: cancel(
+            reconciling,
+            deadline_token=token,
+            reason=Reason(code="unavailable", message="synthetic"),
+        ),
+        lambda: mark(
+            reconciling,
+            deadline_token=token,
+            reason=Reason(code="unavailable", message="synthetic"),
+        ),
+        # a control context with no token at all can never be matched, not even by None
+        lambda: cancel(replace(reconciling, deadline_token=None), deadline_token=object()),
+        # the operator's cancel command is not the deadline path either
+        lambda: cancel(
+            replace(reconciling, authorize=authorize_as("cancel")), deadline_token=token
+        ),
+    ]
+    for refused in refusals:
+        with pytest.raises(ContractError) as error:
+            refused()
+        assert error.value.code == "forbidden"
+    assert attempts_of(ledger)[0][1] == "running" and executor.cancels == 0
+    assert count_of(ledger, "attempt_observations") == before
+
+    # the same token under the same command is what makes the deadline marks possible
+    marked = mark(reconciling, deadline_token=token)
+    assert marked.state == "unknown_outcome"
+    assert attempts_of(ledger)[0][1] == "unknown_outcome"
+
+
+def test_operator_cancel_still_works_without_token(ledger: Ledger, tmp_path: Path) -> None:
+    from conscience_foundry.cli.config import ACTION_COMMANDS
+    from conscience_foundry.execution.control import cancel_attempt
+
+    assert ACTION_COMMANDS["cancel_attempt"] == frozenset({"cancel"})
+    assert ACTION_COMMANDS["deadline_cancel"] == frozenset({"dispatch", "reconcile"})
+    assert ACTION_COMMANDS["deadline_unknown"] == frozenset({"dispatch", "reconcile"})
+
+    c = Case(tmp_path)
+    c.setup(ledger)
+    executor = Unreachable(c)
+    attempt = c.dispatch(ledger, executor)
+    operator = replace(c.control, authorize=authorize_as("cancel"), deadline_token=object())
+    command = c.proof()
+    c.authority.controls[command.digest] = ("cancel_attempt", None, (), False, False)
+
+    requested = cancel_attempt(
+        attempt.attempt_id,
+        ledger,
+        executor,
+        control=operator,
+        reason=Reason(code="unavailable", message="synthetic operator cancellation"),
+        evidence_ref=command,
+    )
+
+    assert requested.state == "cancel_requested" and executor.cancels == 1
+    assert attempts_of(ledger)[0][1] == "cancel_requested"

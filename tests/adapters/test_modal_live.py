@@ -32,17 +32,24 @@ from test_modal import (
     START,
     FakeModal,
     StepClock,
+    build,
     make_executor,
+    make_ref,
+    running,
 )
 from test_staging_s3 import BUCKET, FakeS3
 
-from conscience_foundry.contracts.common import ContractError, Instant
+from conscience_foundry.contracts.common import ArtifactRef, ContractError, Instant
 from conscience_foundry.execution import modal_live
-from conscience_foundry.execution.modal_adapter import ModalPoll
+from conscience_foundry.execution.capabilities import CapabilityRecord, validate_capabilities
+from conscience_foundry.execution.modal_adapter import ModalPin, ModalPoll
 from conscience_foundry.execution.modal_live import (
+    DUPLICATE,
     CallRecord,
+    DeadlineToken,
     LiveFunctionOptions,
     LiveModalSession,
+    capability_record_from_live,
     code_digest,
     container_entry,
     encode_payload,
@@ -1352,3 +1359,380 @@ def test_fake_matches_the_installed_modal_sdk() -> None:
     from modal import _functions
 
     assert "raise TimeoutError(" in inspect.getsource(_functions._Invocation.poll_function)
+
+
+# -- the capability record ----------------------------------------------------------------
+
+CODE_DIGEST = "c" * 64
+IMAGE_SPEC: dict[str, object] = {
+    "builder": "debian_slim",
+    "python_version": "3.12",
+    "requirements_sha256": "d" * 64,
+}
+
+
+def build_record(
+    scenario: Any, document: dict[str, Any] | None = None
+) -> tuple[CapabilityRecord, list[tuple[str, bytes]]]:
+    log: list[tuple[str, bytes]] = []
+
+    def sink(schema: str, data: bytes) -> ArtifactRef:
+        log.append((schema, data))
+        return make_ref(data, schema)
+
+    record = capability_record_from_live(
+        parse_live(document or settings_document()),
+        PROJECT,
+        scenario.plan.execution_config_ref,
+        "1.6.3",
+        IMAGE_SPEC,
+        CODE_DIGEST,
+        NOW,
+        sink,
+    )
+    return record, log
+
+
+def test_record_validates_against_plan() -> None:
+    scenario = build()
+    record, log = build_record(scenario)
+
+    validate_capabilities(record, scenario.plan)
+    canonical = json.dumps(IMAGE_SPEC, sort_keys=True, separators=(",", ":")).encode()
+    assert record.image_digest == hashlib.sha256(canonical).hexdigest()
+    assert (record.cpu_milli, record.memory_mib, record.gpu_count) == (1000, 512, 0)
+    assert (record.function_retries, record.platform_restart_bound) == (0, "bounded")
+    assert record.max_platform_restarts == 0
+    assert record.cancellation == "terminates_containers"
+    assert record.deadline_enforcement == "entry_and_every_bounded_step"
+    assert record.deployment_version == "ephemeral-" + CODE_DIGEST[:16]
+    assert (record.project_id, record.sdk_version, record.code_digest) == (
+        PROJECT,
+        "1.6.3",
+        CODE_DIGEST,
+    )
+    assert record.execution_config_ref == scenario.plan.execution_config_ref
+    assert (
+        record.scheduling_timeout_seconds,
+        record.startup_timeout_seconds,
+        record.execution_timeout_seconds,
+    ) == (120, 60, 300)
+    assert record.total_bound_seconds == 120 + 60 + 300 + 30
+    assert record.valid_until == "2030-01-01T01:00:00.000Z"  # now + capabilityValidSeconds
+
+    # three evidence records: the declared options, the restart semantics and the lease test
+    assert len(log) == 3 == len(record.source_evidence_refs)
+    assert [ref.digest for ref in record.source_evidence_refs] == [
+        hashlib.sha256(data).hexdigest() for _, data in log
+    ]
+    kinds = {json.loads(data)["kind"] for _, data in log}
+    assert kinds == {"declared_function_options", "restart_semantics", "lease_test"}
+    texts = [data.decode() for _, data in log]
+    assert any("test_lease.py::test_two_workers_one_executes" in text for text in texts)
+    assert not any(TOKEN_SECRET in text or "SYNTHETIC_PARENT" in text for text in texts)
+
+    # the executor accepts the built record for exactly the deployment it describes
+    pin = ModalPin(
+        "synthetic-app",
+        "synthetic-worker",
+        record.deployment_version,
+        record.image_digest,
+        CODE_DIGEST,
+        "1.6.3",
+        DESTINATION,
+    )
+    sdk = FakeModal()
+    executor = make_executor(scenario, sdk, record=record, pin=pin)
+    assert executor.submit(scenario.plan, scenario.attempt, scenario.grants).remote_call_id
+    # the record is built from the image and code it names: another spec is another digest
+    other, _ = build_record(scenario)
+    assert other == record
+    assert (
+        capability_record_from_live(
+            parse_live(settings_document()),
+            PROJECT,
+            scenario.plan.execution_config_ref,
+            "1.6.3",
+            IMAGE_SPEC | {"python_version": "3.13"},
+            CODE_DIGEST,
+            NOW,
+            lambda schema, data: make_ref(data, schema),
+        ).image_digest
+        != record.image_digest
+    )
+
+
+def test_record_refuses_unusable_inputs() -> None:
+    scenario = build()
+    config = parse_live(settings_document())
+    ref = scenario.plan.execution_config_ref
+
+    def sink(schema: str, data: bytes) -> ArtifactRef:
+        return make_ref(data, schema)
+
+    def broken(_schema: str, _data: bytes) -> ArtifactRef:
+        raise OSError(SDK_SECRET)
+
+    with pytest.raises(ContractError) as outage:
+        capability_record_from_live(
+            config, PROJECT, ref, "1.6.3", IMAGE_SPEC, CODE_DIGEST, NOW, broken
+        )
+    assert outage.value.code == "unavailable" and SDK_SECRET not in str(outage.value)
+    with pytest.raises(ContractError) as untyped:
+        capability_record_from_live(
+            config,
+            PROJECT,
+            ref,
+            "1.6.3",
+            IMAGE_SPEC,
+            CODE_DIGEST,
+            NOW,
+            lambda *_: b"x",  # type: ignore[arg-type]
+        )
+    assert untyped.value.code == "unavailable"
+    for bad_digest in ("short", "C" * 64):
+        with pytest.raises(ContractError) as invalid:
+            capability_record_from_live(
+                config, PROJECT, ref, "1.6.3", IMAGE_SPEC, bad_digest, NOW, sink
+            )
+        assert invalid.value.code == "invalid_schema"
+    with pytest.raises(ContractError):
+        capability_record_from_live(
+            config, PROJECT, ref, "1.6.3", IMAGE_SPEC, CODE_DIGEST, "soon", sink
+        )
+
+
+def test_record_rejected_when_total_exceeds_max_wall() -> None:
+    # the record's total (scheduling + startup + execution + cancel margin) is 510 s
+    fits = build(resources={"max_wall_seconds": 510})
+    record, _ = build_record(fits)
+    assert record.total_bound_seconds == 510
+    validate_capabilities(record, fits.plan)
+
+    tight = build(resources={"max_wall_seconds": 509})
+    with pytest.raises(ContractError) as over:
+        validate_capabilities(record, tight.plan)
+    assert over.value.code == "limit_exceeded"
+    sdk = FakeModal()
+    pin = ModalPin(
+        "synthetic-app",
+        "synthetic-worker",
+        record.deployment_version,
+        record.image_digest,
+        CODE_DIGEST,
+        "1.6.3",
+        DESTINATION,
+    )
+    executor = make_executor(tight, sdk, record=record, pin=pin)
+    with pytest.raises(ContractError) as refused:
+        executor.submit(tight.plan, tight.attempt, tight.grants)
+    assert refused.value.code == "limit_exceeded"
+    assert sdk.spawned == []
+
+
+def test_restart_gate_closes_for_built_record() -> None:
+    scenario = build()
+    record, _ = build_record(scenario)
+    validate_capabilities(record, scenario.plan)
+
+    def changed(**changes: Any) -> CapabilityRecord:
+        value = record.model_dump(exclude_none=True) | changes
+        return CapabilityRecord.model_validate(value)
+
+    # one platform restart repeats startup and execution: the built total no longer covers it
+    with pytest.raises(ContractError) as restarts:
+        validate_capabilities(changed(max_platform_restarts=1), scenario.plan)
+    assert restarts.value.code == "unsupported_capability"
+    # without an evidenced bound the gate stays shut
+    for unproven in ("unknown", "unbounded"):
+        value = record.model_dump(exclude_none=True) | {"platform_restart_bound": unproven}
+        value.pop("max_platform_restarts")
+        with pytest.raises(ContractError) as blocked:
+            validate_capabilities(CapabilityRecord.model_validate(value), scenario.plan)
+        assert blocked.value.code == "unsupported_capability"
+    # the built record is the only shape the live path produces: no retries, no gpu
+    assert record.function_retries == 0 and record.gpu_count == 0
+    with pytest.raises(ContractError):
+        validate_capabilities(changed(function_retries=1), scenario.plan)
+
+
+# -- duplicate and remote error with a lease -----------------------------------------------
+
+
+def lease_executor(
+    reader: Any, *polls: ModalPoll | Exception, scenario: Any = None
+) -> tuple[Any, Any, list[tuple[str, bytes]]]:
+    case = scenario or build()
+    sdk = FakeModal()
+    sdk.polls = list(polls)
+    log: list[tuple[str, bytes]] = []
+    executor = make_executor(case, sdk, evidence=log, reader_for=lambda _p, _a: reader)
+    return executor, case, log
+
+
+def test_duplicate_maps_to_unknown_outcome() -> None:
+    case = staged()
+    assert case.worker().claim_lease(ATTEMPT, "nonce-a") == "won"
+    reader = case.control.attempt_reader(PROJECT, ATTEMPT)
+    # the container returned exactly {"duplicate": true}: it lost to a worker that holds the lease
+    assert DUPLICATE == json.dumps({"duplicate": True}).encode()
+    executor, scenario, log = lease_executor(
+        reader, ModalPoll("completed", DUPLICATE), scenario=case.scenario
+    )
+    observed = executor.observe(running(scenario))
+    assert (observed.state, observed.result_ref) == ("unknown_outcome", None)
+    assert json.loads(log[-1][1])["sdkState"] == "duplicate"
+
+    # a standing cancel stays on record; it is never settled by a duplicate
+    standing = replace_state(running(scenario), "cancel_requested")
+    executor, _, _ = lease_executor(
+        reader, ModalPoll("completed", DUPLICATE), scenario=case.scenario
+    )
+    assert executor.observe(standing).state == "cancel_requested"
+
+    # a duplicate whose lease cannot be seen is no more certain
+    bare = staged()
+    executor, scenario, _ = lease_executor(
+        bare.control.attempt_reader(PROJECT, ATTEMPT),
+        ModalPoll("completed", DUPLICATE),
+        scenario=bare.scenario,
+    )
+    assert executor.observe(running(scenario)).state == "unknown_outcome"
+
+    # only the exact sentinel is a duplicate: anything else stays an unverified result
+    for lookalike in (b'{"duplicate": 1}', b'{"duplicate": true, "x": 1}', b'["duplicate"]'):
+        executor, scenario, log = lease_executor(
+            reader, ModalPoll("completed", lookalike), scenario=case.scenario
+        )
+        assert executor.observe(running(scenario)).state == "unknown_outcome"
+        assert json.loads(log[-1][1])["sdkState"] == "result_unverified"
+
+    # a loser that found the winner's pointer returns the manifest Ref: mapped as in F1
+    decided = staged()
+    winner = decided.run(decided.worker(), "nonce-a")
+    assert isinstance(winner, ArtifactRef)
+    assert decided.run(decided.worker(), "nonce-b") == winner  # the loser found the pointer
+    wire = winner.model_dump_json(by_alias=True, exclude_none=True).encode()
+    executor, scenario, _ = lease_executor(
+        decided.control.attempt_reader(PROJECT, ATTEMPT),
+        ModalPoll("completed", wire),
+        scenario=decided.scenario,
+    )
+    done = executor.observe(running(scenario))
+    assert (done.state, done.result_ref) == ("succeeded", winner)
+
+
+def replace_state(attempt: Any, state: str) -> Any:
+    return type(attempt).model_validate(
+        attempt.model_dump(by_alias=True, exclude_none=True) | {"state": state}
+    )
+
+
+def test_remote_error_with_lease_is_unknown_not_failed() -> None:
+    case = staged()
+    assert case.worker().claim_lease(ATTEMPT, "nonce-a") == "won"
+    leased = case.control.attempt_reader(PROJECT, ATTEMPT)
+    executor, scenario, log = lease_executor(
+        leased, ModalPoll("remote_error"), scenario=case.scenario
+    )
+    observed = executor.observe(running(scenario))
+    assert (observed.state, observed.result_ref) == ("unknown_outcome", None)
+    assert json.loads(log[-1][1])["sdkState"] == "remote_error"
+
+    # no lease anywhere: the function ended before claiming the attempt, so it is a failure
+    unclaimed = staged()
+    executor, scenario, _ = lease_executor(
+        unclaimed.control.attempt_reader(PROJECT, ATTEMPT),
+        ModalPoll("remote_error"),
+        scenario=unclaimed.scenario,
+    )
+    assert executor.observe(running(scenario)).state == "failed"
+
+    # a lease that cannot be read is not "no lease"
+    class Unreadable:
+        def lease_present(self) -> bool:
+            raise ContractError("dispatch_unknown")
+
+    executor, scenario, _ = lease_executor(Unreadable(), ModalPoll("remote_error"))
+    assert executor.observe(running(scenario)).state == "unknown_outcome"
+
+    # a standing cancel is kept rather than settled as failed
+    executor, scenario, _ = lease_executor(
+        leased, ModalPoll("remote_error"), scenario=case.scenario
+    )
+    assert (
+        executor.observe(replace_state(running(case.scenario), "cancel_requested")).state
+        == "cancel_requested"
+    )
+
+
+# -- the deadline token -------------------------------------------------------------------
+
+
+def test_deadline_token_is_private_to_the_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    install(monkeypatch)
+    first, second = make_session(), make_session()
+    assert isinstance(first.deadline_token, DeadlineToken)
+    assert first.deadline_token is first.deadline_token
+    assert first.deadline_token is not second.deadline_token
+    assert repr(first.deadline_token) == "DeadlineToken()"
+    with pytest.raises(ContractError) as forged:
+        DeadlineToken(object())
+    assert forged.value.code == "forbidden"
+    import copy
+    import pickle
+
+    for duplicate in (copy.copy, copy.deepcopy, pickle.dumps):
+        with pytest.raises(TypeError):
+            duplicate(first.deadline_token)
+
+
+def test_deadline_callback_runs_at_the_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    world, _ = install(monkeypatch)
+    with make_session(clock=TickClock(step=10.0), deadline=25) as session:
+        call_id = spawn_one(session, world)
+        fired: list[int] = []
+
+        def on_deadline() -> None:
+            fired.append(len(world.get_timeouts))
+            session.cancel(call_id)  # what the control side's cancel_attempt does via the executor
+
+        poll = session.poll_until_terminal(call_id, on_deadline)
+
+    assert fired == [2]  # only after the two bounded waits
+    assert world.cancel_calls == [(call_id, True)]  # the callback cancelled; no second cancel
+    assert poll == ModalPoll("cancelled")
+
+    # a callback that did not cancel is backed up by the session: nothing outlives its deadline
+    world, _ = install(monkeypatch)
+    with make_session(clock=TickClock(step=10.0), deadline=25) as session:
+        call_id = spawn_one(session, world)
+        poll = session.poll_until_terminal(call_id, lambda: None)
+    assert world.cancel_calls == [(call_id, True)]
+    assert poll == ModalPoll("cancelled")
+
+    # a callback that fails is reported, after the backstop cancel went out
+    world, _ = install(monkeypatch)
+    with make_session(clock=TickClock(step=10.0), deadline=25) as session:
+        call_id = spawn_one(session, world)
+
+        def failing() -> None:
+            raise RuntimeError(SDK_SECRET)
+
+        with pytest.raises(ContractError) as unknown:
+            session.poll_until_terminal(call_id, failing)
+    assert unknown.value.code == "unavailable" and SDK_SECRET not in str(unknown.value)
+    assert world.cancel_calls == [(call_id, True)]
+
+    # a call that finishes in time never fires it
+    world, _ = install(monkeypatch)
+    with make_session(clock=TickClock(step=10.0), deadline=25) as session:
+        call_id = spawn_one(session, world)
+        world.outcomes[call_id] = [b"manifest-ref-json"]
+
+        def never() -> None:
+            raise AssertionError("fired before the deadline")
+
+        assert session.poll_until_terminal(call_id, never) == ModalPoll(
+            "completed", b"manifest-ref-json"
+        )

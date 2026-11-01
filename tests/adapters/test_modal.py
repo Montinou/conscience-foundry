@@ -51,10 +51,10 @@ from conscience_foundry.execution.modal_adapter import (
     ModalPin,
     ModalPoll,
 )
-from conscience_foundry.execution.ports import Submission, TransportGrants
+from conscience_foundry.execution.ports import AttemptStaging, Submission, TransportGrants
 from conscience_foundry.execution.worker import run_worker
 from conscience_foundry.policy.access import AccessContext
-from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
+from conscience_foundry.storage.local import VerifiedBytes
 from conscience_foundry.storage.staging_s3 import S3StagingStore
 
 PROJECT = "00000000-0000-0000-0000-000000000001"
@@ -123,6 +123,14 @@ class MemoryStore:
         self.objects: dict[str, bytes] = {}
         self.log: list[tuple[str, str]] = []
         self.contexts: list[AccessContext] = []
+        self.lease = False
+
+    def lease_present(self) -> bool:
+        """The ``AttemptStaging`` view the executor's reader must give; no lease by default."""
+        return self.lease
+
+    def result_pointer(self) -> ArtifactRef | None:
+        return None
 
     def put_verified(
         self, stream: Any, expected: ArtifactRef, context: AccessContext
@@ -801,7 +809,7 @@ def make_executor(
     pin: ModalPin | None = None,
     clock: Callable[[], Instant] | None = None,
     evidence: list[tuple[str, bytes]] | None = None,
-    reader_for: Callable[[str, str], ObjectStore] | None = None,
+    reader_for: Callable[[str, str], AttemptStaging] | None = None,
 ) -> ModalExecutor:
     log = evidence if evidence is not None else []
 
@@ -948,7 +956,7 @@ def test_result_reads_manifest_from_attempt_prefix() -> None:
     scenario, control, client, manifest_ref = staged_attempt_manifest()
     asked: list[tuple[str, str]] = []
 
-    def reader_for(project_id: str, attempt_id: str) -> ObjectStore:
+    def reader_for(project_id: str, attempt_id: str) -> AttemptStaging:
         asked.append((project_id, attempt_id))
         return control.attempt_reader(project_id, attempt_id)
 
@@ -972,7 +980,7 @@ def test_result_cannot_read_other_attempt() -> None:
     other = "00000000-0000-0000-0000-0000000000a1"
     asked: list[tuple[str, str]] = []
 
-    def reader_for(project_id: str, attempt_id: str) -> ObjectStore:
+    def reader_for(project_id: str, attempt_id: str) -> AttemptStaging:
         asked.append((project_id, attempt_id))
         return control.attempt_reader(project_id, attempt_id)
 

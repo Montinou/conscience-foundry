@@ -16,9 +16,13 @@ Trust model:
   ``_PROVEN_NO_RESULT``) is a ``remote_error``; every other failure, the worker's ambiguous codes
   (``unavailable``, ``dispatch_unknown``) included, is unavailable, so the executor settles it as
   an unknown outcome and never as a failed one.
-* ``poll_until_terminal`` waits at most until the deadline measured from the spawn, then cancels
-  the call and terminates its containers. The session keeps a record of its own calls and serves
-  no other.
+* ``poll_until_terminal`` waits at most until the deadline measured from the spawn, then hands
+  the cancel to the caller's ``on_deadline`` callback (the control side's ``cancel_attempt``,
+  holding the session's private ``DeadlineToken``) and makes sure the call and its containers are
+  terminated. The session keeps a record of its own calls and serves no other.
+* ``capability_record_from_live`` builds, offline, the capability record the executor's gate
+  reads: only from the operator's configuration, the image and code digests, and evidence records
+  of what was declared. It claims nothing the live preflight has not still to confirm.
 * ``container_entry`` is the function the container runs. Its input is the plan, the attempt, the
   transient grants and the staging labels; the grants carry two temporary R2 credentials, one
   read-only and one scoped to the attempt prefix. The SDK loggers are quieted before any client is
@@ -36,16 +40,19 @@ import json
 import logging
 import re
 import secrets
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType, TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self
 
-from conscience_foundry.contracts.common import ContractError, Instant, Ref
+from pydantic import TypeAdapter, ValidationError
+
+from conscience_foundry.contracts.common import ContractError, Digest, Id, Instant, Ref
 from conscience_foundry.contracts.execution import ExecutionPlan
-from conscience_foundry.execution.modal_adapter import ModalPoll
+from conscience_foundry.execution.capabilities import CapabilityRecord
+from conscience_foundry.execution.modal_adapter import EvidenceSink, ModalPoll
 from conscience_foundry.execution.ports import TransportGrants
 from conscience_foundry.execution.worker import (
     Clock,
@@ -101,6 +108,8 @@ _ACCOUNT = re.compile(r"^[A-Za-z0-9-]{1,63}$")
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)")
 _TIMEOUT_OPTIONS = ("connect_timeout", "read_timeout")
 DUPLICATE = json.dumps({"duplicate": True}).encode("utf-8")
+_DIGEST = TypeAdapter(Digest)
+_MINT = object()
 
 
 # -- configuration helpers ----------------------------------------------------------------
@@ -198,6 +207,17 @@ class LiveFunctionOptions:
         }
 
 
+LEASE_TEST_ID = "tests/adapters/test_lease.py::test_two_workers_one_executes"
+"""The offline test that shows two workers on one attempt execute it once."""
+CAPABILITY_SOURCE_SCHEMA = "cf.capability-source.v1"
+RESTART_SEMANTICS = (
+    "The function is registered with retries=0, nonpreemptible=True and max_containers=1, so the "
+    "platform neither retries the call nor restarts its container after a crash or a preemption: "
+    "max_platform_restarts is 0. The live session reads these options back from the platform "
+    "before every spawn and refuses unless they are exactly these."
+)
+
+
 def requirements_sha256(path: str | Path) -> str:
     try:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -212,6 +232,16 @@ def image_spec(options: LiveFunctionOptions) -> dict[str, object]:
         "python_version": options.python_version,
         "requirements_sha256": requirements_sha256(options.requirements_path),
     }
+
+
+def canonical_json(value: object) -> bytes:
+    """Sorted keys, no whitespace, ASCII only: the same value is always the same bytes."""
+    try:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+        ).encode("ascii")
+    except (TypeError, ValueError):
+        raise ContractError("invalid_schema") from None
 
 
 def code_digest(root: str | Path | None = None) -> str:
@@ -242,6 +272,101 @@ def code_digest(root: str | Path | None = None) -> str:
         digest.update(len(data).to_bytes(8, "big"))
         digest.update(data)
     return digest.hexdigest()
+
+
+def _instant(moment: datetime) -> Instant:
+    return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
+
+
+def capability_record_from_live(
+    config: LiveSettings,
+    project_id: Id,
+    execution_config_ref: Ref,
+    sdk_version: str,
+    image_spec: Mapping[str, object],
+    code_digest: Digest,
+    now: Instant,
+    evidence: EvidenceSink,
+) -> CapabilityRecord:
+    """The capability record for the ephemeral deployment the operator's config describes.
+
+    Offline: nothing is read from the platform. The bounds are the configured ones (GPU and
+    function retries are fixed at zero, platform restarts at zero because the function is
+    non-preemptible with retries off), ``total_bound_seconds`` is the configured sum including the
+    cancel margin, and the record is valid for ``capability_valid_seconds`` from ``now``. The
+    image digest is the SHA-256 of the canonical image spec and the deployment version is derived
+    from the code digest, so a record is evidence for exactly one image and one code tree.
+
+    Three evidence records are stored through ``evidence`` and cited: the declared options, the
+    restart-semantics statement and the id of the lease test. Whether the platform honors them is
+    for the live preflight; this function never asserts it.
+    """
+    try:
+        _DIGEST.validate_python(code_digest)
+        valid_until = _instant(_parse(now) + timedelta(seconds=config.capability_valid_seconds))
+        image_digest = hashlib.sha256(canonical_json(image_spec)).hexdigest()
+        declared = {
+            "kind": "declared_function_options",
+            "sdkVersion": sdk_version,
+            "retries": 0,
+            "nonpreemptible": True,
+            "maxContainers": 1,
+            "cpuMilli": config.cpu_milli,
+            "memoryMib": config.memory_mib,
+            "schedulingTimeoutSeconds": config.scheduling_timeout_seconds,
+            "startupTimeoutSeconds": config.startup_timeout_seconds,
+            "executionTimeoutSeconds": config.execution_timeout_seconds,
+            "cancelMarginSeconds": config.cancel_margin_seconds,
+            "totalBoundSeconds": config.total_bound_seconds,
+            "imageSpec": dict(image_spec),
+            "codeDigest": code_digest,
+        }
+        statements = (
+            declared,
+            {"kind": "restart_semantics", "statement": RESTART_SEMANTICS},
+            {"kind": "lease_test", "testId": LEASE_TEST_ID},
+        )
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("invalid_schema") from None
+    refs: list[Ref] = []
+    for statement in statements:
+        try:
+            ref = evidence(CAPABILITY_SOURCE_SCHEMA, canonical_json(statement))
+        except Exception:
+            raise ContractError("unavailable") from None
+        if type(ref) is not Ref:
+            raise ContractError("unavailable")
+        refs.append(ref)
+    try:
+        return CapabilityRecord.model_validate(
+            {
+                "schema_version": "cf.modal-capability-record.v1",
+                "project_id": project_id,
+                "execution_config_ref": execution_config_ref,
+                "sdk_version": sdk_version,
+                "deployment_version": "ephemeral-" + code_digest[:16],
+                "image_digest": image_digest,
+                "code_digest": code_digest,
+                "cpu_milli": config.cpu_milli,
+                "memory_mib": config.memory_mib,
+                "gpu_count": 0,
+                "function_retries": 0,
+                "startup_timeout_seconds": config.startup_timeout_seconds,
+                "scheduling_timeout_seconds": config.scheduling_timeout_seconds,
+                "execution_timeout_seconds": config.execution_timeout_seconds,
+                "platform_restart_bound": "bounded",
+                "max_platform_restarts": 0,
+                "total_bound_seconds": config.total_bound_seconds,
+                "cancellation": "terminates_containers",
+                "deadline_enforcement": "entry_and_every_bounded_step",
+                "valid_until": valid_until,
+                "source_evidence_refs": tuple(refs),
+            }
+        )
+    except (ValidationError, ValueError, TypeError):
+        raise ContractError("invalid_schema") from None
 
 
 # -- payload ------------------------------------------------------------------------------
@@ -339,6 +464,33 @@ _PROVEN_NO_RESULT = frozenset(
 )
 
 
+class DeadlineToken:
+    """The capability to cancel a call at its deadline; one per session, matched by identity.
+
+    Only ``LiveModalSession`` makes one (the constructor takes a module-private mint), it has no
+    value to copy, compare or serialize, and the control side accepts it only when it is the very
+    object its context carries. It carries no secret: it proves who is asking, not what is allowed.
+    """
+
+    __slots__ = ()
+
+    def __init__(self, mint: object) -> None:
+        if mint is not _MINT:
+            raise ContractError("forbidden")
+
+    def __repr__(self) -> str:
+        return "DeadlineToken()"
+
+    def __copy__(self) -> Self:
+        raise TypeError("a deadline token cannot be copied")
+
+    def __deepcopy__(self, memo: object) -> Self:
+        raise TypeError("a deadline token cannot be copied")
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        raise TypeError("a deadline token cannot be serialized")
+
+
 class LiveModalSession:
     """An open ephemeral app for one profile, and the ``ModalSdk`` over its one function."""
 
@@ -358,6 +510,7 @@ class LiveModalSession:
         self.options = options
         self.deadline_seconds = deadline_seconds
         self._clock = clock
+        self._deadline_token = DeadlineToken(_MINT)
         self._records: dict[str, CallRecord] = {}
         self._state: Literal["new", "open", "closed"] = "new"
         self._modal: Any = None
@@ -367,6 +520,11 @@ class LiveModalSession:
 
     def __repr__(self) -> str:
         return f"LiveModalSession(profile={self.profile!r}, state={self._state!r})"
+
+    @property
+    def deadline_token(self) -> DeadlineToken:
+        """What the control side holds to cancel this session's calls at their deadline."""
+        return self._deadline_token
 
     @property
     def records(self) -> Mapping[str, CallRecord]:
@@ -539,20 +697,37 @@ class LiveModalSession:
             raise ContractError("dispatch_unknown") from None  # delivered or not: unknown
         self._update(call_id, terminated=True)
 
-    def poll_until_terminal(self, call_id: str) -> ModalPoll:
+    def poll_until_terminal(
+        self, call_id: str, on_deadline: Callable[[], None] | None = None
+    ) -> ModalPoll:
         """Wait for the call to end; at its deadline cancel it and report what the SDK then says.
 
         Each wait is bounded by the time left, so there is no polling interval to configure. The
-        deadline is ``deadline_seconds`` after the spawn. A cancel that cannot be delivered is
-        ``dispatch_unknown``; a cancel that is still taking effect reports ``pending``.
+        deadline is ``deadline_seconds`` after the spawn. At the deadline ``on_deadline`` is called
+        once: the control side passes a callback that runs ``cancel_attempt`` with this session's
+        token, so the cancel is recorded in the ledger before it goes out (the executor's cancel
+        then reaches ``cancel``). The session does not rely on it: a call it has not terminated by
+        then is cancelled here, and a callback that failed is reported as ``unavailable`` after
+        that. Without a callback the session cancels on its own. A cancel that cannot be delivered
+        is ``dispatch_unknown``; a cancel that is still taking effect reports ``pending``.
         """
         record = self._own(call_id)
         deadline = _parse(record.spawned_at) + timedelta(seconds=self.deadline_seconds)
         while True:
             remaining = (deadline - _parse(self._now())).total_seconds()
             if remaining <= 0:
-                self.cancel(call_id)
-                return self._poll(call_id, 0)
+                failed = False
+                if on_deadline is not None:
+                    try:
+                        on_deadline()
+                    except Exception:
+                        failed = True  # the SDK's answer, not the callback's message, is shown
+                if not self._records[call_id].terminated:
+                    self.cancel(call_id)
+                outcome = self._poll(call_id, 0)
+                if failed:
+                    raise ContractError("unavailable")
+                return outcome
             outcome = self._poll(call_id, remaining)
             if outcome.state != "pending":
                 return outcome

@@ -696,6 +696,14 @@ def test_control_actions_follow_only_the_running_and_granted_command(
     assert not allowed(path, "reconcile", "reserve_attempt")
     assert not allowed(path, "dispatch", "record_usage")
     assert not allowed(path, "reconcile", "cancel_attempt")
+    # the deadline cancel and mark are the live session's, never the operator's cancel command
+    for action in ("deadline_cancel", "deadline_unknown"):
+        assert allowed(path, "reconcile", action) and allowed(path, "dispatch", action)
+        assert not any(
+            allowed(path, command.name, action)
+            for command in COMMANDS
+            if command.name not in {"reconcile", "dispatch"}
+        )
     assert not allowed(path, "resume", "pause") and not allowed(path, "pause", "resume")
     assert allowed(path, "reserve-storage", "reserve_storage")
     assert allowed(path, "record-billing", "final_billing")
