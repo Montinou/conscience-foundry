@@ -902,4 +902,5 @@ def budget_context(control: ControlContext, *, tx: LedgerTxn) -> BudgetContext:
         control.limits_by_schema,
         control.authorize,
         BudgetVerifier(control, tx),
+        project_max_live_attempts=control.project_max_live_attempts,
     )

@@ -546,6 +546,20 @@ def reserve_attempt(
         assert live is not None
         if live[0] >= min(installed[2], plan.resources.max_concurrent_attempts):
             raise ContractError("limit_exceeded")
+        # Project-wide: the project row is already locked above, so this count and the insert
+        # below are one critical section. `unknown_outcome` is non-terminal and counts.
+        cap = context.project_max_live_attempts
+        if cap is not None:
+            project_live = tx.connection.execute(
+                sql.SQL(
+                    "SELECT count(*) FROM {} WHERE project_id=%s "
+                    "AND state NOT IN ('succeeded','failed','cancelled')"
+                ).format(tx.table("attempts")),
+                (plan.project_id,),
+            ).fetchone()
+            assert project_live is not None
+            if project_live[0] >= cap:
+                raise ContractError("project_concurrency_limit")
         old = tx.connection.execute(
             sql.SQL("SELECT plan_ref FROM {} WHERE project_id=%s AND plan_id=%s").format(
                 tx.table("plans")

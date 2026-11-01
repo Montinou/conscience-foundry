@@ -271,6 +271,8 @@ class ControlContext:
         default=None, repr=False
     )
     """Puts every object the worker reads at its staging key, before any grant is minted."""
+    project_max_live_attempts: int | None = None
+    """Project-wide cap on non-terminal attempts, unknown outcomes included; None is no cap."""
 
 
 @dataclass(frozen=True)

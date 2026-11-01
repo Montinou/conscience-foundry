@@ -66,6 +66,8 @@ class BudgetContext:
     duplicate_risk_verifier: (
         Callable[[DuplicateRiskAuthorization, object, object], bool] | None
     ) = field(default=None, repr=False)
+    project_max_live_attempts: int | None = None
+    """Project-wide cap on non-terminal attempts; None means no project cap."""
 
 
 def _limits(context: BudgetContext, schema: str) -> ContractLimits:

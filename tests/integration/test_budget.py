@@ -75,7 +75,15 @@ class Case:
     evidence: ArtifactRef
 
 
-def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int = 3) -> Case:
+def case(
+    *,
+    run_id: str = RUN,
+    cost: str = "4",
+    cap: str = "10",
+    attempts: int = 3,
+    project_cap: int | None = None,
+    extraction_body: bytes = b"{}",
+) -> Case:
     data = admission()
     manifest = IntakeManifest.from_wire(data.evidence.manifest_bytes, limits())
     tariff = reference(b"{}", "cf.tariff.v1")
@@ -91,7 +99,7 @@ def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int =
     config_bytes = encoded(config)
     limit_ref = reference(encoded(limits()), "cf.contract-limits.v1")
     contract_set = reference(b"{}", "cf.contract-set.v1")
-    extraction = reference(b"{}", "cf.extraction-spec.v1")
+    extraction = reference(extraction_body, "cf.extraction-spec.v1")
     original = data.report.entries[0].snapshot_ref
     assert original is not None
     key = operation_key(
@@ -197,6 +205,7 @@ def case(*, run_id: str = RUN, cost: str = "4", cap: str = "10", attempts: int =
         limits_by_schema={s: limits() for s in schemas},
         authorize=authority.authorize,
         verify_evidence=authority.verify,
+        project_max_live_attempts=project_cap,
     )
     return Case(
         data,
@@ -860,3 +869,110 @@ def test_finality_evidence_exception_and_unknown_policy_fail_without_writes(ledg
                 context=replace(c.context, verify_evidence=unavailable),
             )
     assert balances(ledger)[0:3] == (Decimal(0), Decimal(4), Decimal(0))
+
+
+def _set_state(ledger: Ledger, attempt: Any, state: str) -> None:
+    with ledger.transaction() as tx:
+        tx.connection.execute(
+            sql.SQL(
+                "UPDATE {} SET state=%s,finished_at=CASE WHEN %s IN "
+                "('succeeded','failed','cancelled') THEN now() END "
+                "WHERE project_id=%s AND attempt_id=%s"
+            ).format(tx.table("attempts")),
+            (state, state, PROJECT, attempt.attempt_id),
+        )
+
+
+def _two_operations(project_cap: int | None) -> tuple[Case, Case]:
+    """Two runs on two distinct operations, so only the project cap can tell them apart."""
+    return (
+        case(project_cap=project_cap),
+        case(run_id=str(uuid4()), project_cap=project_cap, extraction_body=b'{"other":1}'),
+    )
+
+
+def test_project_cap_refuses_second_run_while_unknown(ledger: Ledger) -> None:
+    first, second = _two_operations(1)
+    assert first.plan.operation_key != second.plan.operation_key
+    setup(ledger, first)
+    setup(ledger, second)
+    attempt = allocate(ledger, first)
+    _set_state(ledger, attempt, "unknown_outcome")
+    with pytest.raises(ContractError, match="project_concurrency_limit"):
+        allocate(ledger, second)
+    assert balances(ledger, second.plan.run_id)[1] == 0
+    assert balances(ledger, first.plan.run_id)[1] == 4
+
+
+def test_project_cap_allows_after_terminal(ledger: Ledger) -> None:
+    first, second = _two_operations(1)
+    setup(ledger, first)
+    setup(ledger, second)
+    attempt = allocate(ledger, first)
+    with pytest.raises(ContractError, match="project_concurrency_limit"):
+        allocate(ledger, second)
+    _set_state(ledger, attempt, "failed")
+    assert allocate(ledger, second).state == "reserved"
+
+
+def test_no_cap_when_none(ledger: Ledger) -> None:
+    first, second = _two_operations(None)
+    setup(ledger, first)
+    setup(ledger, second)
+    attempt = allocate(ledger, first)
+    _set_state(ledger, attempt, "unknown_outcome")
+    assert allocate(ledger, second).state == "reserved"
+
+
+def test_project_cap_is_race_safe(ledger: Ledger) -> None:
+    first, second = _two_operations(1)
+    setup(ledger, first)
+    setup(ledger, second)
+    barrier = Barrier(2)
+
+    def compete(c: Case) -> str:
+        barrier.wait(timeout=5)
+        try:
+            allocate(ledger, c)
+            return "reserved"
+        except ContractError as error:
+            return error.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = sorted(pool.map(compete, (first, second)))
+    assert outcomes == ["project_concurrency_limit", "reserved"]
+
+
+def test_project_cap_flows_from_config_to_budget_context(
+    ledger: Ledger, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_cli import Env
+
+    from conscience_foundry.cli.config import Runtime, TrustedServices, load_config
+    from conscience_foundry.execution.evidence import budget_context
+
+    env = Env(tmp_path, monkeypatch)
+    bare = Runtime(load_config(env.config_path), TrustedServices(), "dispatch").control
+    env.extra["projectMaxLiveAttempts"] = 2
+    env.write_config()
+    capped = Runtime(load_config(env.config_path), TrustedServices(), "dispatch").control
+    assert bare.project_max_live_attempts is None
+    assert capped.project_max_live_attempts == 2
+    with ledger.transaction() as tx:
+        assert budget_context(capped, tx=tx).project_max_live_attempts == 2
+        assert budget_context(bare, tx=tx).project_max_live_attempts is None
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "1"])
+def test_project_cap_config_rejects_non_positive_integers(
+    value: Any, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_cli import Env
+
+    from conscience_foundry.cli.config import load_config
+
+    env = Env(tmp_path, monkeypatch)
+    env.extra["projectMaxLiveAttempts"] = value
+    env.write_config()
+    with pytest.raises(ContractError):
+        load_config(env.config_path)

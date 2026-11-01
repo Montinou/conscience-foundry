@@ -221,6 +221,9 @@ class RuntimeConfig(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
     release_pins: Annotated[tuple[PinSettings, ...], BeforeValidator(_array)] = ()
+    project_max_live_attempts: PositiveInteger | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 @dataclass(frozen=True)
@@ -488,6 +491,7 @@ class Runtime:
             transport_limits=self.config.transport_limits,
             staged_reader=self.services.staged_reader,
             stage_inputs=self.services.stage_inputs,
+            project_max_live_attempts=self.config.project_max_live_attempts,
         )
 
     @property
