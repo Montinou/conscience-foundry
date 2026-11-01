@@ -16,10 +16,12 @@ from typing import Any
 
 import pytest
 from test_staging_s3 import (
+    ACTOR,
     ATTEMPT_ID,
     BUCKET,
     CONTEXT,
     NOW,
+    OTHER_PROJECT,
     PROJECT,
     FakeClientError,
     FakeS3,
@@ -30,8 +32,16 @@ from test_staging_s3 import (
     ref_for,
 )
 
-from conscience_foundry.contracts.common import ContractError
-from conscience_foundry.storage.r2 import R2CredentialIssuer, SplitR2Client, r2_client
+from conscience_foundry.contracts.common import ArtifactRef, ContractError, ContractLimits
+from conscience_foundry.policy.access import AccessContext
+from conscience_foundry.storage.local import ObjectStore
+from conscience_foundry.storage.r2 import (
+    R2CredentialIssuer,
+    R2ObjectStore,
+    SplitR2Client,
+    r2_client,
+    r2_static_client,
+)
 from conscience_foundry.storage.staging_s3 import (
     CredentialRequest,
     S3StagingStore,
@@ -453,3 +463,219 @@ def test_r2_client_options() -> None:
     with pytest.raises(ContractError) as partial:
         r2_client(ACCOUNT, {"accessKeyId": "synthetic-key-id"})
     assert partial.value.code == "invalid_schema"
+
+
+# -- the R2 backup store --------------------------------------------------------------------
+
+BACKUP_BUCKET = "synthetic-backup"
+PAYLOAD = b"synthetic backup bytes"
+DENIED = FakeClientError("AccessDenied", 403)
+
+
+def backup_store(client: FakeS3, **options: Any) -> R2ObjectStore:
+    return R2ObjectStore(client, BACKUP_BUCKET, "backup", **options)
+
+
+def backup_key(ref: ArtifactRef) -> str:
+    return f"sha256/{ref.digest[:2]}/{ref.digest}"
+
+
+def test_r2_object_store_round_trips_content_addressed_keys() -> None:
+    client = FakeS3()
+    store: ObjectStore = backup_store(client)
+    ref = ref_for(PAYLOAD)
+    assert store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT) == ref
+    assert client.objects == {backup_key(ref): PAYLOAD}
+    assert {call["Bucket"] for call in client.put_kwargs} == {BACKUP_BUCKET}
+    assert client.put_kwargs[0]["IfNoneMatch"] == "*"  # an existing key is never overwritten
+    assert store.read_verified(ref, CONTEXT, len(PAYLOAD)).data == PAYLOAD
+    with store.open_verified(ref, CONTEXT) as handle:
+        assert handle.read() == PAYLOAD
+    empty = ref_for(b"")
+    store.put_verified(io.BytesIO(b""), empty, CONTEXT)
+    assert store.read_verified(empty, CONTEXT, 1).data == b""
+
+
+def test_r2_object_store_second_write_is_verified_not_repeated() -> None:
+    client = FakeS3()
+    store = backup_store(client)
+    ref = ref_for(PAYLOAD)
+    store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)  # 412, then proven by read-back
+    assert len(client.objects) == 1
+    client.objects[backup_key(ref)] = b"X" * len(PAYLOAD)  # a different object under the key
+    with pytest.raises(ContractError) as clash:
+        store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    assert clash.value.code == "hash_mismatch"
+
+
+def test_r2_object_store_refuses_bad_input_before_any_request() -> None:
+    client = FakeS3()
+    store = backup_store(client)
+    ref = ref_for(PAYLOAD)
+    with pytest.raises(ContractError) as wrong:
+        store.put_verified(io.BytesIO(b"x" * len(PAYLOAD)), ref, CONTEXT)
+    assert wrong.value.code == "hash_mismatch"
+    with pytest.raises(ContractError) as foreign:
+        store.put_verified(
+            io.BytesIO(PAYLOAD), ref, AccessContext(OTHER_PROJECT, ACTOR, frozenset())
+        )
+    assert foreign.value.code == "forbidden"
+    assert client.calls == []
+
+
+def test_r2_object_store_authorizer_and_ceiling_apply() -> None:
+    client = FakeS3()
+    ref = ref_for(PAYLOAD)
+    seen: list[str] = []
+
+    def authorize(_ref: ArtifactRef, _context: AccessContext, effect: str) -> None:
+        seen.append(effect)
+        if effect == "read":
+            raise ContractError("forbidden")
+
+    store = backup_store(client, authorize=authorize)
+    store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    with pytest.raises(ContractError) as read:
+        store.open_verified(ref, CONTEXT)
+    assert read.value.code == "forbidden" and seen == ["write", "read"]
+    with pytest.raises(ContractError) as unavailable:
+        backup_store(client, authorize=lambda *_: True).open_verified(ref, CONTEXT)
+    assert unavailable.value.code == "forbidden"  # a returned value is not consent
+    tiny = ContractLimits.model_validate(
+        {
+            "schemaVersion": "cf.contract-limits.v1",
+            "version": "synthetic.v1",
+            "maxJsonBytes": 4,
+            "maxStringScalars": 4,
+            "maxArrayItems": 4,
+            "maxDepth": 4,
+            "maxManifestItems": 4,
+            "maxSourceBytes": 4,
+            "maxOutputBytes": 4,
+            "maxErrorMessageScalars": 4,
+        }
+    )
+    with pytest.raises(ContractError) as large:
+        backup_store(client, limits=tiny).put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    assert large.value.code == "limit_exceeded"
+    assert client.puts() == [backup_key(ref)]  # only the first write ever reached the client
+
+
+def test_r2_object_store_unknown_write_outcome_fails_closed() -> None:
+    ref = ref_for(PAYLOAD)
+    landed = FakeS3()
+    landed.lose_put_response = True  # stored, then the response is lost
+    assert backup_store(landed).put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT) == ref
+    assert landed.objects == {backup_key(ref): PAYLOAD}  # proven by read-back, never assumed
+
+    absent = FakeS3()
+    absent.fail_put_before_store = TimeoutError("synthetic timeout")
+    with pytest.raises(ContractError) as unknown:
+        backup_store(absent).put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    assert unknown.value.code == "dispatch_unknown"  # not stored now, but may still land
+
+    blind = FakeS3()
+    blind.lose_put_response = True
+    blind.get_faults = [ConnectionError("synthetic reset")] * 4
+    with pytest.raises(ContractError) as unreadable:
+        backup_store(blind).put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    assert unreadable.value.code == "dispatch_unknown"
+
+    unverified = FakeS3()
+    unverified.corrupt_stored = True
+    with pytest.raises(ContractError) as corrupt:
+        backup_store(unverified).put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    assert corrupt.value.code == "hash_mismatch"
+
+
+def test_r2_object_store_denied_write_is_forbidden() -> None:
+    client = FakeS3()
+    client.fail_put_before_store = DENIED
+    with pytest.raises(ContractError) as denied:
+        backup_store(client).put_verified(io.BytesIO(PAYLOAD), ref_for(PAYLOAD), CONTEXT)
+    assert denied.value.code == "forbidden"
+
+
+def test_r2_object_store_reads_classify_failures() -> None:
+    client = FakeS3()
+    store = backup_store(client)
+    ref = ref_for(PAYLOAD)
+    with pytest.raises(ContractError) as missing:
+        store.open_verified(ref, CONTEXT)
+    assert missing.value.code == "artifact_missing"
+    client.objects[backup_key(ref)] = b"X" * len(PAYLOAD)
+    with pytest.raises(ContractError) as corrupt:
+        store.read_verified(ref, CONTEXT, len(PAYLOAD))
+    assert corrupt.value.code == "hash_mismatch"
+    client.objects[backup_key(ref)] = PAYLOAD
+    client.get_faults = [DENIED]
+    with pytest.raises(ContractError) as denied:
+        store.open_verified(ref, CONTEXT)
+    assert denied.value.code == "forbidden"
+    client.get_faults = [TimeoutError("synthetic timeout")]
+    with pytest.raises(ContractError) as other:
+        store.open_verified(ref, CONTEXT)
+    assert other.value.code == "unavailable"  # reads have no effect, so they simply fail
+    client.get_faults = [4]  # the body is cut short, then the connection resets
+    with pytest.raises(ContractError) as cut:
+        store.open_verified(ref, CONTEXT)
+    assert cut.value.code == "unavailable"
+    with pytest.raises(ContractError) as small:
+        store.read_verified(ref, CONTEXT, 3)
+    assert small.value.code == "limit_exceeded"
+
+
+def test_r2_object_store_never_surfaces_provider_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "synthetic-provider-secret-text"
+
+    class Leaky(Exception):
+        def __init__(self) -> None:
+            super().__init__(secret)
+            self.response = {
+                "Error": {"Code": "InternalError", "Message": secret},
+                "ResponseMetadata": {"HTTPStatusCode": 500},
+            }
+
+    client = FakeS3()
+    client.fail_put_before_store = Leaky()
+    store = backup_store(client)
+    ref = ref_for(PAYLOAD)
+    with caplog.at_level(logging.DEBUG), pytest.raises(ContractError) as write:
+        store.put_verified(io.BytesIO(PAYLOAD), ref, CONTEXT)
+    client.get_faults = [Leaky()]
+    with pytest.raises(ContractError) as read:
+        store.open_verified(ref, CONTEXT)
+    for error in (write.value, read.value):
+        assert secret not in str(error) and secret not in repr(error)
+    assert secret not in caplog.text and secret not in repr(store)
+    assert "client" not in repr(store)
+
+
+def test_r2_object_store_validates_its_configuration() -> None:
+    client = FakeS3()
+    for bucket, store_id in (("", "backup"), ("Bad_Bucket", "backup"), (BACKUP_BUCKET, "")):
+        with pytest.raises(ContractError) as bad:
+            R2ObjectStore(client, bucket, store_id)
+        assert bad.value.code == "invalid_schema"
+    with pytest.raises(ContractError) as no_client:
+        R2ObjectStore(object(), BACKUP_BUCKET, "backup")  # type: ignore[arg-type]
+    assert no_client.value.code == "invalid_schema"
+
+
+def test_r2_static_client_options() -> None:
+    pytest.importorskip("boto3")
+    client = r2_static_client(ACCOUNT, "synthetic-key-id", "synthetic-secret")
+    assert client.meta.endpoint_url == f"https://{ACCOUNT}.r2.cloudflarestorage.com"  # type: ignore[attr-defined]
+    assert client.meta.region_name == "auto"  # type: ignore[attr-defined]
+    options = client.meta.config  # type: ignore[attr-defined]
+    assert options.request_checksum_calculation == "when_required"
+    assert options.response_checksum_validation == "when_required"
+    assert options.retries["total_max_attempts"] == 1
+    assert "synthetic-secret" not in repr(client)
+    for key_id, secret in (("", "synthetic-secret"), ("synthetic-key-id", "")):
+        with pytest.raises(ContractError) as empty:
+            r2_static_client(ACCOUNT, key_id, secret)
+        assert empty.value.code == "invalid_schema"

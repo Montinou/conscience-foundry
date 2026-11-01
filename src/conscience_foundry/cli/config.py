@@ -23,7 +23,15 @@ from typing import Annotated, Any, Literal, Self, cast
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
-from pydantic import AfterValidator, BeforeValidator, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    Discriminator,
+    Field,
+    StringConstraints,
+    Tag,
+    model_validator,
+)
 from pydantic.json_schema import SkipJsonSchema
 
 from conscience_foundry.contracts.codec import load_json
@@ -51,6 +59,7 @@ from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.release.context import ReleaseAuthority, ReleaseContext, TrustedReleasePin
 from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
+from conscience_foundry.storage.r2 import R2ObjectStore, r2_static_client
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -113,6 +122,10 @@ Name = Annotated[ScalarString, StringConstraints(min_length=1)]
 AbsolutePath = Annotated[ScalarString, AfterValidator(_absolute)]
 EnvName = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
 SchemaName = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9_]{0,62}$")]
+AccountId = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9-]{1,63}$")]
+BucketName = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+]
 
 
 class LedgerSettings(WireModel):
@@ -136,10 +149,49 @@ class LedgerSettings(WireModel):
         return self
 
 
-class StoreSettings(WireModel):
+class LocalStoreSettings(WireModel):
+    """A store in a directory of this machine; ``kind`` may be omitted, as in older configs."""
+
+    kind: Literal["local"] = "local"
     store_id: Name
     root_path: AbsolutePath
     limits: ContractLimits
+
+
+class R2StoreSettings(WireModel):
+    """An R2 bucket reached with an access key held in two environment variables, by name only.
+
+    Allowed for ``backup_store`` alone: the working object store stays local. Neither the
+    account id nor the bucket nor the credentials have a default; the variable *names* are
+    config labels and their values are read when the store is opened.
+    """
+
+    kind: Literal["r2"]
+    store_id: Name
+    account_id: AccountId
+    bucket: BucketName
+    access_key_env: EnvName
+    secret_env: EnvName
+    limits: ContractLimits
+
+    @model_validator(mode="after")
+    def distinct_credential_variables(self) -> Self:
+        if self.access_key_env == self.secret_env:
+            raise ValueError("the access key and the secret need separate variables")
+        return self
+
+
+def _store_kind(value: object) -> object:
+    """An entry without ``kind`` is a local store, so older configs keep validating."""
+    if isinstance(value, Mapping):
+        return value.get("kind", "local")
+    return getattr(value, "kind", None)
+
+
+StoreSettings = Annotated[
+    Annotated[LocalStoreSettings, Tag("local")] | Annotated[R2StoreSettings, Tag("r2")],
+    Discriminator(_store_kind),
+]
 
 
 class InputRoot(WireModel):
@@ -210,7 +262,7 @@ class RuntimeConfig(WireModel):
     project_id: Id
     operator: OperatorSettings
     ledger: LedgerSettings
-    object_store: StoreSettings
+    object_store: LocalStoreSettings
     backup_store: StoreSettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -375,6 +427,14 @@ def resolve_dsn(settings: LedgerSettings) -> str:
     return value
 
 
+def resolve_r2_credentials(settings: R2StoreSettings) -> tuple[str, str]:
+    """The access key and secret named by the config; never defaulted, discovered or printed."""
+    values = (os.environ.get(settings.access_key_env, ""), os.environ.get(settings.secret_env, ""))
+    if not all(values):
+        raise ContractError("credential_unavailable")
+    return values
+
+
 def now() -> Instant:
     moment = datetime.now(UTC)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
@@ -390,7 +450,7 @@ class Runtime:
         self._stack = ExitStack()
         self._limits: dict[str, ContractLimits] | None = None
         self._store: LocalObjectStore | None = None
-        self._backup: LocalObjectStore | None = None
+        self._backup: ObjectStore | None = None
         self._ledger: Ledger | None = None
         self.access = AccessContext(
             config.project_id, config.operator.actor_id, frozenset(config.operator.scopes)
@@ -421,18 +481,31 @@ class Runtime:
         """Re-read on every call so each effect boundary sees the policy as it is now."""
         return PolicyArtifact.from_wire(self.read_policy_bytes(), self.limit("cf.policy.v1"))
 
-    def _local_store(self, settings: StoreSettings) -> LocalObjectStore:
+    def _authority(self) -> Callable[[Any, AccessContext, str], None]:
         project, access = self.config.project_id, self.access
 
         def authority(ref: Any, context: AccessContext, effect: str) -> None:
             if ref.project_id != project or context != access:
                 raise ContractError("forbidden")
 
+        return authority
+
+    def _local_store(self, settings: LocalStoreSettings) -> LocalObjectStore:
         registry = LocationRegistry(
-            {settings.store_id: Path(settings.root_path)}, settings.limits, authority
+            {settings.store_id: Path(settings.root_path)}, settings.limits, self._authority()
         )
         self._stack.callback(registry.close)
         return LocalObjectStore(settings.store_id, registry)
+
+    def _r2_store(self, settings: R2StoreSettings) -> R2ObjectStore:
+        access_key, secret = resolve_r2_credentials(settings)
+        return R2ObjectStore(
+            r2_static_client(settings.account_id, access_key, secret),
+            settings.bucket,
+            settings.store_id,
+            authorize=self._authority(),
+            limits=settings.limits,
+        )
 
     @property
     def store(self) -> LocalObjectStore:
@@ -441,13 +514,16 @@ class Runtime:
         return self._store
 
     @property
-    def backup(self) -> LocalObjectStore:
+    def backup(self) -> ObjectStore:
         """The separately configured backup store; commands that need it are gated on it."""
         settings = self.config.backup_store
         if settings is None:
             raise ContractError("config_required")
         if self._backup is None:
-            self._backup = self._local_store(settings)
+            if isinstance(settings, R2StoreSettings):
+                self._backup = self._r2_store(settings)
+            else:
+                self._backup = self._local_store(settings)
         return self._backup
 
     @property

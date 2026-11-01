@@ -23,6 +23,7 @@ import psycopg
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
 from conscience_foundry.cli.config import (
+    R2StoreSettings,
     Runtime,
     TrustedServices,
     load_config,
@@ -30,6 +31,7 @@ from conscience_foundry.cli.config import (
     read_input,
     read_trusted,
     resolve_dsn,
+    resolve_r2_credentials,
 )
 from conscience_foundry.contracts.admission import IntakeManifest
 from conscience_foundry.contracts.canonical import DocumentSpan, RevisionReview
@@ -754,6 +756,13 @@ def _backup(inv: Invocation) -> Outcome:
         raise
     settings, destination = rt.config.object_store, rt.config.backup_store
     assert destination is not None
+    # Mechanics only: a different device is necessary for independence, never sufficient. A
+    # remote bucket has no local device to compare, so it is named for the operator to confirm.
+    media: bool | str = (
+        f"r2:{destination.bucket}"
+        if isinstance(destination, R2StoreSettings)
+        else independent_media(Path(settings.root_path), Path(destination.root_path))
+    )
     return _ok(
         manifestDigest=hashlib.sha256(data).hexdigest(),
         recoveryPoint=manifest.recovery_point,
@@ -761,8 +770,7 @@ def _backup(inv: Invocation) -> Outcome:
         auditRefs=len(manifest.audit_refs),
         pendingAttempts=len(manifest.pending_attempt_ids),
         excludedReleases=list(manifest.excluded_release_digests),
-        # Mechanics only: a different device is necessary for independence, never sufficient.
-        independentMedia=independent_media(Path(settings.root_path), Path(destination.root_path)),
+        independentMedia=media,
         independentlyVerified=False,
     )
 
@@ -966,8 +974,14 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
             except ContractError as error:
                 blockers.append(("database_credential", error.code))
         elif need == BACKUP_STORE:
-            if runtime.config.backup_store is None:
+            destination = runtime.config.backup_store
+            if destination is None:
                 blockers.append((BACKUP_STORE, "config_required"))
+            elif isinstance(destination, R2StoreSettings):
+                try:
+                    resolve_r2_credentials(destination)
+                except ContractError as error:
+                    blockers.append(("backup_credential", error.code))
         elif getattr(runtime.services, need) is None:
             blockers.append((need, "adapter_unavailable"))
     return blockers
