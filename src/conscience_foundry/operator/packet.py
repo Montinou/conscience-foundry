@@ -84,12 +84,14 @@ ADVISORY_GATES = (
 
 _GATE_DETAIL = {
     STAGING_STORE_TRANSFER: (
-        "no staging-to-store transfer exists: verify_result reads only the local store, so a "
-        "remote result cannot be verified and imported"
+        "closed only when the runtime wiring supplies an attempt-scoped staging reader "
+        "(staged_reader) that probes as bound to exactly the probed project and attempt, so a "
+        "staged result can be imported into the local store before it is verified"
     ),
     SCOPED_EXECUTOR_STORE: (
-        "the remote executor must be wired with a store scoped to the plan and attempt "
-        "(scoped_to) before any live use"
+        "closed only when the runtime wiring gives the remote executor an attempt-scoped reader "
+        "(reader_for) and the credential issuer reports exactly the plan's read keys and the "
+        "attempt's write prefix (issuer_scopes); the packet cannot close it"
     ),
     PLATFORM_RESTART_BOUND: (
         "platform crash restarts must be evidenced as bounded for the exact deployment; "

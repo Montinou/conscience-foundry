@@ -236,9 +236,11 @@ class TrustedServices:
     transport_grants: Callable[[ExecutionPlan, StageAttempt, Ref], TransportGrants] | None = None
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
-    pilot_gates_closed: frozenset[str] = frozenset()
     staged_reader: Callable[[Id, Id], ObjectStore] | None = None
     stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = None
+    issuer_scopes: Callable[[ExecutionPlan, Id], tuple[frozenset[str], str]] | None = None
+    """Reports what the credential issuer would mint for a plan and attempt: (read keys, write
+    prefix). Preflight compares it with the plan; it never mints anything."""
 
 
 class _Refusing:

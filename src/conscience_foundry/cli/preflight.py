@@ -9,7 +9,8 @@ internally consistent. It never starts anything.
 * the operator config grants ``run-pilot`` (its own grant category), as for every command;
 * ``--execute`` is given (otherwise the generic dry run stops before this module is reached);
 * a fresh preflight of the exact packet is ready, with every blocking gate closed by trusted
-  deployment code (``TrustedServices.pilot_gates_closed``; nothing in a file can close one);
+  deployment code, which is attested from the runtime wiring (``attested_gates``; nothing in a
+  file can close one);
 * a separately recorded ``LiveGrant`` names this exact packet digest, this actor, a live window,
   and exactly the ordered commands in the steps document.
 
@@ -44,6 +45,7 @@ import hashlib
 import json
 import os
 import stat
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
@@ -57,11 +59,18 @@ from conscience_foundry.cli.commands import (
     Outcome,
     run_command,
 )
-from conscience_foundry.cli.config import CONFIG_MAX_BYTES, _bootstrap, read_trusted
-from conscience_foundry.contracts.common import ContractError, Ref, ScalarString, WireModel
+from conscience_foundry.cli.config import (
+    CONFIG_MAX_BYTES,
+    TrustedServices,
+    _bootstrap,
+    read_trusted,
+)
+from conscience_foundry.contracts.common import ContractError, Id, Ref, ScalarString, WireModel
 from conscience_foundry.contracts.execution import ExecutionPlan, RunAuthorization
 from conscience_foundry.operator.packet import (
     PILOT_STEP_COMMANDS,
+    SCOPED_EXECUTOR_STORE,
+    STAGING_STORE_TRANSFER,
     LiveGrant,
     PreflightEvidence,
     PreflightPacket,
@@ -71,8 +80,9 @@ from conscience_foundry.operator.packet import (
     preflight,
 )
 from conscience_foundry.policy.access import AccessContext
+from conscience_foundry.storage.staging_s3 import readable_refs
 
-__all__ = ["PILOT_COMMANDS", "USED_GRANTS", "run_command"]
+__all__ = ["PILOT_COMMANDS", "USED_GRANTS", "attested_gates", "run_command"]
 
 BLOCKED = "preflight_blocked"
 USED_GRANTS = "pilot-used-grants"
@@ -101,6 +111,150 @@ class _StepParser(argparse.ArgumentParser):
 
     def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
         raise ContractError("invalid_schema")
+
+
+# -- gate attestation ---------------------------------------------------------------------------
+
+_PROBE_ATTEMPTS = (
+    "00000000-0000-0000-0000-00000000a001",
+    "00000000-0000-0000-0000-00000000a002",
+)
+"""Two synthetic attempt ids: a reader or issuer fixed to one attempt fails the other probe."""
+_PROBE_TIME = "2999-01-01T00:00:00.000Z"
+
+
+def _probe_ref(project_id: Id, label: str) -> dict[str, object]:
+    data = f"cf.gate-probe.{label}".encode()
+    return {
+        "schemaVersion": "cf.artifact-ref.v1",
+        "projectId": project_id,
+        "digest": hashlib.sha256(data).hexdigest(),
+        "sizeBytes": len(data),
+        "mediaType": "application/json",
+        "artifactSchema": f"cf.gate-probe.{label}.v1",
+        "locations": [],
+    }
+
+
+def _probe_plan(project_id: Id) -> ExecutionPlan:
+    """A synthetic, valid plan with every kind of readable object; it names nothing real."""
+    return ExecutionPlan.model_validate(
+        {
+            "schemaVersion": "cf.execution-plan.v1",
+            "projectId": project_id,
+            "runId": "00000000-0000-0000-0000-00000000b001",
+            "planId": "00000000-0000-0000-0000-00000000b002",
+            "executionConfigRef": _probe_ref(project_id, "config"),
+            "admissionReportRef": _probe_ref(project_id, "report"),
+            "extractionSpecRef": _probe_ref(project_id, "spec"),
+            "policyRef": _probe_ref(project_id, "policy"),
+            "profileId": "gate_probe",
+            "profileVersion": "gate-probe.v1",
+            "contractSetRef": _probe_ref(project_id, "contracts"),
+            "limitsRefs": [_probe_ref(project_id, "limits")],
+            "inputRefs": [_probe_ref(project_id, "input")],
+            "operationKey": hashlib.sha256(b"cf.gate-probe.operation").hexdigest(),
+            "resources": {
+                "cpuMilli": 1,
+                "memoryMiB": 1,
+                "gpuCount": 0,
+                "maxWallSeconds": 1,
+                "maxOutputBytes": 1,
+                "maxConcurrentAttempts": 1,
+                "maxAttemptsPerOperation": 1,
+                "automaticRetries": 0,
+            },
+            "budget": {
+                "currency": "USD",
+                "maxRunCost": "1",
+                "maxAttemptCost": "1",
+                "tariffRef": _probe_ref(project_id, "tariff"),
+                "authorizationId": "00000000-0000-0000-0000-00000000b003",
+                "validUntil": _PROBE_TIME,
+            },
+            "expiresAt": _PROBE_TIME,
+        }
+    )
+
+
+def _reader_is_scoped(reader_for: object, project_id: Id) -> bool:
+    """True only when the factory returns, per probe, a reader bound to exactly that attempt."""
+    if not callable(reader_for):
+        return False
+    for attempt_id in _PROBE_ATTEMPTS:
+        scope = reader_for(project_id, attempt_id).scope
+        if type(scope) is not tuple or scope != (project_id, attempt_id):
+            return False
+    return True
+
+
+def _issuer_scopes_match(services: TrustedServices, project_id: Id) -> bool:
+    """True only when the issuer would mint exactly the plan's read keys and the attempt prefix.
+
+    The expected keys follow the staging layout (``{prefix}/{project}/sha256/{aa}/{digest}`` for
+    reads, ``{prefix}/{project}/attempts/{attempt}/`` for writes); the prefix itself is taken from
+    the issuer's write scope, which must end in exactly that attempt path.
+    """
+    scopes = services.issuer_scopes
+    if not callable(scopes):
+        return False
+    plan = _probe_plan(project_id)
+    for attempt_id in _PROBE_ATTEMPTS:
+        reported = scopes(plan, attempt_id)
+        if type(reported) is not tuple or len(reported) != 2:
+            return False
+        read_keys, write_prefix = reported
+        tail = f"/{project_id}/attempts/{attempt_id}/"
+        if (
+            type(read_keys) is not frozenset
+            or type(write_prefix) is not str
+            or not write_prefix.endswith(tail)
+            or len(write_prefix) == len(tail)
+        ):
+            return False
+        base = write_prefix.removesuffix(tail)
+        expected = frozenset(
+            f"{base}/{ref.project_id}/sha256/{ref.digest[:2]}/{ref.digest}"
+            for ref in readable_refs(plan)
+        )
+        if read_keys != expected:
+            return False
+    return True
+
+
+def _holds(check: Callable[[], bool]) -> bool:
+    """Any failure to establish the attestation leaves the gate open."""
+    try:
+        return check() is True
+    except Exception:
+        return False
+
+
+def attested_gates(services: TrustedServices, project_id: Id) -> frozenset[str]:
+    """The blocking gates the runtime wiring itself proves closed; a missing piece closes none.
+
+    * ``staging_store_transfer``: ``staged_reader`` returns, for a synthetic project and attempt,
+      a reader scoped to exactly that pair (an unscoped or fixed-scope reader fails the probe);
+    * ``executor_scoped_store``: the executor's ``reader_for`` passes the same probe and
+      ``issuer_scopes`` reports exactly the probe plan's read keys and the attempt prefix.
+
+    Nothing here comes from a file, a flag or the operator packet.
+    """
+    closed: set[str] = set()
+    if services.staged_reader is not None and _holds(
+        lambda: _reader_is_scoped(services.staged_reader, project_id)
+    ):
+        closed.add(STAGING_STORE_TRANSFER)
+    if (
+        services.executor is not None
+        and services.issuer_scopes is not None
+        and _holds(lambda: _issuer_scopes_match(services, project_id))
+        and _holds(
+            lambda: _reader_is_scoped(getattr(services.executor, "reader_for", None), project_id)
+        )
+    ):
+        closed.add(SCOPED_EXECUTOR_STORE)
+    return frozenset(closed)
 
 
 # -- loading ----------------------------------------------------------------------------------
@@ -157,7 +311,7 @@ def _check(inv: Invocation) -> tuple[PreflightPacket, PreflightEvidence, Preflig
         rt.access,
         evidence=evidence,
         now=rt.clock(),
-        closed_gates=rt.services.pilot_gates_closed,
+        closed_gates=attested_gates(rt.services, rt.access.project_id),
     )
     return packet, evidence, report
 
