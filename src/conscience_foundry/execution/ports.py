@@ -89,6 +89,22 @@ class TransportFacts:
     attempt_isolated: bool
 
 
+class LeaseStore(Protocol):
+    """First-writer-wins claim on one attempt's execution, and the pointer to its result."""
+
+    def claim_lease(self, attempt_id: Id, nonce: str) -> Literal["won", "lost"]: ...
+
+    def publish_result(self, attempt_id: Id, manifest: Ref) -> None: ...
+
+
+class AttemptStaging(ObjectStore, Protocol):
+    """A view of one attempt's staging prefix that also tells whether it was claimed or finished."""
+
+    def lease_present(self) -> bool: ...
+
+    def result_pointer(self) -> Ref | None: ...
+
+
 class Executor(Protocol):
     def submit(
         self, plan: ExecutionPlan, attempt: StageAttempt, grants: TransportGrants

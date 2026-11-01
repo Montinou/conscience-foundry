@@ -23,6 +23,10 @@ This is a transient transfer area, never permanent storage. Trust model:
   control-side ledger, which must record it before any further write.
 * A write is "verified" only by a hash: the provider's stored SHA-256 when it
   reports one, otherwise a bounded read-back of the object. Size alone never is.
+* One execution per attempt: ``claim_lease`` creates the attempt's lease object with a conditional
+  write that is its own path, because ``_create`` counts a 412 as success and a lease must not. A
+  412 is "lost"; an ambiguous response is settled by reading the lease back and comparing nonces.
+  The winner publishes a pointer to its manifest, which a loser or the control side can read.
 * Failures surface only as stable ``ContractError`` codes.
 
 Whether a given compatible provider honors conditional creation, scoped
@@ -38,12 +42,13 @@ import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any, BinaryIO, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal, Protocol, cast
 
 from conscience_foundry.contracts.common import (
     MAX_SAFE_INTEGER,
     ArtifactLocation,
     ContractError,
+    ContractLimits,
     Id,
     Instant,
     Ref,
@@ -53,6 +58,9 @@ from conscience_foundry.execution.ports import TransportGrants
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 from conscience_foundry.storage.locator import Authorizer
+
+if TYPE_CHECKING:
+    from conscience_foundry.execution.worker import Clock
 
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
@@ -103,6 +111,76 @@ StorageReservationGate = Callable[[Ref, AccessContext], bool]
 
 def _attempt_prefix(prefix: str, project_id: str, attempt_id: str) -> str:
     return f"{prefix}/{project_id}/attempts/{attempt_id}/"
+
+
+def _attempt_object_key(prefix: str, project_id: str, attempt_id: str, digest: str) -> str:
+    return f"{_attempt_prefix(prefix, project_id, attempt_id)}sha256/{digest[:2]}/{digest}"
+
+
+_LEASE_OBJECT = "lease"
+_RESULT_OBJECT = "result"
+
+
+def grant_storage_gate(grants: TransportGrants, clock: Clock) -> StorageReservationGate:
+    """The worker's reservation gate: what its grants cover, nothing the control side reserved.
+
+    The worker has no database, so the funded reservation is stood in for by the grants it was
+    minted: a ref passes only when its attempt-scoped write key lies under the prefix part of
+    ``grants.output_scope`` (the leading ``bucket/`` is stripped) and the grants have not expired.
+    A scope that is not this grant's own project and attempt prefix covers nothing, and the
+    access context must be the grant's own project with the attempt id as actor (the worker's
+    context). That the store writes under this same prefix is checked where the store meets the
+    grants (``run_worker`` compares ``S3StagingStore.write_scope`` with ``output_scope``).
+    """
+    try:
+        scope = grants.output_scope.decode("utf-8")
+        project_id = grants.project_id
+        attempt_id, expires_at = grants.attempt_id, grants.expires_at
+        prefix = scope.partition("/")[2]  # the leading bucket/ is not part of any key
+        root = _scope_root(prefix, grants.project_id, attempt_id)
+    except Exception:
+        prefix, root = "", None
+
+    def gate(ref: Ref, context: AccessContext) -> bool:
+        if root is None or type(ref) is not Ref or type(context) is not AccessContext:
+            return False
+        if context.project_id != project_id or context.actor_id != attempt_id:
+            return False
+        try:
+            if not clock.now() < expires_at:
+                return False
+        except Exception:
+            return False
+        key = _attempt_object_key(root, ref.project_id, attempt_id, ref.digest)
+        return key.startswith(prefix) and ".." not in key.split("/")
+
+    return gate
+
+
+def _pointer_limits(bound: int) -> ContractLimits:
+    """Syntax-only limits for a pointer object: nothing in it can exceed the object bound."""
+    return ContractLimits.model_validate(
+        {
+            "schemaVersion": "cf.contract-limits.v1",
+            "version": "staging.pointer.v1",
+            "maxJsonBytes": bound,
+            "maxStringScalars": bound,
+            "maxArrayItems": bound,
+            "maxDepth": bound,
+            "maxManifestItems": bound,
+            "maxSourceBytes": bound,
+            "maxOutputBytes": bound,
+            "maxErrorMessageScalars": bound,
+        }
+    )
+
+
+def _scope_root(prefix: str, project_id: str, attempt_id: str) -> str | None:
+    """The configured staging prefix an attempt prefix was built from, or None if it is not one."""
+    suffix = f"/{project_id}/attempts/{attempt_id}/"
+    if not prefix.endswith(suffix) or len(prefix) == len(suffix):
+        return None
+    return prefix[: -len(suffix)]
 
 
 def readable_refs(plan: ExecutionPlan) -> tuple[Ref, ...]:
@@ -274,17 +352,25 @@ class S3StagingStore:
 
     config: StagingConfig
     client: S3Client = field(repr=False)
-    authorize: Authorizer = field(repr=False)
+    authorize: Authorizer | None = field(repr=False)
     storage_reserved: StorageReservationGate = field(repr=False)
     clock: Callable[[], str] = field(repr=False)
     credential_issuer: CredentialIssuer | None = field(default=None, repr=False)
     attempt_id: Id | None = None
     declared_inputs: frozenset[str] = field(default=frozenset(), repr=False)
     read_scope: tuple[Id, Id] | None = field(default=None, repr=False)
+    project_id: Id | None = None
     _unresolved: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not callable(self.authorize) or not callable(self.storage_reserved):
+        if self.authorize is None:
+            # Worker mode: the credential's own scope is the authorization, so no authorizer is
+            # injected; that is acceptable only for a store already bound to one attempt.
+            if self.attempt_id is None:
+                raise ContractError("invalid_schema")
+        elif not callable(self.authorize):
+            raise ContractError("invalid_schema")
+        if not callable(self.storage_reserved):
             raise ContractError("invalid_schema")
         if not callable(self.clock):
             raise ContractError("invalid_schema")
@@ -300,9 +386,8 @@ class S3StagingStore:
 
     def _attempt_key(self, ref: Ref) -> str:
         """Where an attempt-bound store keeps its own objects: under the credential's prefix."""
-        return (
-            f"{_attempt_prefix(self.config.prefix, ref.project_id, str(self.attempt_id))}"
-            f"sha256/{ref.digest[:2]}/{ref.digest}"
+        return _attempt_object_key(
+            self.config.prefix, ref.project_id, str(self.attempt_id), ref.digest
         )
 
     def _write_key(self, ref: Ref) -> str:
@@ -314,6 +399,14 @@ class S3StagingStore:
             return shared
         return self._attempt_key(ref)
 
+    @property
+    def write_scope(self) -> bytes:
+        """``bucket/prefix`` this store writes under, in the form of ``output_scope``."""
+        if self.attempt_id is None or self.project_id is None:
+            raise ContractError("forbidden")
+        prefix = _attempt_prefix(self.config.prefix, self.project_id, self.attempt_id)
+        return f"{self.config.bucket}/{prefix}".encode()
+
     def scoped_to(self, plan: ExecutionPlan, attempt_id: Id) -> S3StagingStore:
         """Bind a view to one attempt: plan inputs read shared, all else under its prefix."""
         if type(plan) is not ExecutionPlan:
@@ -323,6 +416,7 @@ class S3StagingStore:
             self,
             attempt_id=attempt_id,
             declared_inputs=frozenset(self._key(ref) for ref in readable_refs(plan)),
+            project_id=plan.project_id,
         )
 
     def attempt_reader(self, project_id: Id, attempt_id: Id) -> S3StagingStore:
@@ -383,17 +477,18 @@ class S3StagingStore:
             raise ContractError("forbidden")
         if ref.project_id != context.project_id:
             raise ContractError("forbidden")
-        try:
-            # An authorizer must raise to deny; any returned value is not consent.
-            result = cast(Callable[[Ref, AccessContext, str], object], self.authorize)(
-                ref, context, effect
-            )
-            if result is not None:
-                raise ContractError("forbidden")
-        except ContractError:
-            raise
-        except Exception:
-            raise ContractError("unavailable") from None
+        if self.authorize is not None:
+            try:
+                # An authorizer must raise to deny; any returned value is not consent.
+                result = cast(Callable[[Ref, AccessContext, str], object], self.authorize)(
+                    ref, context, effect
+                )
+                if result is not None:
+                    raise ContractError("forbidden")
+            except ContractError:
+                raise
+            except Exception:
+                raise ContractError("unavailable") from None
         if ref.size_bytes > self.config.max_object_bytes:
             raise ContractError("limit_exceeded")
 
@@ -600,6 +695,130 @@ class S3StagingStore:
                 raise
             return "unknown"
         return "present"
+
+    # -- lease and result pointer ---------------------------------------------------
+
+    def _bound_project(self) -> Id:
+        project = self.read_scope[0] if self.read_scope is not None else self.project_id
+        if project is None or self.attempt_id is None:
+            raise ContractError("forbidden")
+        return project
+
+    def _control_key(self, name: str) -> str:
+        prefix = _attempt_prefix(self.config.prefix, self._bound_project(), str(self.attempt_id))
+        key = f"{prefix}{name}"
+        self._within_scope(key)
+        return key
+
+    def _own_attempt(self, attempt_id: Id) -> str:
+        """The lease and pointer belong to the attempt this store is bound to, and only a writer."""
+        if self.read_scope is not None or attempt_id != self.attempt_id:
+            raise ContractError("forbidden")
+        return _label(attempt_id, _LABEL)
+
+    def _create_once(self, key: str, data: bytes) -> Literal["created", "exists", "unknown"]:
+        """Conditional create whose 412 is an answer, not a success; nothing is verified here."""
+        try:
+            self.client.put_object(
+                Bucket=self.config.bucket,
+                Key=key,
+                Body=data,
+                ContentLength=len(data),
+                ContentType="application/octet-stream",
+                IfNoneMatch="*",
+                ChecksumSHA256=base64.b64encode(hashlib.sha256(data).digest()).decode("ascii"),
+            )
+        except Exception as error:
+            outcome = _classify(error)
+            if outcome == "exists":
+                return "exists"
+            if outcome == "denied":
+                raise ContractError("forbidden") from None
+            return "unknown"
+        return "created"
+
+    def _read_small(self, key: str) -> bytes | None:
+        """One bounded read of a control object; None if it is absent or cannot be read."""
+        try:
+            return self._body_bytes(self.client.get_object(Bucket=self.config.bucket, Key=key))
+        except Exception:
+            return None
+
+    def claim_lease(self, attempt_id: Id, nonce: str) -> Literal["won", "lost"]:
+        """Claim the attempt's single execution: the first conditional create wins.
+
+        A 412 means another worker holds the lease. Any ambiguous response is settled by reading
+        the lease back: our nonce means we won, another nonce means we lost, and a lease that
+        cannot be read leaves the outcome unknown, so nothing may proceed.
+        """
+        _label(nonce, _LABEL)
+        key = self._control_key(_LEASE_OBJECT)
+        self._own_attempt(attempt_id)
+        created = self._create_once(key, nonce.encode("utf-8"))
+        if created == "created":
+            return "won"
+        if created == "exists":
+            return "lost"
+        held = self._read_small(key)
+        if held is None:
+            raise ContractError("dispatch_unknown")
+        return "won" if held == nonce.encode("utf-8") else "lost"
+
+    def publish_result(self, attempt_id: Id, manifest: Ref) -> None:
+        """Record the winner's manifest where a duplicate or the control side can find it."""
+        if type(manifest) is not Ref or manifest.project_id != self._bound_project():
+            raise ContractError("forbidden")
+        key = self._control_key(_RESULT_OBJECT)
+        self._own_attempt(attempt_id)
+        pointer = manifest.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8")
+        created = self._create_once(key, pointer)
+        if created == "created":
+            return
+        held = self._read_small(key)
+        if created == "unknown" and held is None:
+            raise ContractError("dispatch_unknown")
+        if held != pointer:
+            # a different pointer under our lease means the single-execution bound was broken
+            raise ContractError("forbidden" if created == "exists" else "dispatch_unknown")
+
+    def lease_present(self) -> bool:
+        """Whether any worker has claimed this attempt; an unreadable answer is not an answer."""
+        key = self._control_key(_LEASE_OBJECT)
+        try:
+            self.client.head_object(Bucket=self.config.bucket, Key=key)
+        except Exception as error:
+            if _classify(error) == "missing":
+                return False
+            raise ContractError("dispatch_unknown") from None
+        return True
+
+    def result_pointer(self) -> Ref | None:
+        """The manifest ref the winner published, or None before it has."""
+        key = self._control_key(_RESULT_OBJECT)
+        try:
+            response = self.client.get_object(Bucket=self.config.bucket, Key=key)
+        except Exception as error:
+            if _classify(error) == "missing":
+                return None
+            raise ContractError("unavailable") from None
+        limits = _pointer_limits(self.config.max_object_bytes)
+        pointer = Ref.from_wire(self._body_bytes(response), limits)
+        if pointer.project_id != self._bound_project():
+            raise ContractError("forbidden")
+        return pointer
+
+    def _body_bytes(self, response: Mapping[str, Any]) -> bytes:
+        bound = self.config.max_object_bytes
+        body = response["Body"]
+        try:
+            data = body.read(bound + 1)
+        finally:
+            closer = getattr(body, "close", None)
+            if callable(closer):
+                closer()
+        if type(data) is not bytes or len(data) > bound:
+            raise ContractError("limit_exceeded")
+        return data
 
     # -- reads ----------------------------------------------------------------------
 

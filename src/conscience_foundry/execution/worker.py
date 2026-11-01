@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
@@ -51,7 +52,7 @@ from conscience_foundry.processing.text_utf8 import process_text
 from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 
 if TYPE_CHECKING:
-    from conscience_foundry.execution.ports import TransportGrants
+    from conscience_foundry.execution.ports import LeaseStore, TransportGrants
 
 _INSTANT = TypeAdapter(Instant)
 _ARTIFACT_MEDIA = "application/json"
@@ -64,6 +65,11 @@ _WORKER_SCOPES = frozenset({"read", "remoteTransfer", "extract"})
 
 class Clock(Protocol):
     def now(self) -> Instant: ...
+
+
+@dataclass(frozen=True)
+class DuplicateExecution:
+    """Another worker holds this attempt's lease and has published no result yet."""
 
 
 def _parse(value: str) -> datetime:
@@ -169,6 +175,50 @@ def _checked_grants(
     return expires_at
 
 
+def _bound_to_grants(grants: TransportGrants, store: object) -> None:
+    """A store that declares where it writes must write exactly where the grants allow.
+
+    The reservation gate sees refs, not keys: a store configured with another prefix, bucket or
+    attempt would pass it while writing outside the credential's scope. No I/O is done here.
+    """
+    try:
+        declared = getattr(store, "write_scope", None)
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("forbidden") from None
+    if declared is not None and declared != grants.output_scope:
+        raise ContractError("forbidden")
+
+
+def _claim(
+    lease: LeaseStore, store: object, attempt_id: str, nonce: str | None
+) -> Ref | DuplicateExecution | None:
+    """Claim the attempt's single execution; None means this worker won and may proceed."""
+    if type(nonce) is not str or not nonce:
+        raise ContractError("invalid_schema")
+    try:
+        outcome = lease.claim_lease(attempt_id, nonce)
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("dispatch_unknown") from None
+    if outcome == "won":
+        return None
+    if outcome != "lost":
+        raise ContractError("dispatch_unknown")
+    pointer_of = getattr(store, "result_pointer", None)
+    if not callable(pointer_of):
+        return DuplicateExecution()
+    try:
+        pointer = pointer_of()
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("unavailable") from None
+    return pointer if type(pointer) is Ref else DuplicateExecution()
+
+
 def _quantity(delta: timedelta) -> str:
     return f"{max(delta.total_seconds(), 0):.3f}"
 
@@ -179,8 +229,17 @@ def run_worker(
     grants: TransportGrants,
     store: ObjectStore,
     clock: Clock,
-) -> Ref:
-    """Process the one planned input and return the reference of the result manifest."""
+    *,
+    lease: LeaseStore | None = None,
+    nonce: str | None = None,
+) -> Ref | DuplicateExecution:
+    """Process the one planned input and return the reference of the result manifest.
+
+    With a ``lease``, exactly one worker per attempt executes: the claim follows the grant and
+    entry bound checks and precedes every input read, and the winner publishes a pointer to its
+    manifest after writing it. A loser returns the winner's pointer when there is one and
+    ``DuplicateExecution`` when there is not yet; it reads and writes nothing else.
+    """
     if type(plan_bytes) is not bytes or type(attempt_bytes) is not bytes:
         raise ContractError("invalid_schema")
     if not callable(getattr(clock, "now", None)) or not (
@@ -198,10 +257,15 @@ def run_worker(
     ):
         raise ContractError("forbidden")
     grant_expiry = _checked_grants(grants, plan, attempt, plan_bytes)
+    _bound_to_grants(grants, store)
 
     bounds = _Deadline(clock, min(grant_expiry, plan.expires_at, plan.budget.valid_until))
     started = bounds.check()  # entry: an expired envelope stops here, before any store access
     bounds.tighten(_format(_parse(started) + timedelta(seconds=plan.resources.max_wall_seconds)))
+    if lease is not None:
+        duplicate = _claim(lease, store, attempt.attempt_id, nonce)
+        if duplicate is not None:
+            return duplicate
     context = AccessContext(plan.project_id, attempt.attempt_id, _WORKER_SCOPES)
     memory_bytes = plan.resources.memory_mib * 1024 * 1024
     transferred = 0
@@ -367,6 +431,13 @@ def run_worker(
         raw = _encode(manifest, limits)
         manifest_ref = _ref(plan.project_id, raw, "cf.result.v1", _ARTIFACT_MEDIA)
         write(manifest_ref, raw, checked=True)  # strictly last: it names only verified outputs
+        if lease is not None:
+            try:
+                lease.publish_result(attempt.attempt_id, manifest_ref)
+            except ContractError:
+                raise
+            except Exception:
+                raise ContractError("unavailable") from None
         return manifest_ref
 
     try:

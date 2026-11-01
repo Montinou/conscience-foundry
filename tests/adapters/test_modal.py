@@ -318,13 +318,15 @@ def build(
 
 
 def execute(scenario: Scenario, clock: StepClock | None = None) -> ArtifactRef:
-    return run_worker(
+    result = run_worker(
         scenario.plan_bytes,
         scenario.attempt_bytes,
         scenario.grants,
         scenario.store,
         clock or StepClock(),
     )
+    assert isinstance(result, ArtifactRef)  # no lease was passed, so the worker is the executor
+    return result
 
 
 def read_manifest(scenario: Scenario, ref: ArtifactRef) -> ResultManifest:
@@ -337,7 +339,16 @@ def read_manifest(scenario: Scenario, ref: ArtifactRef) -> ResultManifest:
 def test_worker_has_no_ledger_or_model_dependency() -> None:
     # worker_receives_no_database_credentials: nothing database-shaped enters or is read
     parameters = set(inspect.signature(run_worker).parameters)
-    assert parameters == {"plan_bytes", "attempt_bytes", "grants", "store", "clock"}
+    # the lease is a store port, not a database: the worker still holds no ledger handle
+    assert parameters == {
+        "plan_bytes",
+        "attempt_bytes",
+        "grants",
+        "store",
+        "clock",
+        "lease",
+        "nonce",
+    }
     assert not {"dsn", "database", "connection", "ledger", "credentials"} & parameters
     tree = ast.parse(Path(inspect.getfile(worker_module)).read_text())
     imported = {
@@ -526,6 +537,7 @@ def test_staged_worker_stays_inside_the_scope_its_grant_names() -> None:
     manifest_ref = run_worker(
         scenario.plan_bytes, scenario.attempt_bytes, grants, worker_store, StepClock()
     )
+    assert isinstance(manifest_ref, ArtifactRef)
 
     touched = client.calls[staged:]
     assert {operation for operation, _ in touched} == {"get", "head", "put"}
@@ -928,6 +940,7 @@ def staged_attempt_manifest() -> tuple[Scenario, S3StagingStore, FakeS3, Artifac
     manifest_ref = run_worker(
         scenario.plan_bytes, scenario.attempt_bytes, grants, worker, StepClock()
     )
+    assert isinstance(manifest_ref, ArtifactRef)
     return scenario, control, client, manifest_ref
 
 
