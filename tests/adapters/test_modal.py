@@ -54,7 +54,7 @@ from conscience_foundry.execution.modal_adapter import (
 from conscience_foundry.execution.ports import Submission, TransportGrants
 from conscience_foundry.execution.worker import run_worker
 from conscience_foundry.policy.access import AccessContext
-from conscience_foundry.storage.local import VerifiedBytes
+from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 from conscience_foundry.storage.staging_s3 import S3StagingStore
 
 PROJECT = "00000000-0000-0000-0000-000000000001"
@@ -789,6 +789,7 @@ def make_executor(
     pin: ModalPin | None = None,
     clock: Callable[[], Instant] | None = None,
     evidence: list[tuple[str, bytes]] | None = None,
+    reader_for: Callable[[str, str], ObjectStore] | None = None,
 ) -> ModalExecutor:
     log = evidence if evidence is not None else []
 
@@ -810,7 +811,7 @@ def make_executor(
         ),
         record=record or capability(scenario.plan),
         execution_config_digest=scenario.plan.execution_config_ref.digest,
-        store=scenario.store,
+        reader_for=reader_for or (lambda _project, _attempt: scenario.store),
         access=AccessContext(PROJECT, ACTOR, frozenset({"read"})),
         limits=scenario.limits,
         clock=clock or (lambda: NOW),
@@ -908,6 +909,76 @@ def poll_executor(
     sdk.polls = list(polls)
     evidence: list[tuple[str, bytes]] = []
     return make_executor(scenario, sdk, evidence=evidence), sdk, evidence
+
+
+def staged_attempt_manifest() -> tuple[Scenario, S3StagingStore, FakeS3, ArtifactRef]:
+    """A worker scoped to the scenario's attempt writes its manifest under that attempt's prefix."""
+    scenario = build()
+    client = FakeS3()
+    control = make_store(client, issuer=Issuer(), max_object_bytes=65536, transfer_chunk_bytes=64)
+    for ref, raw in (
+        (scenario.limits_ref, scenario.limits.model_dump_json(by_alias=True).encode()),
+        (scenario.spec_ref, scenario.store.objects[scenario.spec_ref.digest]),
+        (scenario.report_ref, scenario.store.objects[scenario.report_ref.digest]),
+        (scenario.source_ref, SOURCE_BYTES),
+    ):
+        control.put_verified(io.BytesIO(raw), ref, CONTEXT)
+    grants = control.grant_transport(scenario.plan, scenario.attempt, CONTEXT)
+    worker = control.scoped_to(scenario.plan, scenario.attempt.attempt_id)
+    manifest_ref = run_worker(
+        scenario.plan_bytes, scenario.attempt_bytes, grants, worker, StepClock()
+    )
+    return scenario, control, client, manifest_ref
+
+
+def test_result_reads_manifest_from_attempt_prefix() -> None:
+    scenario, control, client, manifest_ref = staged_attempt_manifest()
+    asked: list[tuple[str, str]] = []
+
+    def reader_for(project_id: str, attempt_id: str) -> ObjectStore:
+        asked.append((project_id, attempt_id))
+        return control.attempt_reader(project_id, attempt_id)
+
+    sdk = FakeModal()
+    wire = manifest_ref.model_dump_json(by_alias=True, exclude_none=True).encode()
+    sdk.polls = [ModalPoll("completed", wire)]
+    executor = make_executor(scenario, sdk, reader_for=reader_for)
+    staged = len(client.calls)
+
+    observed = executor.observe(running(scenario))
+
+    assert (observed.state, observed.result_ref) == ("succeeded", manifest_ref)
+    assert asked == [(PROJECT, ATTEMPT)]
+    attempt_prefix = f"staging/f1/{PROJECT}/attempts/{ATTEMPT}/"
+    reads = [key for operation, key in client.calls[staged:] if operation == "get"]
+    assert reads and all(key.startswith(attempt_prefix) for key in reads)
+
+
+def test_result_cannot_read_other_attempt() -> None:
+    scenario, control, client, manifest_ref = staged_attempt_manifest()
+    other = "00000000-0000-0000-0000-0000000000a1"
+    asked: list[tuple[str, str]] = []
+
+    def reader_for(project_id: str, attempt_id: str) -> ObjectStore:
+        asked.append((project_id, attempt_id))
+        return control.attempt_reader(project_id, attempt_id)
+
+    sdk = FakeModal()
+    # another attempt's call nominates the manifest that attempt ATTEMPT staged
+    wire = manifest_ref.model_dump_json(by_alias=True, exclude_none=True).encode()
+    sdk.polls = [ModalPoll("completed", wire)]
+    executor = make_executor(scenario, sdk, reader_for=reader_for)
+    intruder = StageAttempt.model_validate(
+        running(scenario).model_dump(by_alias=True, exclude_none=True) | {"attemptId": other}
+    )
+    staged = len(client.calls)
+
+    observed = executor.observe(intruder)
+
+    assert (observed.state, observed.result_ref) == ("unknown_outcome", None)
+    assert asked == [(PROJECT, other)]
+    prefix = f"staging/f1/{PROJECT}/attempts/{ATTEMPT}/"
+    assert all(not key.startswith(prefix) for _, key in client.calls[staged:])
 
 
 def test_observe_maps_sdk_outcomes_without_inventing_failure_or_absence() -> None:

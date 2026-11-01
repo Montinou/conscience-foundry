@@ -20,6 +20,9 @@ Trust model:
   is ``unknown_outcome`` (``cancel_requested`` while a cancel stands): expired
   output does not mean no work happened or nothing is owed. A cancel request is
   only a request until the SDK reports the call cancelled.
+* The result manifest is read through ``reader_for(project_id, attempt_id)``, a reader
+  confined to that one attempt's staging prefix: a nominated reference outside it is
+  unreadable, hence unresolved.
 * Every observation carries a stored evidence record that names only the
   attempt, the call id and the states; no grant material, payload or provider
   response is retained or logged. Independent attestation of that evidence stays
@@ -40,6 +43,7 @@ from conscience_foundry.contracts.common import (
     ContractError,
     ContractLimits,
     Digest,
+    Id,
     Instant,
     Ref,
 )
@@ -101,7 +105,7 @@ class ModalExecutor:
     pin: ModalPin
     record: CapabilityRecord = field(repr=False)
     execution_config_digest: Digest
-    store: ObjectStore = field(repr=False)
+    reader_for: Callable[[Id, Id], ObjectStore] = field(repr=False)
     access: AccessContext
     limits: ContractLimits = field(repr=False)
     clock: Callable[[], Instant] = field(repr=False)
@@ -249,7 +253,9 @@ class ModalExecutor:
                 or ref.size_bytes > self.limits.max_output_bytes
             ):
                 return None
-            value = self.store.read_verified(ref, self.access, ref.size_bytes)
+            # Only the attempt's own prefix is readable: the reader is built per attempt.
+            reader = self.reader_for(attempt.project_id, attempt.attempt_id)
+            value = reader.read_verified(ref, self.access, ref.size_bytes)
             manifest = ResultManifest.from_wire(value.data, self.limits)
             if (
                 hashlib.sha256(value.data).hexdigest() != ref.digest

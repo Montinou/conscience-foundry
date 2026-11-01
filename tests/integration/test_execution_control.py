@@ -2262,7 +2262,7 @@ def modal_over(c: Case, sdk: PendingModal) -> Any:
         ),
         record=record,
         execution_config_digest=c.plan.execution_config_ref.digest,
-        store=c.store,
+        reader_for=lambda _project, _attempt: c.store,
         access=c.access,
         limits=c.bound,
         clock=lambda: TIME,
