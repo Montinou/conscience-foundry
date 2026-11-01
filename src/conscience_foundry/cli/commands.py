@@ -23,6 +23,7 @@ from uuid import uuid4
 import psycopg
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
+from conscience_foundry.cli import live
 from conscience_foundry.cli.config import (
     R2StoreSettings,
     Runtime,
@@ -103,7 +104,7 @@ from conscience_foundry.release.publication import activate, append_publication
 from conscience_foundry.release.read import resolve_span
 from conscience_foundry.storage.custody import inspect_intake
 
-Status = Literal["ok", "dry_run", "blocked", "failed"]
+Status = Literal["ok", "dry_run", "blocked", "failed", "interrupted"]
 
 BLOCKED_CODES = frozenset(
     {
@@ -130,6 +131,7 @@ BLOCKED_CODES = frozenset(
         "admission_blocked",
         "project_concurrency_limit",
         "limit_exceeded",
+        "live_requires_pilot",
     }
 )
 """Deliberate refusals; anything else is a failure of the work itself."""
@@ -163,6 +165,8 @@ class Command:
     needs: tuple[str, ...] = ()
     effect: bool = True
     stateful: bool = True
+    always: Mapping[str, object] = field(default_factory=dict)
+    """Data stated in every report of this command, whatever its outcome (dry runs included)."""
 
 
 # --- request-file helpers -------------------------------------------------------------------
@@ -471,6 +475,9 @@ def _dispatch(inv: Invocation) -> Outcome:
     executor, transport = services.executor, services.transport_grants
     if executor is None or transport is None:
         raise ContractError("adapter_unavailable")
+    if isinstance(executor, live.PilotOnlyExecutor):
+        # The live runtime is held only by run-pilot; nothing is read, reserved or minted here.
+        raise ContractError(live.LIVE_REQUIRES_PILOT)
     control = rt.control
     plan_ref = _ref_file(rt, args.plan_ref)
     authorization_ref = _ref_file(rt, args.authorization_ref)
@@ -503,20 +510,28 @@ def _dispatch(inv: Invocation) -> Outcome:
         # Asked by the ledger only after the attempt is reserved, funded and claimed.
         return transport(plan, claimed, plan_ref)
 
-    attempt = dispatch(
-        plan,
-        authorization,
-        rt.access,
-        rt.ledger,
-        executor,
-        issue,
-        control=control,
-        plan_ref=plan_ref,
-        authorization_ref=authorization_ref,
-        asset_id=asset_id,
-        evidence_ref=evidence_ref,
-        manual_retry=retry,
-    )
+    try:
+        attempt = dispatch(
+            plan,
+            authorization,
+            rt.access,
+            rt.ledger,
+            executor,
+            issue,
+            control=control,
+            plan_ref=plan_ref,
+            authorization_ref=authorization_ref,
+            asset_id=asset_id,
+            evidence_ref=evidence_ref,
+            manual_retry=retry,
+        )
+    except KeyboardInterrupt:
+        session = live.open_session(services)
+        if session is not None:
+            # Still inside the step: the claimed attempt is stopped with the session's token,
+            # the call is terminated, then the interrupt goes on to run-pilot.
+            live.interrupted_dispatch(rt, executor, session, plan)
+        raise
     return _attempt_outcome(attempt)
 
 
@@ -530,6 +545,11 @@ def _reconcile(inv: Invocation) -> Outcome:
     if executor is None:
         raise ContractError("adapter_unavailable")
     attempt_id = _id(args.attempt_id)
+    session = live.open_session(rt.services)
+    if session is not None:
+        # Under run-pilot: wait for the call, cancelling it through the ledger at its deadline;
+        # a Ctrl-C while waiting is handled there, with the session still open.
+        live.await_terminal(rt, executor, session, attempt_id)
     selected = reconcile(attempt_id, rt.ledger, executor, rt.store, control=rt.control)
     return _attempt_outcome(
         _attempt(rt, attempt_id), selection=_dump(selected) if selected is not None else None
@@ -1147,6 +1167,13 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
 
 def run_command(command: Command, args: argparse.Namespace, services: TrustedServices) -> Outcome:
     """Gate, then execute one command; every failure becomes a stable, redacted code."""
+    outcome = _run(command, args, services)
+    if not command.always:
+        return outcome
+    return Outcome(outcome.status, outcome.code, {**outcome.data, **command.always})
+
+
+def _run(command: Command, args: argparse.Namespace, services: TrustedServices) -> Outcome:
     try:
         if not command.stateful:
             return with_flag(command.handler(Invocation(args, None)), executed=True)

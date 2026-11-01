@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, cast
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
@@ -62,6 +62,9 @@ from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
 from conscience_foundry.storage.r2 import R2ObjectStore, r2_static_client
 from conscience_foundry.storage.staging_s3 import StagingConfig
+
+if TYPE_CHECKING:
+    from conscience_foundry.cli.live import LiveWiring
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -262,6 +265,8 @@ class LiveSettings(WireModel):
     startup_timeout_seconds: PositiveInteger
     execution_timeout_seconds: PositiveInteger
     cancel_margin_seconds: PositiveInteger
+    cloudflare_timeout_seconds: PositiveInteger
+    """Bound on each Cloudflare API request that mints a temporary R2 credential."""
     capability_valid_seconds: PositiveInteger
     r2_account_id: AccountId
     parent_access_key_id_env: EnvName
@@ -384,6 +389,13 @@ class RuntimeConfig(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
 
+    @model_validator(mode="after")
+    def live_needs_a_project_cap(self) -> Self:
+        """A live section always carries the project-wide cap; there is no default for it."""
+        if self.live is not None and self.project_max_live_attempts is None:
+            raise ValueError("a live section requires project_max_live_attempts")
+        return self
+
 
 @dataclass(frozen=True)
 class TrustedServices:
@@ -403,6 +415,9 @@ class TrustedServices:
     issuer_scopes: Callable[[ExecutionPlan, Id], tuple[frozenset[str], str]] | None = None
     """Reports what the credential issuer would mint for a plan and attempt: (read keys, write
     prefix). Preflight compares it with the plan; it never mints anything."""
+    live: LiveWiring | None = None
+    """The live wiring a config's ``live`` section stands for (``cli.live.build_services``); its
+    session is set only by ``run-pilot``, and only while that session is open."""
 
 
 class _Refusing:
@@ -675,7 +690,14 @@ class Runtime:
             staged_reader=self.services.staged_reader,
             stage_inputs=self.services.stage_inputs,
             project_max_live_attempts=self.config.project_max_live_attempts,
+            deadline_token=self._deadline_token(),
         )
+
+    def _deadline_token(self) -> object | None:
+        """The open live session's private token; only a pilot's dispatch or reconcile has one."""
+        wiring = self.services.live
+        session = wiring.session if wiring is not None else None
+        return session.deadline_token if session is not None else None
 
     @property
     def release(self) -> ReleaseContext:

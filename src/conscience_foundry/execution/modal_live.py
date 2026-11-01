@@ -431,15 +431,23 @@ def _sdk_version(version: object) -> tuple[int, ...] | None:
     return tuple(int(part) for part in found.groups()) if found else None
 
 
-def _load_modal() -> Any:
-    try:
-        import modal
-    except ImportError:
-        raise ContractError("unsupported_capability") from None
-    version = _sdk_version(getattr(modal, "__version__", None))
+def _load_modal(module: object | None = None) -> Any:
+    """The injected module, else ``import modal``; either way at least ``MIN_SDK``."""
+    if module is None:
+        try:
+            import modal
+        except ImportError:
+            raise ContractError("unsupported_capability") from None
+        module = modal
+    version = _sdk_version(getattr(module, "__version__", None))
     if version is None or version < MIN_SDK:
         raise ContractError("unsupported_capability")
-    return modal
+    return module
+
+
+def sdk_version(module: object | None = None) -> str:
+    """The version of the ``modal`` SDK a session would use; nothing is opened or read."""
+    return str(_load_modal(module).__version__)
 
 
 @dataclass(frozen=True)
@@ -495,7 +503,13 @@ class LiveModalSession:
     """An open ephemeral app for one profile, and the ``ModalSdk`` over its one function."""
 
     def __init__(
-        self, profile: str, options: LiveFunctionOptions, deadline_seconds: int, clock: Clock
+        self,
+        profile: str,
+        options: LiveFunctionOptions,
+        deadline_seconds: int,
+        clock: Clock,
+        *,
+        modal: object | None = None,
     ) -> None:
         if (
             type(profile) is not str
@@ -510,6 +524,7 @@ class LiveModalSession:
         self.options = options
         self.deadline_seconds = deadline_seconds
         self._clock = clock
+        self._module = modal  # None: ``import modal`` when the session opens
         self._deadline_token = DeadlineToken(_MINT)
         self._records: dict[str, CallRecord] = {}
         self._state: Literal["new", "open", "closed"] = "new"
@@ -536,7 +551,7 @@ class LiveModalSession:
         if self._state != "new":
             raise ContractError("unavailable")
         self._state = "closed"  # until the app is really running
-        modal = _load_modal()
+        modal = _load_modal(self._module)
         try:
             values = tuple(
                 modal.config.config.get(key, profile=self.profile, use_env=False)
@@ -697,31 +712,31 @@ class LiveModalSession:
             raise ContractError("dispatch_unknown") from None  # delivered or not: unknown
         self._update(call_id, terminated=True)
 
-    def poll_until_terminal(
-        self, call_id: str, on_deadline: Callable[[], None] | None = None
-    ) -> ModalPoll:
+    def poll_until_terminal(self, call_id: str, on_deadline: Callable[[], None]) -> ModalPoll:
         """Wait for the call to end; at its deadline cancel it and report what the SDK then says.
 
         Each wait is bounded by the time left, so there is no polling interval to configure. The
         deadline is ``deadline_seconds`` after the spawn. At the deadline ``on_deadline`` is called
         once: the control side passes a callback that runs ``cancel_attempt`` with this session's
         token, so the cancel is recorded in the ledger before it goes out (the executor's cancel
-        then reaches ``cancel``). The session does not rely on it: a call it has not terminated by
-        then is cancelled here, and a callback that failed is reported as ``unavailable`` after
-        that. Without a callback the session cancels on its own. A cancel that cannot be delivered
-        is ``dispatch_unknown``; a cancel that is still taking effect reports ``pending``.
+        then reaches ``cancel``). The callback is required: a session never cancels on its own
+        behind the ledger's back. Only after the callback ran does the session cancel a call it
+        has not yet terminated (a backstop, so nothing outlives its deadline), and a callback that
+        failed is reported as ``unavailable`` after that. A cancel that cannot be delivered is
+        ``dispatch_unknown``; a cancel that is still taking effect reports ``pending``.
         """
+        if not callable(on_deadline):
+            raise ContractError("invalid_schema")
         record = self._own(call_id)
         deadline = _parse(record.spawned_at) + timedelta(seconds=self.deadline_seconds)
         while True:
             remaining = (deadline - _parse(self._now())).total_seconds()
             if remaining <= 0:
                 failed = False
-                if on_deadline is not None:
-                    try:
-                        on_deadline()
-                    except Exception:
-                        failed = True  # the SDK's answer, not the callback's message, is shown
+                try:
+                    on_deadline()
+                except Exception:
+                    failed = True  # the SDK's answer, not the callback's message, is shown
                 if not self._records[call_id].terminated:
                     self.cancel(call_id)
                 outcome = self._poll(call_id, 0)

@@ -648,7 +648,12 @@ def reserve_storage(
     *,
     context: BudgetContext,
 ) -> Id:
-    """Reserve the separately evidenced funded storage horizon before upload."""
+    """Reserve the separately evidenced funded storage horizon before upload.
+
+    A run holds at most one open storage horizon: while a ``run_storage`` reservation is neither
+    finally billed nor released, another one (a repeated ``reserve-storage``, whatever its
+    evidence) is refused with ``activation_conflict`` and nothing is funded twice.
+    """
     with tx.connection.transaction():
         project = context.access.project_id
         _context(context, project, run_id, "reserve_storage")
@@ -663,6 +668,8 @@ def reserve_storage(
         if type(amount) is not str or Decimal(amount) <= 0:
             raise ContractError("invalid_schema")
         installed = _installed(tx, project, run_id)
+        if _open_storage(tx, project, run_id):
+            raise ContractError("activation_conflict")
         _spending(tx, project, run_id, installed, context, Decimal(amount))
         auth_ref = _stored_ref(installed[4])
         request = json.dumps(
@@ -689,6 +696,18 @@ def reserve_storage(
         return reservation
 
 
+def _open_storage(tx: LedgerTxn, project: Id, run: Id) -> bool:
+    """Whether the run holds a ``run_storage`` reservation that is neither billed nor released."""
+    row = tx.connection.execute(
+        sql.SQL(
+            "SELECT EXISTS(SELECT 1 FROM {} WHERE project_id=%s AND run_id=%s "
+            "AND scope='run_storage' AND NOT final_billing AND released_usd<reserved_usd)"
+        ).format(tx.table("reservations")),
+        (project, run),
+    ).fetchone()
+    return row is not None and row[0] is True
+
+
 def ledger_storage_gate(ledger: Ledger, run_id: Id) -> StorageReservationGate:
     """Control-side gate: true only while the run holds an open ``run_storage`` reservation.
 
@@ -707,14 +726,7 @@ def ledger_storage_gate(ledger: Ledger, run_id: Id) -> StorageReservationGate:
         ):
             return False
         with ledger.transaction() as tx:
-            row = tx.connection.execute(
-                sql.SQL(
-                    "SELECT EXISTS(SELECT 1 FROM {} WHERE project_id=%s AND run_id=%s "
-                    "AND scope='run_storage' AND NOT final_billing AND released_usd<reserved_usd)"
-                ).format(tx.table("reservations")),
-                (context.project_id, run_id),
-            ).fetchone()
-        return row is not None and row[0] is True
+            return _open_storage(tx, context.project_id, run_id)
 
     return gate
 

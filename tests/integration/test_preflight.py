@@ -1298,6 +1298,7 @@ def wiring(calls: list[str] | None = None, **overrides: Any) -> dict[str, Any]:
         "staged_reader": store.attempt_reader,
         "executor": WiredExecutor([] if calls is None else calls, store.attempt_reader),
         "issuer_scopes": issuer_scopes_of(store),
+        "stage_inputs": lambda plan, context: (),
     }
     return values | overrides
 
@@ -1616,3 +1617,48 @@ def test_packet_files_are_digest_stable_wire_documents() -> None:
     first = packet_digest(case.packet)
     again = packet_digest(PreflightPacket.from_wire(wire(case.packet_wire), base_limits()))
     assert first == again
+
+
+# -- T15: reserve-storage is bound to the packet; staging needs input staging too --------------
+
+
+def _with_reserve_storage(cli: Cli, run_id: str, evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    prepare, authorize, dispatch = cli.bound_steps()
+    evidence_file = cli.document("step-storage-estimate-ref.json", wire(evidence))
+    reserve = {
+        "command": "reserve-storage",
+        "argv": ["--run-id", run_id, "--amount", "0.40", "--evidence", str(evidence_file)],
+    }
+    return [prepare, authorize, reserve, dispatch]
+
+
+def test_run_pilot_binds_reserve_storage_to_the_packet(
+    cli: Cli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = Recorder()
+    monkeypatch.setattr(pilot_cli, "run_command", recorder)
+    estimate = cli.case.packet_wire["estimateRef"]
+    other = ref(b"another estimate", "cfx.cost-estimate.v1")
+    for steps in (
+        _with_reserve_storage(cli, OTHER, estimate),  # another run
+        _with_reserve_storage(cli, RUN, other),  # an estimate the packet did not preflight
+    ):
+        result = cli.env.invoke(*bound_argv(cli, steps), services=cli.services())
+        assert result.exit == 3 and result.code == "forbidden", result.raw
+    assert recorder.ran == []
+    bound = cli.env.invoke(
+        *bound_argv(cli, _with_reserve_storage(cli, RUN, estimate)), services=cli.services()
+    )
+    assert bound.exit == 0, bound.raw
+    assert [name for name, *_ in recorder.ran] == [
+        "prepare-run",
+        "authorize-run",
+        "reserve-storage",
+        "dispatch",
+    ]
+
+
+def test_gates_open_without_stage_inputs() -> None:
+    # A staged result can be imported only if the inputs it was made from were staged first.
+    assert attested(stage_inputs=None) == frozenset({SCOPED_EXECUTOR_STORE})
+    assert attested() == CLOSED

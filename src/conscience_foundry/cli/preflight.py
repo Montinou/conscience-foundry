@@ -14,16 +14,27 @@ internally consistent. It never starts anything.
 * a separately recorded ``LiveGrant`` names this exact packet digest, this actor, a live window,
   and exactly the ordered commands in the steps document.
 
-Three steps have their documents checked against that preflighted packet before anything runs:
+Four steps have their documents checked against that preflighted packet before anything runs:
 ``prepare-run`` must name the packet's pinned plan (``planDigest``); ``authorize-run`` must name a
-RunAuthorization for that plan and run, within the packet's cap, actor and expiry; ``dispatch``
-must name that same plan, that same authorization (it must have been authorized earlier in this
-pilot) and the packet's reviewed estimate (``estimateRef``) as its evidence reference. The other
+RunAuthorization for that plan and run, within the packet's cap, actor and expiry;
+``reserve-storage`` must name that plan's run and the packet's reviewed estimate (``estimateRef``)
+as its evidence; ``dispatch`` must name that same plan, that same authorization (it must have been
+authorized earlier in this pilot) and the reviewed estimate as its evidence reference. The other
 steps' arguments are not inspected here: the asset is bound through the plan's ``operation_key``,
-and ``backup`` and ``reconcile`` take only what their own commands and gates accept. These check
-reads and each command's later read of the same operator-owned step files happen separately, by
-path; the files are not locked or pinned between them, so they belong in the operator's private
-directory and a file edited in between is not detected here.
+and ``backup`` and ``reconcile`` take only what their own commands and gates accept. The
+reconcile step's ``--attempt-id`` may be the literal ``@dispatch``, accepted only after a dispatch
+step, and replaced by the attempt id that dispatch step returned. These check reads and each
+command's later read of the same operator-owned step files happen separately, by path; the files
+are not locked or pinned between them, so they belong in the operator's private directory and a
+file edited in between is not detected here; the authorization bytes are pinned by digest, so a
+changed authorization file is refused by the evidence authority.
+
+With a live config section (``cli.live``) the pilot holds the live runtime: the evidence authority
+approves only the authorization checked here, and one Modal session is opened before the first
+dispatch or reconcile step and exited after the last one, on every exit. A Ctrl-C inside those
+steps is handled by the step itself while the session is open (the attempt is cancelled through
+the ledger, or marked ``unknown_outcome``); ``run-pilot`` then only exits the app and reports
+``interrupted`` (exit 130). Every report states the residual risks (``residual_risks``).
 
 Each step is then run through the same gated ``run_command`` with ``--execute``, so every library
 gate, config grant and adapter requirement of that command still applies. Manual retry and a second
@@ -46,17 +57,21 @@ import json
 import os
 import stat
 from collections.abc import Callable
+from contextlib import ExitStack
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
 
 from pydantic import BeforeValidator, Field
 
+from conscience_foundry.cli import live
 from conscience_foundry.cli.commands import (
     BY_NAME,
     Command,
     Invocation,
     Outcome,
+    Status,
+    classify,
     run_command,
 )
 from conscience_foundry.cli.config import (
@@ -65,6 +80,7 @@ from conscience_foundry.cli.config import (
     _bootstrap,
     read_trusted,
 )
+from conscience_foundry.cli.live import RESIDUAL_RISKS
 from conscience_foundry.contracts.common import ContractError, Id, Ref, ScalarString, WireModel
 from conscience_foundry.contracts.execution import ExecutionPlan, RunAuthorization
 from conscience_foundry.operator.packet import (
@@ -85,6 +101,10 @@ from conscience_foundry.storage.staging_s3 import readable_refs
 __all__ = ["PILOT_COMMANDS", "USED_GRANTS", "attested_gates", "run_command"]
 
 BLOCKED = "preflight_blocked"
+ATTEMPT_TOKEN = "@dispatch"
+"""A reconcile step's ``--attempt-id`` that stands for the attempt an earlier dispatch returned."""
+SESSION_STEPS = frozenset({"dispatch", "reconcile"})
+"""The steps that run while the live session is open."""
 USED_GRANTS = "pilot-used-grants"
 """Directory, beside the trusted operator config file, holding one marker per consumed grant."""
 
@@ -233,16 +253,19 @@ def _holds(check: Callable[[], bool]) -> bool:
 def attested_gates(services: TrustedServices, project_id: Id) -> frozenset[str]:
     """The blocking gates the runtime wiring itself proves closed; a missing piece closes none.
 
-    * ``staging_store_transfer``: ``staged_reader`` returns, for a synthetic project and attempt,
-      a reader scoped to exactly that pair (an unscoped or fixed-scope reader fails the probe);
+    * ``staging_store_transfer``: the inputs can be staged (``stage_inputs``) and
+      ``staged_reader`` returns, for a synthetic project and attempt, a reader scoped to exactly
+      that pair (an unscoped or fixed-scope reader fails the probe);
     * ``executor_scoped_store``: the executor's ``reader_for`` passes the same probe and
       ``issuer_scopes`` reports exactly the probe plan's read keys and the attempt prefix.
 
     Nothing here comes from a file, a flag or the operator packet.
     """
     closed: set[str] = set()
-    if services.staged_reader is not None and _holds(
-        lambda: _reader_is_scoped(services.staged_reader, project_id)
+    if (
+        services.staged_reader is not None
+        and services.stage_inputs is not None
+        and _holds(lambda: _reader_is_scoped(services.staged_reader, project_id))
     ):
         closed.add(STAGING_STORE_TRANSFER)
     if (
@@ -406,6 +429,11 @@ class _Binding:
             ):
                 _forbidden()
             self.authorized = hashlib.sha256(data).hexdigest()
+        elif name == "reserve-storage":
+            if parsed.run_id != self.plan.run_id or not _same_ref(
+                self._ref(parsed.evidence), self.estimate_ref
+            ):
+                _forbidden()
         elif name == "dispatch":
             plan_ref = self._ref(parsed.plan_ref)
             if (
@@ -436,6 +464,10 @@ def _planned_steps(
         parsed = parser.parse_args(list(step.argv))
         if getattr(parsed, "manual_retry", None) is not None:
             raise ContractError("forbidden")  # duplicate-charge-risk retry is never granted here
+        if getattr(parsed, "attempt_id", None) == ATTEMPT_TOKEN and (
+            command.name != "reconcile" or "dispatch" not in names[: len(planned)]
+        ):
+            raise ContractError("forbidden")  # only an earlier dispatch can supply the attempt
         binding.check(command.name, parsed)
         parsed.command, parsed.config, parsed.execute = command.name, config, True
         planned.append((command, parsed))
@@ -489,51 +521,104 @@ def _consume_grant(config: str | None, grant: LiveGrant, packet: PreflightPacket
         raise ContractError("unavailable") from None
 
 
+def _report(status: Status, code: str | None, data: dict[str, Any] | None = None) -> Outcome:
+    """Every run-pilot report states what this runtime cannot recover or settle by itself."""
+    return Outcome(status, code, {**(data or {}), "residual_risks": list(RESIDUAL_RISKS)})
+
+
 def _run_pilot(inv: Invocation) -> Outcome:
+    try:
+        return _pilot(inv)
+    except ContractError as error:
+        refused = classify(error)
+        return _report(refused.status, refused.code)
+
+
+def _session_span(planned: list[tuple[Command, argparse.Namespace]]) -> tuple[int, int] | None:
+    """The first and last step that run under the live session, if any does."""
+    indexes = [i for i, (command, _) in enumerate(planned) if command.name in SESSION_STEPS]
+    return (indexes[0], indexes[-1]) if indexes else None
+
+
+def _pilot(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     packet, evidence, report = _check(inv)
     if not report.ready:
-        return Outcome("blocked", BLOCKED, _report_data(report))
+        return _report("blocked", BLOCKED, _report_data(report))
     if args.grant is None:
         raise ContractError("grant_missing")
     grant = _parse(LiveGrant, _read(args.grant))
     refused = live_grant_blockers(packet, report, grant, rt.access, rt.clock())
     if refused:
-        return Outcome(
+        return _report(
             "blocked",
             refused[0].code,
             {"blockers": [{"code": r.code, "message": r.message} for r in refused]},
         )
     binding = _Binding(packet, evidence, rt.access)
     planned = _planned_steps(_parse(PilotSteps, _read(args.steps)), grant, args.config, binding)
+    # The live runtime is built from what was just verified, before the grant is spent.
+    runtime = live.pilot(rt, packet, evidence, binding.plan, binding.authorized)
     _consume_grant(args.config, grant, packet)  # from here the grant is spent, whatever happens
+    span = _session_span(planned) if runtime is not None else None
     results: list[dict[str, Any]] = []
-    for index, (command, parsed) in enumerate(planned):
-        moment = rt.clock()
-        if moment >= grant.expires_at or moment >= binding.expires_at:
-            return Outcome(
-                "blocked",
-                "authorization_expired",
-                {"steps": results, "haltedAt": index, "paidPilotAcceptance": "not_established"},
-            )
-        outcome = run_command(command, parsed, rt.services)
-        entry: dict[str, Any] = {"command": command.name, "outcome": outcome.status}
-        if outcome.code is not None:
-            entry["code"] = outcome.code
-        results.append(entry)
-        if outcome.status != "ok":
-            # Inner payloads are never echoed; a halted pilot is never partial success.
-            status = outcome.status if outcome.status in ("blocked", "failed") else "failed"
-            return Outcome(
-                status,
-                outcome.code or "internal_error",
-                {"steps": results, "haltedAt": index, "paidPilotAcceptance": "not_established"},
-            )
-    return Outcome(
-        "ok",
-        None,
-        {"steps": results, "paidPilotAcceptance": "not_established"},
-    )
+    dispatched: str | None = None
+    index = 0
+
+    def halted(status: Status, code: str) -> Outcome:
+        # Inner payloads are never echoed; a halted pilot is never partial success.
+        return _report(
+            status,
+            code,
+            {"steps": results, "haltedAt": index, "paidPilotAcceptance": "not_established"},
+        )
+
+    try:
+        with ExitStack() as stack:
+            for index, (command, parsed) in enumerate(planned):
+                moment = rt.clock()
+                if moment >= grant.expires_at or moment >= binding.expires_at:
+                    return halted("blocked", "authorization_expired")
+                services = rt.services
+                if runtime is not None:
+                    within = span is not None and span[0] <= index <= span[1]
+                    if span is not None and index == span[0]:
+                        try:
+                            stack.enter_context(runtime.session)
+                        except ContractError as error:
+                            results.append(
+                                {"command": command.name, "outcome": "blocked", "code": error.code}
+                            )
+                            return halted("blocked", error.code)
+                    services = runtime.services(session_open=within)
+                if getattr(parsed, "attempt_id", None) == ATTEMPT_TOKEN:
+                    if dispatched is None:
+                        return halted("blocked", "forbidden")
+                    parsed = argparse.Namespace(**{**vars(parsed), "attempt_id": dispatched})
+                outcome = run_command(command, parsed, services)
+                if command.name == "dispatch":
+                    dispatched = _dispatched_attempt(outcome)
+                if span is not None and index == span[1]:
+                    stack.close()  # the session ends with the last step that needs it
+                entry: dict[str, Any] = {"command": command.name, "outcome": outcome.status}
+                if outcome.code is not None:
+                    entry["code"] = outcome.code
+                results.append(entry)
+                if outcome.status != "ok":
+                    status = outcome.status if outcome.status in ("blocked", "failed") else "failed"
+                    return halted(status, outcome.code or "internal_error")
+    except KeyboardInterrupt:
+        # The step already stopped its attempt while the session was open; the session has now
+        # been exited by the stack. Nothing else is done here.
+        results.append({"command": planned[index][0].name, "outcome": "interrupted"})
+        return halted("interrupted", "interrupted")
+    return _report("ok", None, {"steps": results, "paidPilotAcceptance": "not_established"})
+
+
+def _dispatched_attempt(outcome: Outcome) -> str | None:
+    attempt = outcome.data.get("attempt")
+    found = attempt.get("attemptId") if isinstance(attempt, dict) else None
+    return found if type(found) is str and found else None
 
 
 PILOT_COMMANDS: tuple[Command, ...] = (
@@ -549,5 +634,6 @@ PILOT_COMMANDS: tuple[Command, ...] = (
         "run the granted pilot steps through the existing commands",
         _pilot_arguments,
         _run_pilot,
+        always={"residual_risks": list(RESIDUAL_RISKS)},
     ),
 )

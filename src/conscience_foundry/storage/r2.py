@@ -76,7 +76,7 @@ class R2CredentialIssuer:
     account_id: str
     bucket: str
     prefix: str
-    parent_access_key_id: str
+    parent_access_key_id: str = field(repr=False)
     token_env: str = field(repr=False)
     total_bound_seconds: int
     clock: Callable[[], Instant] = field(repr=False)

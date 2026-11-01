@@ -404,6 +404,7 @@ def settings_document() -> dict[str, Any]:
         "startupTimeoutSeconds": 60,
         "executionTimeoutSeconds": 300,
         "cancelMarginSeconds": 30,
+        "cloudflareTimeoutSeconds": 30,
         "capabilityValidSeconds": 3600,
         "r2AccountId": ACCOUNT,
         "parentAccessKeyIdEnv": "SYNTHETIC_PARENT_KEY_ID",
@@ -441,7 +442,7 @@ def test_live_settings_reject_missing_field() -> None:
     document = settings_document()
     top = [name for name in document if name != "staging"]
     nested = list(document["staging"])
-    assert len(top) == 15 and len(nested) == 10
+    assert len(top) == 16 and len(nested) == 10
     for name in top:
         broken = settings_document()
         del broken[name]
@@ -706,11 +707,45 @@ def test_option_readback_mismatch_refuses(
         assert world.spawned == []
 
 
+def no_callback() -> None:  # a deadline callback that records nothing
+    return None
+
+
+def test_poll_until_terminal_requires_a_deadline_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the control side's callback the session would cancel behind the ledger's back."""
+    world, _ = install(monkeypatch)
+    with make_session(clock=TickClock(step=10.0), deadline=5) as session:
+        call_id = spawn_one(session, world)
+        assert (
+            inspect.signature(session.poll_until_terminal).parameters["on_deadline"].default
+            is inspect.Parameter.empty
+        )
+        for missing in (None, "not-callable"):
+            with pytest.raises(ContractError) as refused:
+                session.poll_until_terminal(call_id, missing)  # type: ignore[arg-type]
+            assert refused.value.code == "invalid_schema"
+    assert world.get_timeouts == [] and world.cancel_calls == []  # nothing was waited or cancelled
+
+
+def test_session_uses_an_injected_modal_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    world, module = install(monkeypatch)
+    monkeypatch.delitem(sys.modules, "modal")  # only the injected module can be used
+    session = LiveModalSession(PROFILE, make_options(), 480, TickClock(), modal=module)
+    with session:
+        spawn_one(session, world)
+    assert world.entered == 1 and world.exited == [None]
+    old = types.ModuleType("modal")
+    old.__version__ = "1.2.2"  # type: ignore[attr-defined]
+    with pytest.raises(ContractError) as refused:
+        LiveModalSession(PROFILE, make_options(), 480, TickClock(), modal=old).__enter__()
+    assert refused.value.code == "unsupported_capability"
+
+
 def test_deadline_cancels_call(monkeypatch: pytest.MonkeyPatch) -> None:
     world, _ = install(monkeypatch)
     with make_session(clock=TickClock(step=10.0), deadline=25) as session:
         call_id = spawn_one(session, world)  # spawned at t=0, deadline at t=25
-        poll = session.poll_until_terminal(call_id)
+        poll = session.poll_until_terminal(call_id, no_callback)
 
     # each wait is bounded by what is left before the deadline, then the call is cancelled
     assert world.get_timeouts == [15.0, 5.0, 0]
@@ -724,7 +759,7 @@ def test_deadline_cancels_call(monkeypatch: pytest.MonkeyPatch) -> None:
     with make_session(clock=TickClock(step=10.0), deadline=25) as session:
         call_id = spawn_one(session, world)
         world.outcomes[call_id] = [TimeoutError(), b"manifest-ref-json"]
-        poll = session.poll_until_terminal(call_id)
+        poll = session.poll_until_terminal(call_id, no_callback)
     assert poll == ModalPoll("completed", b"manifest-ref-json")
     assert world.cancel_calls == []
     assert session.records[call_id].completed is True
@@ -735,7 +770,7 @@ def test_deadline_cancels_call(monkeypatch: pytest.MonkeyPatch) -> None:
     with make_session(clock=TickClock(step=10.0), deadline=5) as session:
         call_id = spawn_one(session, world)
         with pytest.raises(ContractError) as unknown:
-            session.poll_until_terminal(call_id)
+            session.poll_until_terminal(call_id, no_callback)
     assert unknown.value.code == "dispatch_unknown"
     assert SDK_SECRET not in str(unknown.value)
     assert session.records[call_id].terminated is False
@@ -799,7 +834,7 @@ def test_ambiguous_worker_failures_are_unknown_not_remote_errors(
         assert session.records[call_id].completed is False
         # waiting for the end reports it the same way: never a failed attempt
         with pytest.raises(ContractError) as waited:
-            session.poll_until_terminal(call_id)
+            session.poll_until_terminal(call_id, no_callback)
         assert waited.value.code == "unavailable"
 
 
@@ -830,7 +865,11 @@ def test_unrecognized_sdk_failures_are_unknown_not_remote_errors(
 def test_poll_and_cancel_only_serve_own_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     world, _ = install(monkeypatch)
     with make_session() as session:
-        for action in (session.poll, session.cancel, session.poll_until_terminal):
+        for action in (
+            session.poll,
+            session.cancel,
+            lambda call: session.poll_until_terminal(call, no_callback),
+        ):
             with pytest.raises(ContractError) as foreign:
                 action("someone-elses-call")
             assert foreign.value.code == "forbidden"
@@ -852,7 +891,7 @@ def test_keyboard_interrupt_during_a_wait_propagates(monkeypatch: pytest.MonkeyP
         with make_session() as session:
             call_id = spawn_one(session, world)
             world.outcomes[call_id] = [KeyboardInterrupt()]
-            session.poll_until_terminal(call_id)
+            session.poll_until_terminal(call_id, no_callback)
     assert world.exited == [KeyboardInterrupt]
 
 

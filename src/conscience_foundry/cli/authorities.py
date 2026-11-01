@@ -24,8 +24,11 @@ Trust model:
 * Transport facts are the scopes the credential issuer itself reports for the pinned plan and the
   attempt, so what is attested is what is minted. The authority never mints and never sees a
   credential's content.
-* Install-run-authorization grants are not attested here: no independent approval source exists in
-  this authority's inputs, and echoing the request would be self-certification.
+* Install-run-authorization grants are attested only for the one authorization the operator
+  pinned (``approved_grant_digest``): ``run-pilot`` pins the digest of the authorization document it
+  checked against the preflighted packet before any step ran. The claim's own reference, bytes and
+  previous-authorization id must match it; without a pin every grant is refused, and nothing in the
+  claim can set the pin, so the request is never its own approval.
 * No secret, credential, signed URL or session internal is held in a fact, an error or a
   ``repr``; every refusal is a stable ``ContractError`` code.
 """
@@ -142,7 +145,9 @@ class LocalEvidenceAuthority:
 
     ``plans`` (the operator-pinned plans) and ``limits_by_schema`` (the bounds the estimate and
     the budget events are decoded with) are keyword-only because the estimate and transport facts
-    cannot be sourced without them; without them those facts are refused.
+    cannot be sourced without them; without them those facts are refused. ``approved_grant_digest``
+    is the operator's pin of the one run authorization this process may install (the digest of
+    its document bytes); ``None`` refuses every grant.
     """
 
     def __init__(
@@ -156,7 +161,16 @@ class LocalEvidenceAuthority:
         *,
         plans: tuple[PlanPin, ...] = (),
         limits_by_schema: Mapping[str, ContractLimits] | None = None,
+        approved_grant_digest: Digest | None = None,
     ) -> None:
+        try:
+            grant = (
+                None
+                if approved_grant_digest is None
+                else _DIGEST.validate_python(approved_grant_digest)
+            )
+        except ValidationError:
+            raise ContractError("invalid_schema") from None
         if (
             label not in get_args(EvidenceLabel)
             or (label == "live" and session is None)
@@ -177,6 +191,7 @@ class LocalEvidenceAuthority:
         self._estimate_ref, self._billing = estimate_ref, billing
         self._plans = {pin.ref.digest: pin for pin in plans}
         self._limits = MappingProxyType(dict(limits_by_schema or {}))
+        self._grant: Digest | None = grant
 
     def __repr__(self) -> str:
         return f"LocalEvidenceAuthority(label={self.label!r})"
@@ -189,8 +204,30 @@ class LocalEvidenceAuthority:
             return self._estimate_facts(proof)
         if purpose in _BILLING_PURPOSES:
             return self._billing_facts(proof)
-        # install_run_authorization, the reserve replay and anything unknown: not attestable here.
+        if purpose == "install_run_authorization":
+            return self._grant_facts(proof)
+        # The reserve replay and anything unknown: not attestable here.
         raise _refuse()
+
+    def _grant_facts(self, proof: BudgetProof) -> GrantFacts:
+        """The pinned authorization only: its reference, its exact bytes, its own actor."""
+        claim, pinned = proof.claim, self._grant
+        data = proof.evidence_bytes
+        if (
+            pinned is None
+            or claim.authorization_ref.digest != pinned
+            or claim.evidence_ref.digest != pinned
+            or type(data) is not bytes
+            or hashlib.sha256(data).hexdigest() != pinned
+            or len(data) != claim.authorization_ref.size_bytes
+        ):
+            raise _refuse()
+        return GrantFacts(
+            binding=proof.binding,
+            approved_grant_digest=pinned,
+            actor_id=proof.authorization.actor_id,
+            previous_authorization_id=claim.expected_previous_authorization_id,
+        )
 
     def _pin(self, digest: str) -> PlanPin:
         pin = self._plans.get(digest)
@@ -270,19 +307,7 @@ class LocalEvidenceAuthority:
                 reported = self._billing(claim.attempt_id)
             except Exception:
                 raise _refuse() from None
-            if (
-                type(reported) is not BillingFacts
-                or reported.cost_status not in ("actual", "estimated", "unknown")
-                or (reported.cost_status == "actual") != (reported.amount_usd is not None)
-                or (reported.cost_status == "unknown" and reported.amount_usd is not None)
-                or (
-                    reported.cost_status != "actual"
-                    and (reported.final or reported.no_further_liability)
-                )
-            ):
-                raise _refuse()
-            # The report carries the operator's figures; the binding is this request's.
-            return replace(reported, binding=proof.binding)
+            return checked_billing(reported, proof)
         if (
             claim.purpose == "record_usage"
             and self._event_cost_status(claim.request_bytes) == "unknown"
@@ -401,6 +426,24 @@ class LocalEvidenceAuthority:
                 and not any(key.startswith(write_prefix) for key in read_keys)
             ),
         )
+
+
+def checked_billing(reported: object, proof: BudgetProof) -> BillingFacts:
+    """Billing facts from an operator's billing source, bound to this request.
+
+    ``actual`` iff an amount is given, ``unknown`` never carries one, and only an ``actual`` bill
+    can be final or end the liability: an estimate is never final. The figures are the source's;
+    the binding is the request's.
+    """
+    if (
+        type(reported) is not BillingFacts
+        or reported.cost_status not in ("actual", "estimated", "unknown")
+        or (reported.cost_status == "actual") != (reported.amount_usd is not None)
+        or (reported.cost_status == "unknown" and reported.amount_usd is not None)
+        or (reported.cost_status != "actual" and (reported.final or reported.no_further_liability))
+    ):
+        raise _refuse()
+    return replace(reported, binding=proof.binding)
 
 
 def _supported(record: CallRecord) -> frozenset[str]:

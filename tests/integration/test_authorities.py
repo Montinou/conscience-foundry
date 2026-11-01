@@ -41,6 +41,7 @@ from conscience_foundry.execution.ports import (
     CostAllocation,
     EstimateFacts,
     EvidenceBinding,
+    GrantFacts,
     Observation,
     ObservationProof,
     TransportProof,
@@ -711,6 +712,78 @@ def test_grants_and_unknown_purposes_are_not_attested() -> None:
         with pytest.raises(ContractError) as refused:
             rig.authority.budget(rig.proof(rig.claim(purpose)))
         assert refused.value.code == "forbidden"
+
+
+def grant_claim(
+    rig: Rig, data: bytes, previous: str | None = None
+) -> tuple[BudgetEvidenceClaim, Ref]:
+    ref = Ref.model_validate(
+        {
+            **ref_wire("cf.run-authorization.v1", "unused"),
+            "digest": hashlib.sha256(data).hexdigest(),
+            "sizeBytes": len(data),
+        }
+    )
+    claim = BudgetEvidenceClaim(
+        "install_run_authorization",
+        ref,
+        PROJECT,
+        RUN,
+        None,
+        None,
+        NOW,
+        ref,
+        None,
+        None,
+        data,
+        hashlib.sha256(data).hexdigest(),
+        expected_previous_authorization_id=previous,
+    )
+    return claim, ref
+
+
+def pinned_grant_authority(rig: Rig, digest: str | None) -> LocalEvidenceAuthority:
+    return LocalEvidenceAuthority(
+        decoders(),
+        None,
+        rig.issuer,
+        rig.estimate_ref,
+        None,
+        "synthetic_offline",
+        plans=(rig.pin,),
+        limits_by_schema=LIMITS_BY_SCHEMA,
+        approved_grant_digest=digest,
+    )
+
+
+def test_grant_facts_only_for_the_pinned_authorization() -> None:
+    rig = Rig()
+    data = encoded(rig.auth)
+    pinned = hashlib.sha256(data).hexdigest()
+    authority = pinned_grant_authority(rig, pinned)
+    previous = "00000000-0000-0000-0000-0000000000b9"
+    for expected_previous in (None, previous):
+        claim, _ = grant_claim(rig, data, expected_previous)
+        proof = BudgetProof(claim, EvidenceBinding.from_budget(claim), data, rig.auth, ())
+        facts = authority.budget(proof)
+        assert facts == GrantFacts(proof.binding, pinned, ACTOR, expected_previous)
+    # another authorization, bytes that are not the pinned ones, or no pin at all: refused
+    other = encoded(rig.auth.model_copy(update={"max_run_cost": "1"}))
+    other_claim, _ = grant_claim(rig, other)
+    claim, _ = grant_claim(rig, data)
+    for candidate, proof in (
+        (authority, BudgetProof(other_claim, EvidenceBinding.from_budget(other_claim), other,
+                                rig.auth, ())),
+        (authority, BudgetProof(claim, EvidenceBinding.from_budget(claim), other, rig.auth, ())),
+        (pinned_grant_authority(rig, None),
+         BudgetProof(claim, EvidenceBinding.from_budget(claim), data, rig.auth, ())),
+    ):  # fmt: skip
+        with pytest.raises(ContractError) as refused:
+            candidate.budget(proof)
+        assert refused.value.code == "forbidden"
+    with pytest.raises(ContractError) as malformed:
+        pinned_grant_authority(rig, "not-a-digest")
+    assert malformed.value.code == "invalid_schema"
 
 
 # -- control ------------------------------------------------------------------------------------

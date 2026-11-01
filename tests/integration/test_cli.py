@@ -1638,6 +1638,42 @@ def test_reserve_storage_opens_reservation(
 
 
 @pytest.mark.database
+def test_reserve_storage_refuses_a_second_open_reservation(
+    ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Prepared(tmp_path, monkeypatch, ledger)
+    proofs = [run.case.proof(), run.case.proof()]
+    for proof in proofs:
+        run.case.authority.storage_estimates[proof.digest] = (
+            "3",
+            (run.case.plan_ref,),
+            (run.case.authority.estimates[run.case.estimate.digest][1],),
+        )
+
+    def reserve(proof: Ref, name: str) -> Result:
+        return run.run(
+            "reserve-storage",
+            "--run-id",
+            RUN,
+            "--amount",
+            "3",
+            "--evidence",
+            ref_file(run.env, name, proof),
+            "--execute",
+        )
+
+    assert reserve(proofs[0], "first.json").exit == 0
+    # the same evidence again, or new evidence, never opens a second funded horizon
+    for proof, name in ((proofs[0], "again.json"), (proofs[1], "second.json")):
+        repeated = reserve(proof, name)
+        assert repeated.exit == 3 and repeated.code == "activation_conflict", repeated.raw
+    stored = [r for r in budget_records(ledger) if r["scope"] == "run_storage"]
+    assert [(r["eventType"], r["amountUsd"]) for r in stored] == [("reserve", "3")]
+    assert count(ledger, "reservations", "scope='run_storage'") == 1
+    run.env.assert_redacted(repeated)
+
+
+@pytest.mark.database
 def test_reserve_storage_is_refused_without_its_own_grant_or_attested_estimate(
     ledger: Ledger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
