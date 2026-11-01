@@ -59,6 +59,7 @@ from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import ObjectStore
 
 _INSTANT = TypeAdapter(Instant)
+_CORE_PAYLOAD_KEYS = frozenset({"plan_bytes", "attempt_bytes", "grants"})
 OBSERVATION_SCHEMA = "cf.modal-call-observation.v1"
 
 
@@ -110,6 +111,9 @@ class ModalExecutor:
     limits: ContractLimits = field(repr=False)
     clock: Callable[[], Instant] = field(repr=False)
     evidence: EvidenceSink = field(repr=False)
+    payload_extras: Mapping[str, object] = field(default_factory=dict, repr=False)
+    """Labels merged into the spawn payload (the live staging settings and account id); never
+    secrets, and never a replacement for one of the core payload keys."""
     _claimed: set[str] = field(default_factory=set, init=False, repr=False)
 
     # -- submit ---------------------------------------------------------------------
@@ -118,9 +122,12 @@ class ModalExecutor:
         self, plan: ExecutionPlan, attempt: StageAttempt, grants: TransportGrants
     ) -> Submission:
         plan_bytes = self._admit(plan, attempt, grants)
+        if any(name in _CORE_PAYLOAD_KEYS for name in self.payload_extras):
+            raise ContractError("invalid_schema")  # extras add to the payload, never replace it
         # Claimed before the call: whatever happens next, this instance never spawns twice.
         self._claimed.add(attempt.attempt_id)
         payload: dict[str, object] = {
+            **self.payload_extras,
             "plan_bytes": plan_bytes,
             "attempt_bytes": attempt.model_dump_json(by_alias=True, exclude_none=True).encode(),
             "grants": {

@@ -48,6 +48,7 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.contracts.project import EFFECT_NAMES, PolicyArtifact
+from conscience_foundry.execution.modal_live import staging_config
 from conscience_foundry.execution.ports import (
     ControlContext,
     EvidenceAuthority,
@@ -60,6 +61,7 @@ from conscience_foundry.release.context import ReleaseAuthority, ReleaseContext,
 from conscience_foundry.storage.local import LocalObjectStore, ObjectStore
 from conscience_foundry.storage.locator import LocationRegistry
 from conscience_foundry.storage.r2 import R2ObjectStore, r2_static_client
+from conscience_foundry.storage.staging_s3 import StagingConfig
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -194,6 +196,89 @@ class R2StoreSettings(WireModel):
         return self
 
 
+def _staging_prefix(value: str) -> str:
+    if any(part in {"", ".", ".."} for part in value.split("/")):
+        raise ValueError("a relative prefix without empty or dot segments is required")
+    return value
+
+
+StagingPrefix = Annotated[
+    ScalarString, StringConstraints(min_length=1), AfterValidator(_staging_prefix)
+]
+PythonVersion = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^[0-9]+\.[0-9]+(\.[0-9]+)?$")
+]
+ReadResumes = Annotated[int, Field(strict=True, ge=0, le=16)]
+
+
+class StagingSettings(WireModel):
+    """The R2 staging destination: labels and bounds only, every field required.
+
+    Maps one-to-one onto ``StagingConfig``; the destination id comes from the grants the control
+    side mints, the store id is that same label and the region is R2's fixed ``auto``. Nothing
+    here is a credential: the endpoint and credential source are names registered outside the
+    repository.
+    """
+
+    bucket: BucketName
+    prefix: StagingPrefix
+    endpoint_id: Name
+    credential_source: Name
+    max_object_bytes: PositiveInteger
+    transfer_chunk_bytes: PositiveInteger
+    max_read_resumes: ReadResumes
+    max_parts: PositiveInteger
+    grant_ttl_seconds: PositiveInteger
+    checksum_mode: Literal["sha256_header", "readback"]
+
+    def to_config(self, destination_id: str) -> StagingConfig:
+        return staging_config(
+            {name: getattr(self, name) for name in type(self).model_fields}, destination_id
+        )
+
+
+class LiveSettings(WireModel):
+    """Everything the live Modal and R2 run needs, from the operator's config; no defaults.
+
+    The ledger DSN comes from ``LedgerSettings`` and the backup bucket from ``R2StoreSettings``;
+    neither is repeated here. The parent R2 key id and API token are read from the two named
+    environment variables when a credential is minted, never stored in the config.
+    """
+
+    modal_profile: Name
+    app_name: Name
+    function_name: Name
+    python_version: PythonVersion
+    requirements_path: AbsolutePath
+    cpu_milli: PositiveInteger
+    memory_mib: PositiveInteger
+    scheduling_timeout_seconds: PositiveInteger
+    startup_timeout_seconds: PositiveInteger
+    execution_timeout_seconds: PositiveInteger
+    cancel_margin_seconds: PositiveInteger
+    capability_valid_seconds: PositiveInteger
+    r2_account_id: AccountId
+    parent_access_key_id_env: EnvName
+    parent_token_env: EnvName
+    staging: StagingSettings
+
+    @model_validator(mode="after")
+    def distinct_parent_variables(self) -> Self:
+        if self.parent_access_key_id_env == self.parent_token_env:
+            raise ValueError("the parent key id and the API token need separate variables")
+        return self
+
+    @property
+    def total_bound_seconds(self) -> int:
+        """Scheduling, startup, execution and the cancel margin: the longest a call may take."""
+        return (
+            self.scheduling_timeout_seconds
+            + self.startup_timeout_seconds
+            + self.execution_timeout_seconds
+            + self.cancel_margin_seconds
+        )
+
+
 def _store_kind(value: object) -> object:
     """An entry without ``kind`` is a local store, so older configs keep validating."""
     if isinstance(value, Mapping):
@@ -287,6 +372,9 @@ class RuntimeConfig(WireModel):
     )
     release_pins: Annotated[tuple[PinSettings, ...], BeforeValidator(_array)] = ()
     project_max_live_attempts: PositiveInteger | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    live: LiveSettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
 

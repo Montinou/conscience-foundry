@@ -207,9 +207,32 @@ class SplitR2Client:
         return self._call("get_object", False, kwargs)
 
 
+_TIMEOUTS = frozenset({"connect_timeout", "read_timeout"})
+
+
+def _timeouts(options: Mapping[str, int] | None) -> dict[str, int]:
+    """Explicit connect and read timeouts from the caller's config, or none (the SDK's own)."""
+    if options is None:
+        return {}
+    if (
+        not isinstance(options, Mapping)
+        or not set(options) <= _TIMEOUTS
+        or not all(
+            type(value) is int and 0 < value <= MAX_SAFE_INTEGER for value in options.values()
+        )
+    ):
+        raise ContractError("invalid_schema")
+    return dict(options)
+
+
 def _boto_client(
-    account_id: str, access_key_id: str, secret_access_key: str, session_token: str | None
+    account_id: str,
+    access_key_id: str,
+    secret_access_key: str,
+    session_token: str | None,
+    options: Mapping[str, int] | None = None,
 ) -> S3Client:
+    timeouts = _timeouts(options)
     try:
         import boto3
         from botocore.config import Config
@@ -229,16 +252,21 @@ def _boto_client(
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
                 retries={"total_max_attempts": 1, "mode": "standard"},  # one request, no retry
+                **timeouts,
             ),
         ),
     )
 
 
-def r2_client(account_id: str, credentials: Mapping[str, str]) -> S3Client:
+def r2_client(
+    account_id: str, credentials: Mapping[str, str], *, options: Mapping[str, int] | None = None
+) -> S3Client:
     """A boto3 client for one temporary credential: region ``auto``, one request per call.
 
     Both checksum options are ``when_required``: boto3 otherwise adds checksum headers R2 may
     reject. ``credentials`` carries ``accessKeyId``, ``secretAccessKey`` and ``sessionToken``.
+    ``options`` may carry ``connect_timeout`` and ``read_timeout`` (seconds); without them the
+    SDK's own timeouts apply.
     """
     try:
         values = {name: credentials[name] for name in _FIELDS}
@@ -247,7 +275,11 @@ def r2_client(account_id: str, credentials: Mapping[str, str]) -> S3Client:
     if not all(type(value) is str and value for value in values.values()):
         raise ContractError("invalid_schema")
     return _boto_client(
-        account_id, values["accessKeyId"], values["secretAccessKey"], values["sessionToken"]
+        account_id,
+        values["accessKeyId"],
+        values["secretAccessKey"],
+        values["sessionToken"],
+        options,
     )
 
 
