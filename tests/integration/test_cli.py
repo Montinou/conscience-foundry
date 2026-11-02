@@ -72,7 +72,7 @@ DIGEST = "d" * 64
 DSN_ENV = "CF_CLI_TEST_DSN"
 STORE_ID = "synthetic"
 ALL_GRANTS: dict[str, list[str]] = {
-    "admission": ["admit"],
+    "admission": ["admit", "withdraw"],
     "execution": [
         "prepare-run",
         "authorize-run",
@@ -92,6 +92,7 @@ ALL_GRANTS: dict[str, list[str]] = {
 }
 EFFECT_ARGS: dict[str, list[str]] = {
     "admit": ["--manifest", "manifest.json"],
+    "withdraw": ["--list", "list.json", "--evidence", "evidence.json"],
     "prepare-run": ["--plan", "plan.json"],
     "authorize-run": ["--authorization", "authorization.json"],
     "dispatch": [

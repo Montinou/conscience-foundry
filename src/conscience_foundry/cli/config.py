@@ -72,7 +72,7 @@ LAYOUT = "cfoundry.cli-config.v1"
 
 GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "admission": frozenset({"admit"}),
+        "admission": frozenset({"admit", "withdraw"}),
         "execution": frozenset(
             {
                 "prepare-run",

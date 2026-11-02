@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal, get_args
 from uuid import uuid4
 
 import psycopg
+from psycopg import sql
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
 from conscience_foundry.cli import live
@@ -53,6 +54,7 @@ from conscience_foundry.contracts.common import (
     WireModel,
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, RunAuthorization, StageAttempt
+from conscience_foundry.contracts.intake import IntakeDiff, WithdrawalList
 from conscience_foundry.contracts.project import (
     MetadataBinding,
     PolicyArtifact,
@@ -86,6 +88,7 @@ from conscience_foundry.execution.evidence import (
     source_asset,
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
+from conscience_foundry.intake.identity import decision_id
 from conscience_foundry.intake.metadata_schema import MetadataSchema
 from conscience_foundry.ledger.attempts import load_attempt
 from conscience_foundry.ledger.budget import (
@@ -106,7 +109,11 @@ from conscience_foundry.recovery.backup import (
 )
 from conscience_foundry.recovery.restore import restore
 from conscience_foundry.recovery.retention import retention_report
-from conscience_foundry.release.build import build_release, record_review
+from conscience_foundry.release.build import (
+    build_release,
+    record_admission_withdrawal,
+    record_review,
+)
 from conscience_foundry.release.importer import import_release
 from conscience_foundry.release.publication import activate, append_publication
 from conscience_foundry.release.read import resolve_span
@@ -407,6 +414,79 @@ def _admit(inv: Invocation) -> Outcome:
         # The report preserves every row; an operator must see that not everything was admitted.
         return Outcome("blocked", "admission_blocked", data)
     return Outcome("ok", None, data)
+
+
+def _withdraw_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--list", required=True, help="withdrawal list document")
+    parser.add_argument("--evidence", required=True, help="the intake diff report it names")
+
+
+def _recorded(rt: Runtime, decision: Id) -> bool:
+    """Whether a withdrawal with this decision identity is already in the ledger (read only)."""
+    with rt.ledger.transaction() as tx:
+        row = tx.connection.execute(
+            sql.SQL("SELECT 1 FROM {} WHERE project_id=%s AND decision_id=%s").format(
+                tx.table("admission_withdrawals")
+            ),
+            (rt.config.project_id, decision),
+        ).fetchone()
+    return row is not None
+
+
+def _withdraw(inv: Invocation) -> Outcome:
+    """Apply a derived withdrawal list entry by entry through the existing record.
+
+    Everything checkable is checked before the first write: the list belongs to this project, the
+    evidence is the diff report whose digest the list names, and every decision identity is the
+    derived one. The ledger function stays authoritative for what is recorded; the pre-read below
+    only decides whether a success counts as new, so under a concurrent writer the two counts may
+    be off by one.
+    """
+    rt, args = inv.rt, inv.args
+    _, withdrawals = _document(rt, args.list, WithdrawalList, "cf.withdrawal-list.v1")
+    _require_operator(rt, withdrawals.project_id, None)
+    bound = rt.limit("cf.intake-diff.v1")
+    evidence_bytes = read_input(args.evidence, bound.max_json_bytes)
+    if hashlib.sha256(evidence_bytes).hexdigest() != withdrawals.diff_report_digest:
+        raise ContractError("hash_mismatch")
+    IntakeDiff.from_wire(evidence_bytes, bound)
+    for item in withdrawals.entries:
+        derived = decision_id(
+            withdrawals.project_id,
+            item.batch_id,
+            item.asset_id,
+            item.cause,
+            withdrawals.by_batch_digest,
+        )
+        if derived != item.decision_id:
+            raise ContractError("determinism_conflict")
+    evidence_ref = _install(rt, evidence_bytes, _ref(rt, evidence_bytes, "cf.intake-diff.v1"))
+    applied = already = 0
+    for item in withdrawals.entries:
+        before = _recorded(rt, item.decision_id)
+        try:
+            record_admission_withdrawal(
+                item.batch_id,
+                item.asset_id,
+                item.decision_id,
+                rt.access,
+                rt.ledger,
+                rt.store,
+                release=rt.release,
+                reason=item.reason,
+                evidence_ref=evidence_ref,
+            )
+        except ContractError as error:
+            return Outcome(
+                classify(error).status,
+                error.code,
+                {"applied": applied, "alreadyRecorded": already, "refusedAt": item.decision_id},
+            )
+        if before:
+            already += 1
+        else:
+            applied += 1
+    return _ok(applied=applied, alreadyRecorded=already)
 
 
 def _prepare_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1045,6 +1125,13 @@ COMMANDS: tuple[Command, ...] = (
         _admit_arguments,
         _admit,
         (DATABASE,),
+    ),
+    Command(
+        "withdraw",
+        "apply a derived withdrawal list to admitted assets; nothing is deleted",
+        _withdraw_arguments,
+        _withdraw,
+        (DATABASE, RELEASE_AUTHORITY),
     ),
     Command(
         "prepare-run",
