@@ -32,12 +32,16 @@ from conscience_foundry.cli.config import TrustedServices, load_config
 from conscience_foundry.contracts.common import Reason, Ref
 from conscience_foundry.contracts.intake import IntakeDiff, WithdrawalEntry, WithdrawalList
 from conscience_foundry.contracts.release import CoverageReport, ReleaseSource
-from conscience_foundry.intake.identity import decision_id
+from conscience_foundry.intake.identity import decision_id, source_id
 from conscience_foundry.ledger.db import Ledger
 
 pytestmark = pytest.mark.database
 
 BY_BATCH = "b" * 64
+KEY_A = "synthetic/a.txt"
+KEY_B = "synthetic/b.txt"
+SOURCE_A = source_id(PROJECT, KEY_A)  # the sources the entries name derive from the report's keys
+SOURCE_B = source_id(PROJECT, KEY_B)
 OTHER_ACTOR = "00000000-0000-0000-0000-0000000000f2"
 CONSUMER = "synthetic.consumer.v1"
 GRANTED = {**ALL_GRANTS, "admission": ["admit", "withdraw"]}
@@ -60,7 +64,12 @@ def entry(asset: str, source: str, cause: str = "missing", **changes: Any) -> Wi
     return WithdrawalEntry(**{**fields, **changes})
 
 
-def diff_bytes(new_sources_digest: str = "c" * 64, batch_digest: str = BY_BATCH) -> bytes:
+def diff_bytes(
+    new_sources_digest: str = "c" * 64,
+    batch_digest: str = BY_BATCH,
+    **classes: list[str],
+) -> bytes:
+    """A report in which A was replaced (`changed`) and B left its batch (`missing`)."""
     diff = IntakeDiff.model_validate(
         {
             "schemaVersion": "cf.intake-diff.v1",
@@ -71,11 +80,12 @@ def diff_bytes(new_sources_digest: str = "c" * 64, batch_digest: str = BY_BATCH)
             "status": "ready",
             "classes": {
                 "new": [],
-                "unchanged": ["synthetic/a.txt"],
-                "changed": [],
+                "unchanged": [],
+                "changed": [KEY_A],
                 "moved": [],
                 "returned": [],
-                "missing": ["synthetic/b.txt"],
+                "missing": [KEY_B],
+                **classes,
             },
             "assumedAdmittedBatchIds": [BATCH],
             "newSourcesDigest": new_sources_digest,
@@ -118,7 +128,7 @@ class Setup:
         return self.value.ledger
 
     def both(self, cause: str = "missing") -> list[WithdrawalEntry]:
-        return [entry(B_ASSET, B_SOURCE, cause)]
+        return [entry(B_ASSET, SOURCE_B, cause)]
 
     def invoke(
         self, evidence: bytes, list_document: bytes, *extra: str, services: Any = None
@@ -168,7 +178,7 @@ def test_withdraw_records_and_coverage_reports_withdrawn(setup: Setup) -> None:
     assert done.exit == 0, done.raw
     assert done.payload["applied"] == 1 and done.payload["alreadyRecorded"] == 0
     assert "refusedAt" not in done.payload and done.payload["executed"] is True
-    expected = entry(B_ASSET, B_SOURCE).decision_id
+    expected = entry(B_ASSET, SOURCE_B).decision_id
     assert setup.rows() == [(expected, B_ASSET, ACTOR)]
     with setup.ledger.transaction() as tx:
         stored = tx.connection.execute(
@@ -302,7 +312,7 @@ def test_evidence_digest_mismatch_refused(setup: Setup) -> None:
 
 def test_entry_decision_identity_must_be_derived(setup: Setup) -> None:
     evidence = diff_bytes()
-    forged = entry(B_ASSET, B_SOURCE, decision_id="00000000-0000-0000-0000-0000000000d1")
+    forged = entry(B_ASSET, SOURCE_B, decision_id="00000000-0000-0000-0000-0000000000d1")
     result = setup.invoke(evidence, list_bytes(evidence, [forged]), "--execute")
     assert result.exit == 1 and result.code == "determinism_conflict", result.raw
     assert setup.rows() == []
@@ -330,9 +340,9 @@ def test_stops_at_the_first_refusal_and_reports_it(setup: Setup) -> None:
     evidence = diff_bytes()
     unknown = "00000000-0000-0000-0000-0000000000e9"
     entries = [
-        entry(B_ASSET, B_SOURCE),
-        entry(unknown, B_SOURCE),  # no admission row routes this asset
-        entry(ASSET, setup.source_a, "changed"),
+        entry(B_ASSET, SOURCE_B),
+        entry(unknown, SOURCE_B),  # no admission row routes this asset
+        entry(ASSET, SOURCE_A, "changed"),
     ]
     result = setup.invoke(evidence, list_bytes(evidence, entries), "--execute")
     assert result.exit == 1 and result.code == "unavailable", result.raw
@@ -372,7 +382,7 @@ def test_dry_run_writes_nothing(setup: Setup) -> None:
 
 def test_dry_run_counts_every_entry_it_would_submit(setup: Setup) -> None:
     evidence = diff_bytes()
-    entries = [entry(B_ASSET, B_SOURCE), entry(ASSET, setup.source_a, "changed")]
+    entries = [entry(B_ASSET, SOURCE_B), entry(ASSET, SOURCE_A, "changed")]
     dry = setup.invoke(evidence, list_bytes(evidence, entries))
     assert dry.exit == 0 and dry.payload["outcome"] == "dry_run", dry.raw
     assert dry.payload["wouldApply"] == 2
@@ -381,7 +391,7 @@ def test_dry_run_counts_every_entry_it_would_submit(setup: Setup) -> None:
 def dry_run_cases(setup: Setup) -> dict[str, tuple[bytes, bytes, str]]:
     evidence = diff_bytes()
     other = diff_bytes(batch_digest="9" * 64)
-    forged = entry(B_ASSET, B_SOURCE, decision_id="00000000-0000-0000-0000-0000000000d1")
+    forged = entry(B_ASSET, SOURCE_B, decision_id="00000000-0000-0000-0000-0000000000d1")
     return {
         "evidence_digest": (
             diff_bytes("e" * 64),
@@ -412,6 +422,49 @@ def test_dry_run_catches_a_wrong_report_without_execute(setup: Setup, case: str)
         "inputs/evidence.json",
         "inputs/list.json",
     ]
+
+
+def inconsistent_entries() -> dict[str, list[WithdrawalEntry]]:
+    unrelated = source_id(PROJECT, "synthetic/never-listed.txt")
+    return {
+        "missing_entry_for_a_changed_source": [entry(B_ASSET, SOURCE_A, "missing")],
+        "changed_entry_for_a_missing_source": [entry(ASSET, SOURCE_B, "changed")],
+        "source_the_report_never_lists": [entry(B_ASSET, unrelated, "missing")],
+        "one_bad_entry_among_good_ones": [
+            entry(B_ASSET, SOURCE_B, "missing"),
+            entry(ASSET, SOURCE_B, "changed"),
+        ],
+    }
+
+
+@pytest.mark.parametrize("case", sorted(inconsistent_entries()))
+def test_entry_must_match_the_reports_classes_before_any_write(setup: Setup, case: str) -> None:
+    """Each entry's cause and source must be what the cited report says happened."""
+    evidence = diff_bytes()
+    document = list_bytes(evidence, inconsistent_entries()[case])
+    before = file_names(setup.env.tmp)
+    dry = setup.invoke(evidence, document)
+    assert dry.exit == 1 and dry.code == "determinism_conflict", dry.raw
+    assert dry.payload["executed"] is False and "wouldApply" not in dry.payload
+    done = setup.invoke(evidence, document, "--execute")
+    assert done.exit == 1 and done.code == "determinism_conflict", done.raw
+    assert "refusedAt" not in done.payload and setup.rows() == []
+    assert [name for name in file_names(setup.env.tmp) if name not in before] == [
+        "inputs/evidence.json",
+        "inputs/list.json",
+    ]  # nothing reached the object store
+
+
+def test_changed_entry_may_cite_a_returned_source(setup: Setup) -> None:
+    """A withdrawn asset returning over a different current one is `returned`; the displaced
+    asset's withdrawal (cause `changed`) is therefore consistent with that report."""
+    evidence = diff_bytes(changed=[], returned=[KEY_A])
+    entries = [entry(ASSET, SOURCE_A, "changed")]
+    dry = setup.invoke(evidence, list_bytes(evidence, entries))
+    assert dry.exit == 0 and dry.payload["wouldApply"] == 1, dry.raw
+    still = diff_bytes(changed=[], returned=[])
+    refused = setup.invoke(still, list_bytes(still, entries))
+    assert refused.exit == 1 and refused.code == "determinism_conflict", refused.raw
 
 
 def test_dry_run_still_needs_its_grant_and_authority(setup: Setup) -> None:

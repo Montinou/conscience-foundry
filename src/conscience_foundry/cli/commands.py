@@ -90,7 +90,7 @@ from conscience_foundry.execution.evidence import (
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
 from conscience_foundry.intake.build import build_intake, read_custody_file, write_outputs
-from conscience_foundry.intake.identity import decision_id
+from conscience_foundry.intake.identity import decision_id, source_id
 from conscience_foundry.intake.metadata_schema import MetadataSchema
 from conscience_foundry.ledger.attempts import load_attempt
 from conscience_foundry.ledger.budget import (
@@ -537,8 +537,9 @@ def _checked_withdrawal(inv: Invocation) -> tuple[WithdrawalList, bytes]:
     """Every check that needs no write: the list, its evidence and every derived identity.
 
     The list belongs to this project, the evidence is the diff report whose digest the list names
-    and whose batch is the one that emitted the list, and every decision identity is the derived
-    one. Dry run and execution share it, so a wrong report is caught without `--execute`.
+    and whose batch is the one that emitted the list, every decision identity is the derived one
+    and every entry's source is one the report's classes give for the entry's cause. Dry run and
+    execution share it, so a wrong report is caught without `--execute`.
     """
     rt, args = inv.rt, inv.args
     _, withdrawals = _document(rt, args.list, WithdrawalList, "cf.withdrawal-list.v1")
@@ -550,6 +551,14 @@ def _checked_withdrawal(inv: Invocation) -> tuple[WithdrawalList, bytes]:
     report = IntakeDiff.from_wire(evidence_bytes, bound)
     if report.batch_digest != withdrawals.by_batch_digest:
         raise ContractError("determinism_conflict")
+    classes = report.classes
+    # A `changed` withdrawal also covers the asset a returned one displaced (x, x', x).
+    sources = {
+        "missing": {source_id(withdrawals.project_id, key) for key in classes.missing},
+        "changed": {
+            source_id(withdrawals.project_id, key) for key in (*classes.changed, *classes.returned)
+        },
+    }
     for item in withdrawals.entries:
         derived = decision_id(
             withdrawals.project_id,
@@ -558,7 +567,7 @@ def _checked_withdrawal(inv: Invocation) -> tuple[WithdrawalList, bytes]:
             item.cause,
             withdrawals.by_batch_digest,
         )
-        if derived != item.decision_id:
+        if derived != item.decision_id or item.source_id not in sources[item.cause]:
             raise ContractError("determinism_conflict")
     return withdrawals, evidence_bytes
 

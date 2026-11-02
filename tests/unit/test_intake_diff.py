@@ -207,9 +207,43 @@ def test_returned_after_change_back_x_xprime_x() -> None:
     state, result = step(state, make("k1", {"a": entry("1")}, created=3), digest("c"))
     assert result.returned == ("a",)
     assert result.changed == ()
-    assert state.current["a"].asset_id == aid("a", "9")
-    assert state.current["a"].admitted_batch_id == bid(second, digest("b"))
-    assert state.withdrawn == {aid("a", "1"): bid(first, digest("a"))}
+    assert "a" not in state.current  # superseded by the displacement ruling, see below
+    assert state.withdrawn == {
+        aid("a", "1"): bid(first, digest("a")),
+        aid("a", "9"): bid(second, digest("b")),
+    }
+
+
+def test_returned_while_another_asset_is_current_displaces_it_x_xprime_x() -> None:
+    """Final-review ruling: the unapproved x' that x displaced must be withdrawn, once."""
+    first = make("k1", {"a": entry("1")})
+    state, _ = step(EMPTY, first, digest("a"))
+    second = make("k1", {"a": entry("9")}, created=2)
+    state, _ = step(state, second, digest("b"))
+    state, result = step(state, make("k1", {"a": entry("1")}, created=3), digest("c"))
+    assert result.returned == ("a",)
+    assert result.changed == () and result.new == () and result.missing == ()
+    assert result.displaced["a"].asset_id == aid("a", "9")
+    assert result.displaced["a"].admitted_batch_id == bid(second, digest("b"))
+    assert "a" not in state.current  # x is not re-admitted and x' no longer stands
+    assert state.withdrawn == {
+        aid("a", "1"): bid(first, digest("a")),
+        aid("a", "9"): bid(second, digest("b")),
+    }
+
+
+def test_x_xprime_x_x_withdraws_xprime_exactly_once() -> None:
+    state, _ = step(EMPTY, make("k1", {"a": entry("1")}), digest("a"))
+    state, _ = step(state, make("k1", {"a": entry("9")}, created=2), digest("b"))
+    state, third = step(state, make("k1", {"a": entry("1")}, created=3), digest("c"))
+    state, fourth = step(state, make("k1", {"a": entry("1")}, created=4), digest("d"))
+    assert third.displaced.keys() == {"a"}
+    assert fourth.returned == ("a",) and fourth.displaced == {}
+    assert fourth.changed == () and fourth.missing == ()
+    displaced = [
+        asset.asset_id for result in (third, fourth) for asset in result.displaced.values()
+    ]
+    assert displaced == [aid("a", "9")]
 
 
 def test_missing_then_returned_with_changed_bytes_is_new() -> None:

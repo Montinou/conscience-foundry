@@ -198,10 +198,15 @@ def _admitted_ids(state: EffectiveState) -> tuple[Id, ...]:
 def _withdrawal_entries(
     project_id: Id, classification: Classification, by_digest: Digest
 ) -> list[dict[str, Any]]:
-    """One entry per replaced predecessor, then one per vanished asset, each by source key."""
+    """One entry per replaced predecessor, per displaced asset, then per vanished asset.
+
+    A displaced asset (a withdrawn one returned over a different current asset) is withdrawn
+    with cause `changed` under its own `admitted_batch_id`.
+    """
     entries: list[dict[str, Any]] = []
     pairs: list[tuple[Literal["changed", "missing"], CurrentAsset]] = [
         *(("changed", classification.predecessors[key]) for key in classification.changed),
+        *(("changed", asset) for asset in classification.displaced.values()),
         *(("missing", asset) for asset in classification.missing_assets),
     ]
     for cause, asset in pairs:

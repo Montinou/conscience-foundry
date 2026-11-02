@@ -735,6 +735,40 @@ def test_returned_asset_is_reported_and_left_out(world: World) -> None:
     assert outputs.status == "ready"
 
 
+def test_change_back_withdraws_the_unapproved_asset_once(world: World) -> None:
+    """B1 = x, B2 = x', B3 = x, B4 = x: x' is withdrawn by B3 and never again."""
+    x = Row(key_of("a"), content=b"original bytes of a")
+    x_prime = Row(key_of("a"), content=b"replacement bytes of a")
+    first = batch_document("era-1", [x], T1)
+    second = batch_document("era-1", [x_prime], T2)
+    third = batch_document("era-1", [x], T3)
+    fourth = batch_document("era-1", [x], "2026-10-04T00:00:00.000Z")
+    memory = Memory([x])
+    run = world.direct(third, [first, second], memory=memory)
+    diff = loaded(run.files, "diff-report.json")
+    assert diff["classes"]["returned"] == [key_of("a")]
+    assert diff["classes"]["changed"] == [] and diff["classes"]["new"] == []
+    assert "intake.json" not in run.files  # x itself is not re-admitted
+    withdrawals = WithdrawalList.from_wire(
+        run.files["withdrawals.json"], world.schemas["cf.withdrawal-list.v1"]
+    )
+    assert withdrawals.by_batch_digest == digest_of(third)
+    report_digest = hashlib.sha256(run.files["diff-report.json"]).hexdigest()
+    assert withdrawals.diff_report_digest == report_digest
+    second_id = batch_id(PROJECT, "era-1", digest_of(second))
+    (entry,) = withdrawals.entries
+    assert entry.cause == "changed" and entry.reason.code == "source_changed"
+    assert entry.asset_id == asset_of_row(second, key_of("a"))
+    assert entry.source_id == source_id(PROJECT, key_of("a"))
+    assert entry.batch_id == second_id  # the batch that carried x', not the first
+    assert entry.decision_id == decision_id(
+        PROJECT, second_id, entry.asset_id, "changed", digest_of(third)
+    )
+    again = world.direct(fourth, [first, second, third], memory=memory)
+    assert "withdrawals.json" not in again.files
+    assert loaded(again.files, "diff-report.json")["classes"]["returned"] == [key_of("a")]
+
+
 def test_a_key_absent_from_two_later_exports_is_withdrawn_once(world: World) -> None:
     first = batch_document("era-1", rows_of("a", "b"), T1)
     second = batch_document("era-1", rows_of("a"), T2)

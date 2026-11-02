@@ -44,7 +44,11 @@ class EffectiveState:
 
 @dataclass(frozen=True)
 class Classification:
-    """Source keys per class, each in sorted order; `missing_assets` follows `missing`."""
+    """Source keys per class, each in sorted order; `missing_assets` follows `missing`.
+
+    `displaced` maps a `returned` key to the different asset that was current for it: the asset
+    returning is not re-admitted, and the one standing in its place is withdrawn.
+    """
 
     new: tuple[str, ...]
     unchanged: tuple[str, ...]
@@ -54,9 +58,11 @@ class Classification:
     missing: tuple[str, ...]
     predecessors: Mapping[str, CurrentAsset] = field(default_factory=dict)
     missing_assets: tuple[CurrentAsset, ...] = ()
+    displaced: Mapping[str, CurrentAsset] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "predecessors", _frozen(self.predecessors))
+        object.__setattr__(self, "displaced", _frozen(self.displaced))
 
 
 def asset_of(batch: CuratedBatch, item: CuratedItem) -> Id:
@@ -77,6 +83,7 @@ def classify(state: EffectiveState, batch: CuratedBatch, batch_id: Id) -> Classi
     moved: list[str] = []
     returned: list[str] = []
     predecessors: dict[str, CurrentAsset] = {}
+    displaced: dict[str, CurrentAsset] = {}
     for item in batch.items:
         key = item.source_key
         asset = asset_of(batch, item)
@@ -85,6 +92,10 @@ def classify(state: EffectiveState, batch: CuratedBatch, batch_id: Id) -> Classi
             (unchanged if current.batch_key == batch.batch_key else moved).append(key)
         elif asset in state.withdrawn:
             returned.append(key)
+            if current is not None:
+                # Final-review ruling: a withdrawn asset coming back over a different current
+                # one (x, x', x) is not re-admitted, and the unapproved x' is withdrawn.
+                displaced[key] = current
         elif current is not None:
             changed.append(key)
             predecessors[key] = current
@@ -110,13 +121,17 @@ def classify(state: EffectiveState, batch: CuratedBatch, batch_id: Id) -> Classi
         missing=tuple(missing),
         predecessors={key: predecessors[key] for key in sorted(predecessors)},
         missing_assets=tuple(state.current[key] for key in missing),
+        displaced={key: displaced[key] for key in sorted(displaced)},
     )
 
 
 def apply(
     state: EffectiveState, batch: CuratedBatch, batch_id: Id, classification: Classification
 ) -> EffectiveState:
-    """The state after `batch` is applied: `new`/`changed` become current under `batch_id`."""
+    """The state after `batch` is applied: `new`/`changed` become current under `batch_id`.
+
+    A `displaced` asset is withdrawn and stops being current; `missing` ones likewise.
+    """
     current = dict(state.current)
     withdrawn = dict(state.withdrawn)
     items = {item.source_key: item for item in batch.items}
@@ -138,6 +153,9 @@ def apply(
             batch_key=batch.batch_key,
             admitted_batch_id=before.admitted_batch_id,
         )
+    for key, asset in classification.displaced.items():
+        withdrawn[asset.asset_id] = asset.admitted_batch_id
+        del current[key]
     for asset in classification.missing_assets:
         withdrawn[asset.asset_id] = asset.admitted_batch_id
     for key in classification.missing:
