@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -74,9 +74,16 @@ PositiveInteger = Annotated[int, Field(strict=True, gt=0, le=MAX_SAFE_INTEGER)]
 
 
 def validate_wire_value(
-    value: object, *, allow_null: bool = False, allow_models: bool = False
+    value: object,
+    *,
+    allow_null: bool = False,
+    allow_models: bool = False,
+    allow_negative: bool = False,
 ) -> None:
-    """Reject Python-only/coercible values, unsafe integers and invalid strings."""
+    """Reject Python-only/coercible values, unsafe integers and invalid strings.
+
+    Integers are non-negative unless `allow_negative`; either way they stay within +/-(2^53-1).
+    """
     pending: list[tuple[object, bool]] = [(value, False)]
     active: set[int] = set()
     while pending:
@@ -99,7 +106,7 @@ def validate_wire_value(
         elif isinstance(item, bool):
             continue
         elif isinstance(item, int):
-            if item < 0 or item > MAX_SAFE_INTEGER:
+            if item < (-MAX_SAFE_INTEGER if allow_negative else 0) or item > MAX_SAFE_INTEGER:
                 raise ValueError("integer outside wire range")
         elif isinstance(item, list) or (allow_models and isinstance(item, tuple)):
             pending.extend((child, False) for child in item)
@@ -125,11 +132,14 @@ class WireModel(BaseModel):
         json_schema_extra={"$schema": "https://json-schema.org/draft/2020-12/schema"},
     )
 
+    signed_integers: ClassVar[bool] = False
+    """Only a contract whose own field semantics need signed integers sets this."""
+
     @model_validator(mode="before")
     @classmethod
     def strict_values(cls, value: Any) -> Any:
         if isinstance(value, dict):
-            validate_wire_value(value, allow_models=True)
+            validate_wire_value(value, allow_models=True, allow_negative=cls.signed_integers)
         return value
 
     @classmethod
@@ -138,7 +148,10 @@ class WireModel(BaseModel):
 
         try:
             return cls.model_validate(
-                load_json(data, limits), context={"limits": limits}, by_alias=True, by_name=False
+                load_json(data, limits, signed=cls.signed_integers),
+                context={"limits": limits},
+                by_alias=True,
+                by_name=False,
             )
         except ValidationError:
             raise ContractError("invalid_schema") from None

@@ -21,10 +21,12 @@ from typing import Annotated, Any, Literal, get_args
 from uuid import uuid4
 
 import psycopg
+from psycopg import sql
 from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
 from conscience_foundry.cli import live
 from conscience_foundry.cli.config import (
+    AdmissionSettings,
     R2StoreSettings,
     Runtime,
     TrustedServices,
@@ -43,6 +45,7 @@ from conscience_foundry.contracts.canonical import DocumentSpan, RevisionReview
 from conscience_foundry.contracts.common import (
     ArtifactLocation,
     ContractError,
+    ContractLimits,
     Digest,
     ErrorCode,
     Id,
@@ -52,7 +55,14 @@ from conscience_foundry.contracts.common import (
     WireModel,
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, RunAuthorization, StageAttempt
-from conscience_foundry.contracts.project import PolicyArtifact, ProfileDescriptor, ProjectConfig
+from conscience_foundry.contracts.intake import IntakeDiff, WithdrawalList
+from conscience_foundry.contracts.project import (
+    MetadataBinding,
+    PolicyArtifact,
+    ProfileDescriptor,
+    ProfileMetadataBinding,
+    ProjectConfig,
+)
 from conscience_foundry.contracts.registry import (
     SCHEMA_MODELS,
     ContractSet,
@@ -79,6 +89,9 @@ from conscience_foundry.execution.evidence import (
     source_asset,
 )
 from conscience_foundry.execution.ports import ManualRetry, TransportGrants
+from conscience_foundry.intake.build import build_intake, read_custody_file, write_outputs
+from conscience_foundry.intake.identity import decision_id, source_id
+from conscience_foundry.intake.metadata_schema import MetadataSchema
 from conscience_foundry.ledger.attempts import load_attempt
 from conscience_foundry.ledger.budget import (
     apply_budget_event,
@@ -98,7 +111,11 @@ from conscience_foundry.recovery.backup import (
 )
 from conscience_foundry.recovery.restore import restore
 from conscience_foundry.recovery.retention import retention_report
-from conscience_foundry.release.build import build_release, record_review
+from conscience_foundry.release.build import (
+    build_release,
+    record_admission_withdrawal,
+    record_review,
+)
 from conscience_foundry.release.importer import import_release
 from conscience_foundry.release.publication import activate, append_publication
 from conscience_foundry.release.read import resolve_span
@@ -167,6 +184,10 @@ class Command:
     stateful: bool = True
     always: Mapping[str, object] = field(default_factory=dict)
     """Data stated in every report of this command, whatever its outcome (dry runs included)."""
+    dry_run: Callable[[Invocation], Mapping[str, object]] | None = None
+    """Write-free checks a dry run performs and reports (no database, store or adapter)."""
+    granted: bool = True
+    """Whether the command needs a configured grant; only a command with no effect may waive it."""
 
 
 # --- request-file helpers -------------------------------------------------------------------
@@ -293,14 +314,51 @@ def _admit_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--manifest", required=True, help="intake manifest document")
 
 
-def _admit(inv: Invocation) -> Outcome:
-    rt, args = inv.rt, inv.args
+def admission_metadata_binding(
+    settings: AdmissionSettings,
+    profile: ProfileDescriptor,
+    bundle: ContractSet,
+    *,
+    project_id: Id,
+    limits_by_schema: Mapping[str, ContractLimits],
+) -> MetadataBinding:
+    """Pick the trusted validator: the built-in technical one, or the configured schema file.
+
+    A profile that pins the technical schema gets the technical binding, whether or not a schema
+    file is configured (the file is not read). Any other pin is refused as `unsupported_schema`
+    without a configured file; with one, the profile must pin that file's exact bytes. `admit` and
+    `build-intake` both call it, so they always judge an item's metadata alike.
+    """
+    technical = technical_metadata_binding(
+        bundle, project_id=project_id, limits_by_schema=limits_by_schema
+    )
+    pinned = profile.metadata_schema_ref
+    expected = technical.expected_schema_ref
+    if (pinned.project_id, pinned.artifact_schema, pinned.digest, pinned.size_bytes) == (
+        expected.project_id,
+        expected.artifact_schema,
+        expected.digest,
+        expected.size_bytes,
+    ) or settings.profile_metadata_schema_path is None:
+        return technical
+    limit = limits_by_schema.get("cf.metadata-schema.v1")
+    if limit is None:
+        raise ContractError("limits_missing")
+    data = read_trusted(settings.profile_metadata_schema_path, limit.max_json_bytes)
+    if hashlib.sha256(data).hexdigest() != pinned.digest or len(data) != pinned.size_bytes:
+        raise ContractError("hash_mismatch")
+    if pinned.artifact_schema != "cf.metadata-schema.v1":
+        raise ContractError("unsupported_schema")
+    return ProfileMetadataBinding(pinned, MetadataSchema.parse(data, limit))
+
+
+def _load_admission(
+    rt: Runtime,
+) -> tuple[AdmissionSettings, ProjectConfig, ProfileDescriptor, MetadataBinding]:
+    """The operator's admission files, read in one fixed order, and the binding they imply."""
     settings = rt.config.admission
     if settings is None:
         raise ContractError("config_invalid")
-    manifest_bound = rt.limit("cf.intake.v1")
-    manifest_bytes = read_input(args.manifest, manifest_bound.max_json_bytes)
-    manifest = IntakeManifest.from_wire(manifest_bytes, manifest_bound)
     project = ProjectConfig.from_wire(
         read_trusted(settings.project_config_path, rt.limit("cf.project.v1").max_json_bytes),
         rt.limit("cf.project.v1"),
@@ -313,9 +371,20 @@ def _admit(inv: Invocation) -> Outcome:
         read_trusted(settings.contract_set_path, rt.limit("cf.contract-set.v1").max_json_bytes),
         rt.limit("cf.contract-set.v1"),
     )
-    binding = technical_metadata_binding(
-        bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
+    binding = admission_metadata_binding(
+        settings, profile, bundle, project_id=rt.config.project_id, limits_by_schema=rt.limits
     )
+    return settings, project, profile, binding
+
+
+def _admit(inv: Invocation) -> Outcome:
+    rt, args = inv.rt, inv.args
+    if rt.config.admission is None:
+        raise ContractError("config_invalid")
+    manifest_bound = rt.limit("cf.intake.v1")
+    manifest_bytes = read_input(args.manifest, manifest_bound.max_json_bytes)
+    manifest = IntakeManifest.from_wire(manifest_bytes, manifest_bound)
+    settings, project, profile, binding = _load_admission(rt)
     policy_bytes = rt.read_policy_bytes()
     policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("cf.policy.v1"))
     store = rt.store
@@ -371,6 +440,179 @@ def _admit(inv: Invocation) -> Outcome:
         # The report preserves every row; an operator must see that not everything was admitted.
         return Outcome("blocked", "admission_blocked", data)
     return Outcome("ok", None, data)
+
+
+def _build_intake_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--batch", required=True, help="the curated batch to build from")
+    parser.add_argument(
+        "--previous",
+        action="append",
+        default=[],
+        help="an earlier curated batch of the same producer (repeat for every one)",
+    )
+    parser.add_argument(
+        "--output-dir", required=True, help="a new or empty directory that receives the files"
+    )
+
+
+def _build_intake(inv: Invocation) -> Outcome:
+    """Turn a curated batch and its predecessors into the intake and its companions.
+
+    Files only: no ledger, no store and no adapter, so no grant and no `--execute`. The operator's
+    project, profile and policy must agree with each other before anything is built, because the
+    intake it writes is what `admit` will judge.
+    """
+    rt, args = inv.rt, inv.args
+    settings, project, profile, binding = _load_admission(rt)
+    _require_operator(rt, project.project_id, None)
+    pinned, accepted = profile.metadata_schema_ref, binding.expected_schema_ref
+    if (profile.profile_id, profile.version) != (project.profile_id, project.profile_version):
+        raise ContractError("invalid_schema")
+    if (pinned.project_id, pinned.artifact_schema, pinned.digest, pinned.size_bytes) != (
+        accepted.project_id,
+        accepted.artifact_schema,
+        accepted.digest,
+        accepted.size_bytes,
+    ):
+        raise ContractError("unsupported_schema")
+    policy_bytes = rt.read_policy_bytes()
+    policy = PolicyArtifact.from_wire(policy_bytes, rt.limit("cf.policy.v1"))
+    if (
+        hashlib.sha256(policy_bytes).hexdigest() != project.policy_ref.digest
+        or len(policy_bytes) != project.policy_ref.size_bytes
+    ):
+        raise ContractError("hash_mismatch")
+    bound = rt.limit("cf.curated-batch.v1")
+    batch_bytes = read_input(args.batch, bound.max_json_bytes)
+    previous = [read_input(path, bound.max_json_bytes) for path in args.previous]
+    roots = {root.root_id: Path(root.path) for root in settings.input_roots}
+    source_bound = rt.limit("cf.raw-original.v1").max_source_bytes
+
+    def read_root(label: str, relative_path: str) -> bytes:
+        root = roots.get(label)
+        if root is None:
+            raise ContractError("config_invalid")
+        return read_custody_file(root, relative_path, source_bound)
+
+    outputs = build_intake(
+        batch_bytes,
+        previous,
+        settings=settings,
+        project=project,
+        policy=policy,
+        binding=binding,
+        read_root=read_root,
+        limits_by_schema=rt.limits,
+    )
+    write_outputs(outputs.files, Path(args.output_dir).absolute())
+    classes = outputs.diff.classes
+    return _ok(
+        status=outputs.status,
+        files=sorted(outputs.files),
+        counts={
+            name: len(getattr(classes, name))
+            for name in ("new", "unchanged", "changed", "moved", "returned", "missing")
+        },
+    )
+
+
+def _withdraw_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--list", required=True, help="withdrawal list document")
+    parser.add_argument("--evidence", required=True, help="the intake diff report it names")
+
+
+def _recorded(rt: Runtime, decision: Id) -> bool:
+    """Whether a withdrawal with this decision identity is already in the ledger (read only)."""
+    with rt.ledger.transaction() as tx:
+        row = tx.connection.execute(
+            sql.SQL("SELECT 1 FROM {} WHERE project_id=%s AND decision_id=%s").format(
+                tx.table("admission_withdrawals")
+            ),
+            (rt.config.project_id, decision),
+        ).fetchone()
+    return row is not None
+
+
+def _checked_withdrawal(inv: Invocation) -> tuple[WithdrawalList, bytes]:
+    """Every check that needs no write: the list, its evidence and every derived identity.
+
+    The list belongs to this project, the evidence is the diff report whose digest the list names
+    and whose batch is the one that emitted the list, every decision identity is the derived one
+    and every entry's source is one the report's classes give for the entry's cause. Dry run and
+    execution share it, so a wrong report is caught without `--execute`.
+    """
+    rt, args = inv.rt, inv.args
+    _, withdrawals = _document(rt, args.list, WithdrawalList, "cf.withdrawal-list.v1")
+    _require_operator(rt, withdrawals.project_id, None)
+    bound = rt.limit("cf.intake-diff.v1")
+    evidence_bytes = read_input(args.evidence, bound.max_json_bytes)
+    if hashlib.sha256(evidence_bytes).hexdigest() != withdrawals.diff_report_digest:
+        raise ContractError("hash_mismatch")
+    report = IntakeDiff.from_wire(evidence_bytes, bound)
+    if report.batch_digest != withdrawals.by_batch_digest:
+        raise ContractError("determinism_conflict")
+    classes = report.classes
+    # A `changed` withdrawal also covers the asset a returned one displaced (x, x', x).
+    sources = {
+        "missing": {source_id(withdrawals.project_id, key) for key in classes.missing},
+        "changed": {
+            source_id(withdrawals.project_id, key) for key in (*classes.changed, *classes.returned)
+        },
+    }
+    for item in withdrawals.entries:
+        derived = decision_id(
+            withdrawals.project_id,
+            item.batch_id,
+            item.asset_id,
+            item.cause,
+            withdrawals.by_batch_digest,
+        )
+        if derived != item.decision_id or item.source_id not in sources[item.cause]:
+            raise ContractError("determinism_conflict")
+    return withdrawals, evidence_bytes
+
+
+def _withdraw_dry_run(inv: Invocation) -> Mapping[str, object]:
+    withdrawals, _ = _checked_withdrawal(inv)
+    return {"wouldApply": len(withdrawals.entries)}
+
+
+def _withdraw(inv: Invocation) -> Outcome:
+    """Apply a derived withdrawal list entry by entry through the existing record.
+
+    Everything checkable is checked before the first write (`_checked_withdrawal`). The ledger
+    function stays authoritative for what is recorded; the pre-read below only decides whether a
+    success counts as new, so under a concurrent writer the two counts may be off by one.
+    """
+    rt = inv.rt
+    withdrawals, evidence_bytes = _checked_withdrawal(inv)
+    evidence_ref = _install(rt, evidence_bytes, _ref(rt, evidence_bytes, "cf.intake-diff.v1"))
+    applied = already = 0
+    for item in withdrawals.entries:
+        before = _recorded(rt, item.decision_id)
+        try:
+            record_admission_withdrawal(
+                item.batch_id,
+                item.asset_id,
+                item.decision_id,
+                rt.access,
+                rt.ledger,
+                rt.store,
+                release=rt.release,
+                reason=item.reason,
+                evidence_ref=evidence_ref,
+            )
+        except ContractError as error:
+            return Outcome(
+                classify(error).status,
+                error.code,
+                {"applied": applied, "alreadyRecorded": already, "refusedAt": item.decision_id},
+            )
+        if before:
+            already += 1
+        else:
+            applied += 1
+    return _ok(applied=applied, alreadyRecorded=already)
 
 
 def _prepare_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1011,6 +1253,22 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE,),
     ),
     Command(
+        "build-intake",
+        "turn a curated batch and its predecessors into an intake, withdrawals and a diff report",
+        _build_intake_arguments,
+        _build_intake,
+        effect=False,
+        granted=False,
+    ),
+    Command(
+        "withdraw",
+        "apply a derived withdrawal list to admitted assets; nothing is deleted",
+        _withdraw_arguments,
+        _withdraw,
+        (DATABASE, RELEASE_AUTHORITY),
+        dry_run=_withdraw_dry_run,
+    ),
+    Command(
         "prepare-run",
         "open a run for a registered admission and an exact plan",
         _prepare_arguments,
@@ -1165,6 +1423,18 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
     return blockers
 
 
+def _dry_run(command: Command, args: argparse.Namespace, runtime: Runtime) -> Outcome:
+    """A dry run states what it would do; a command's write-free checks run, never its effect."""
+    if command.dry_run is None:
+        return Outcome("dry_run", None, {"executed": False, "blockers": []})
+    try:
+        report = command.dry_run(Invocation(args, runtime))
+    except ContractError as error:
+        refused = classify(error)
+        return Outcome(refused.status, refused.code, {"executed": False})
+    return Outcome("dry_run", None, {**report, "executed": False, "blockers": []})
+
+
 def run_command(command: Command, args: argparse.Namespace, services: TrustedServices) -> Outcome:
     """Gate, then execute one command; every failure becomes a stable, redacted code."""
     outcome = _run(command, args, services)
@@ -1180,7 +1450,7 @@ def _run(command: Command, args: argparse.Namespace, services: TrustedServices) 
         if args.config is None:
             return Outcome("blocked", "config_required", {"executed": False})
         config = load_config(args.config)
-        if not config.operator.grants.allows(command.name):
+        if command.granted and not config.operator.grants.allows(command.name):
             return Outcome("blocked", "grant_missing", {"executed": False})
         runtime = Runtime(config, services, command.name)
         try:
@@ -1192,7 +1462,7 @@ def _run(command: Command, args: argparse.Namespace, services: TrustedServices) 
                     {"executed": False, "blockers": [name for name, _ in blockers]},
                 )
             if command.effect and not args.execute:
-                return Outcome("dry_run", None, {"executed": False, "blockers": []})
+                return _dry_run(command, args, runtime)
             return with_flag(command.handler(Invocation(args, runtime)), executed=True)
         finally:
             runtime.close()

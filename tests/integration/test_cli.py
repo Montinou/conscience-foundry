@@ -72,7 +72,7 @@ DIGEST = "d" * 64
 DSN_ENV = "CF_CLI_TEST_DSN"
 STORE_ID = "synthetic"
 ALL_GRANTS: dict[str, list[str]] = {
-    "admission": ["admit"],
+    "admission": ["admit", "withdraw"],
     "execution": [
         "prepare-run",
         "authorize-run",
@@ -92,6 +92,7 @@ ALL_GRANTS: dict[str, list[str]] = {
 }
 EFFECT_ARGS: dict[str, list[str]] = {
     "admit": ["--manifest", "manifest.json"],
+    "withdraw": ["--list", "list.json", "--evidence", "evidence.json"],
     "prepare-run": ["--plan", "plan.json"],
     "authorize-run": ["--authorization", "authorization.json"],
     "dispatch": [
@@ -388,6 +389,8 @@ def test_help_and_dry_run_have_no_external_effect(env: Env, network: NetworkProb
     before = file_names(env.tmp)
     calls: list[str] = []
     for command, arguments in EFFECT_ARGS.items():
+        if command == "withdraw":
+            continue  # its dry run reads and checks the inputs: tests/integration/test_withdraw.py
         result = env.invoke(command, *arguments, services=spy_services(calls, env))
         assert result.exit == 0, (command, result.raw)
         assert result.payload["command"] == command

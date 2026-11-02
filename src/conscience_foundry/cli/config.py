@@ -72,7 +72,7 @@ LAYOUT = "cfoundry.cli-config.v1"
 
 GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "admission": frozenset({"admit"}),
+        "admission": frozenset({"admit", "withdraw"}),
         "execution": frozenset(
             {
                 "prepare-run",
@@ -312,6 +312,9 @@ class AdmissionSettings(WireModel):
     project_config_path: AbsolutePath
     profile_path: AbsolutePath
     contract_set_path: AbsolutePath
+    profile_metadata_schema_path: AbsolutePath | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     input_roots: Annotated[tuple[InputRoot, ...], BeforeValidator(_array), Field(min_length=1)]
 
     @model_validator(mode="after")
@@ -366,6 +369,16 @@ class PinSettings(WireModel):
     capabilities: Annotated[tuple[Name, ...], BeforeValidator(_array)]
 
 
+class LocalReleaseAuthoritySettings(WireModel):
+    """Opt-in marker for the local release authority: the operator approves release actions.
+
+    The authority itself is built by trusted code (``cli.live``) from the project and the policy
+    now in force; this entry carries no credential and no value besides the kind.
+    """
+
+    kind: Literal["local"]
+
+
 class RuntimeConfig(WireModel):
     schema_version: Literal["cfoundry.cli-config.v1"]
     project_id: Id
@@ -386,6 +399,9 @@ class RuntimeConfig(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
     live: LiveSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    release_authority: LocalReleaseAuthoritySettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
 

@@ -503,7 +503,7 @@ def test_missing_live_field_blocks_named(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_no_live_section_keeps_empty_services(tmp_path: Path) -> None:
     offline = config_document(tmp_path)
-    del offline["projectMaxLiveAttempts"], offline["live"]
+    del offline["projectMaxLiveAttempts"], offline["live"]  # and no releaseAuthority entry
     assert live.build_services(parse_config(offline)) == TrustedServices()
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, ClassVar, Literal, Self, cast
 
 from pydantic import (
     AfterValidator,
@@ -31,10 +31,10 @@ from conscience_foundry.contracts.common import (
     safe_object_key,
 )
 from conscience_foundry.contracts.project import (
+    MetadataBinding,
     PolicyArtifact,
     ProfileDescriptor,
     ProjectConfig,
-    TechnicalMetadataBinding,
 )
 
 
@@ -85,6 +85,10 @@ class _MetadataRecord(WireModel):
 
 
 class IntakeItem(_MetadataRecord):
+    # Profile metadata schemas may bound a field below zero, so a metadata value may be negative.
+    # Every typed integer on this record and on the manifest stays `SafeInteger` (non-negative).
+    signed_integers: ClassVar[bool] = True
+
     asset_id: Id
     source_id: Id
     original_digest: Digest
@@ -102,6 +106,9 @@ class IntakeItem(_MetadataRecord):
 
 
 class IntakeManifest(WireModel):
+    # The manifest is the wire root of its items' metadata; see `IntakeItem.signed_integers`.
+    signed_integers: ClassVar[bool] = True
+
     schema_version: Literal["cf.intake.v1"]
     project_id: Id
     batch_id: Id
@@ -128,7 +135,7 @@ class IntakeManifest(WireModel):
         project: ProjectConfig,
         profile: ProfileDescriptor,
         policy: PolicyArtifact,
-        metadata_binding: TechnicalMetadataBinding,
+        metadata_binding: MetadataBinding,
     ) -> None:
         """Apply an explicitly supplied trusted allowlisted profile and current policy."""
         if (
@@ -146,8 +153,6 @@ class IntakeManifest(WireModel):
             )
         ):
             raise ContractError("invalid_schema")
-        if profile.profile_id != "technical_minimal":
-            raise ContractError("unsupported_schema")
         policy_sources = {source.source_id for source in policy.sources}
         if any(item.source_id not in policy_sources for item in self.items):
             raise ContractError("forbidden")
@@ -226,6 +231,9 @@ class AdmissionReport(WireModel):
 
 
 class SourceAsset(_MetadataRecord):
+    # Carries the admitted item's metadata verbatim, so it admits the same signed values.
+    signed_integers: ClassVar[bool] = True
+
     schema_version: Literal["cf.source-asset.v1"]
     project_id: Id
     asset_id: Id

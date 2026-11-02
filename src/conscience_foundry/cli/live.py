@@ -3,7 +3,9 @@
 Trust model:
 
 * ``build_services`` turns the operator's config into ``TrustedServices``. Without a ``live``
-  section it returns the empty services, exactly as before. With one, every value comes from that
+  section it returns the empty services, exactly as before, unless the config opts in with a
+  ``releaseAuthority`` entry: then the services carry only the local release authority. With a
+  ``live`` section, every value comes from that
   section (no defaults); the parent access-key id is read from the environment variable the config
   names, and a missing one is ``credential_unavailable``. Building opens no session, reads no
   token, mints nothing and touches no network: the R2 client is built on its first request and the
@@ -598,14 +600,18 @@ def _release_authority(config: RuntimeConfig) -> LocalReleaseAuthority:
 def build_services(
     config: RuntimeConfig, *, modal_module: object | None = None, http: object | None = None
 ) -> TrustedServices:
-    """The trusted services the config's ``live`` section stands for; none without one.
+    """The trusted services the config stands for: its ``live`` section's, else at most the
+    opt-in local release authority (``releaseAuthority``); none without either.
 
+    A ``live`` section builds the same single release authority with or without the entry.
     ``modal_module`` replaces ``import modal`` for the session (tests inject a fake); ``http`` is
     the Cloudflare API caller (``cloudflare_http`` when omitted).
     """
     settings = config.live
     if settings is None:
-        return TrustedServices()
+        if config.release_authority is None:
+            return TrustedServices()
+        return TrustedServices(release_authority=_release_authority(config))
     if config.project_max_live_attempts is None:
         raise ContractError("config_invalid")  # a live section always carries the project cap
     if http is not None and not callable(http):

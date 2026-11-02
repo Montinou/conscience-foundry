@@ -127,6 +127,7 @@ EVIDENCE_SCHEMAS = frozenset(
     {
         "cf.admission-report.v1",
         "cf.intake.v1",
+        "cf.intake-diff.v1",
         "cf.operation-result-record.v1",
         "cf.run-report.v1",
         "cf.coverage-report.v1",
