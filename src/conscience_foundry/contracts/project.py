@@ -159,6 +159,11 @@ class TechnicalMetadata(WireModel):
 class MetadataBinding(Protocol):
     """A trusted pin of one metadata validator; the profile only names the schema it expects."""
 
+    @property
+    def expected_schema_ref(self) -> Ref:
+        """The one schema reference this validator accepts."""
+        ...
+
     def validate(self, schema_ref: Ref, metadata: dict[str, object]) -> None: ...
 
 

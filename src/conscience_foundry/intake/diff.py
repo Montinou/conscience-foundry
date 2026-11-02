@@ -59,7 +59,8 @@ class Classification:
         object.__setattr__(self, "predecessors", _frozen(self.predecessors))
 
 
-def _asset_of(batch: CuratedBatch, item: CuratedItem) -> Id:
+def asset_of(batch: CuratedBatch, item: CuratedItem) -> Id:
+    """The asset identity of `item` under `batch`: its source, bytes and `identityFields` values."""
     identity = {name: item.metadata[name] for name in batch.identity_fields}
     return asset_id(batch.project_id, item.source_key, item.sha256, identity)
 
@@ -78,7 +79,7 @@ def classify(state: EffectiveState, batch: CuratedBatch, batch_id: Id) -> Classi
     predecessors: dict[str, CurrentAsset] = {}
     for item in batch.items:
         key = item.source_key
-        asset = _asset_of(batch, item)
+        asset = asset_of(batch, item)
         current = state.current.get(key)
         if current is not None and current.asset_id == asset:
             (unchanged if current.batch_key == batch.batch_key else moved).append(key)
@@ -124,7 +125,7 @@ def apply(
             before = classification.predecessors[key]
             withdrawn[before.asset_id] = before.admitted_batch_id
         current[key] = CurrentAsset(
-            asset_id=_asset_of(batch, items[key]),
+            asset_id=asset_of(batch, items[key]),
             source_id=source_id(batch.project_id, key),
             batch_key=batch.batch_key,
             admitted_batch_id=batch_id,

@@ -60,13 +60,13 @@ def entry(asset: str, source: str, cause: str = "missing", **changes: Any) -> Wi
     return WithdrawalEntry(**{**fields, **changes})
 
 
-def diff_bytes(new_sources_digest: str = "c" * 64) -> bytes:
+def diff_bytes(new_sources_digest: str = "c" * 64, batch_digest: str = BY_BATCH) -> bytes:
     diff = IntakeDiff.model_validate(
         {
             "schemaVersion": "cf.intake-diff.v1",
             "projectId": PROJECT,
             "batchKey": "synthetic-batch",
-            "batchDigest": BY_BATCH,
+            "batchDigest": batch_digest,
             "previousBatchDigests": ["a" * 64],
             "status": "ready",
             "classes": {
@@ -341,19 +341,85 @@ def test_stops_at_the_first_refusal_and_reports_it(setup: Setup) -> None:
     assert [row[0] for row in setup.rows()] == [entries[0].decision_id]
 
 
+def test_report_of_another_batch_refused_before_any_write(setup: Setup) -> None:
+    """The list names the batch that emitted it; the report must be that batch's own."""
+    evidence = diff_bytes(batch_digest="9" * 64)
+    before = file_names(setup.env.tmp)
+    result = setup.invoke(evidence, list_bytes(evidence, setup.both()), "--execute")
+    assert result.exit == 1 and result.code == "determinism_conflict", result.raw
+    assert "refusedAt" not in result.payload and setup.rows() == []
+    assert [name for name in file_names(setup.env.tmp) if name not in before] == [
+        "inputs/evidence.json",
+        "inputs/list.json",
+    ]  # the object store was not written
+
+
 def test_dry_run_writes_nothing(setup: Setup) -> None:
     evidence = diff_bytes()
     document = list_bytes(evidence, setup.both())
     before = file_names(setup.env.tmp)
     dry = setup.invoke(evidence, document)
     assert dry.exit == 0 and dry.payload["outcome"] == "dry_run", dry.raw
-    assert dry.payload["executed"] is False
+    assert dry.payload["executed"] is False and dry.payload["blockers"] == []
+    assert dry.payload["wouldApply"] == 1
     assert setup.rows() == []
     after = file_names(setup.env.tmp)
     assert [name for name in after if name not in before] == [
         "inputs/evidence.json",
         "inputs/list.json",
     ]  # only the operator's own inputs; the object store is untouched
+
+
+def test_dry_run_counts_every_entry_it_would_submit(setup: Setup) -> None:
+    evidence = diff_bytes()
+    entries = [entry(B_ASSET, B_SOURCE), entry(ASSET, setup.source_a, "changed")]
+    dry = setup.invoke(evidence, list_bytes(evidence, entries))
+    assert dry.exit == 0 and dry.payload["outcome"] == "dry_run", dry.raw
+    assert dry.payload["wouldApply"] == 2
+
+
+def dry_run_cases(setup: Setup) -> dict[str, tuple[bytes, bytes, str]]:
+    evidence = diff_bytes()
+    other = diff_bytes(batch_digest="9" * 64)
+    forged = entry(B_ASSET, B_SOURCE, decision_id="00000000-0000-0000-0000-0000000000d1")
+    return {
+        "evidence_digest": (
+            diff_bytes("e" * 64),
+            list_bytes(evidence, setup.both()),
+            "hash_mismatch",
+        ),
+        "not_a_diff_report": (
+            b'{"schemaVersion":"cf.intake-diff.v1"}',
+            list_bytes(b'{"schemaVersion":"cf.intake-diff.v1"}', setup.both()),
+            "invalid_schema",
+        ),
+        "another_batch": (other, list_bytes(other, setup.both()), "determinism_conflict"),
+        "forged_decision": (evidence, list_bytes(evidence, [forged]), "determinism_conflict"),
+    }
+
+
+@pytest.mark.parametrize(
+    "case", ["evidence_digest", "not_a_diff_report", "another_batch", "forged_decision"]
+)
+def test_dry_run_catches_a_wrong_report_without_execute(setup: Setup, case: str) -> None:
+    evidence, document, code = dry_run_cases(setup)[case]
+    before = file_names(setup.env.tmp)
+    result = setup.invoke(evidence, document)
+    assert result.exit == 1 and result.code == code, result.raw
+    assert result.payload["executed"] is False and "wouldApply" not in result.payload
+    assert setup.rows() == []
+    assert [name for name in file_names(setup.env.tmp) if name not in before] == [
+        "inputs/evidence.json",
+        "inputs/list.json",
+    ]
+
+
+def test_dry_run_still_needs_its_grant_and_authority(setup: Setup) -> None:
+    evidence = diff_bytes()
+    document = list_bytes(evidence, setup.both())
+    bare = setup.invoke(evidence, document, services=TrustedServices(clock=lambda: TIME))
+    assert bare.exit == 3 and bare.code == "adapter_unavailable", bare.raw
+    assert "wouldApply" not in bare.payload
 
 
 def test_without_release_authority_refused(setup: Setup) -> None:
