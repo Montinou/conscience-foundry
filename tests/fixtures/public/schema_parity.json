@@ -2057,6 +2057,981 @@
         "newSourcesDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
       },
       "note": "sourceKey is nonempty"
+    },
+    {
+      "caseId": "curated-batch-valid",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "two items, signed metadata value"
+    },
+    {
+      "caseId": "curated-batch-unknown-field",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ],
+        "extra": 1
+      },
+      "note": "additionalProperties false"
+    },
+    {
+      "caseId": "curated-batch-item-unknown-field",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            },
+            "extra": 1
+          }
+        ]
+      },
+      "note": "additionalProperties false on items"
+    },
+    {
+      "caseId": "curated-batch-wrong-media-type",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "application/pdf",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "only text/plain in F2"
+    },
+    {
+      "caseId": "curated-batch-size-zero",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 0,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "sizeBytes at least 1"
+    },
+    {
+      "caseId": "curated-batch-empty-items",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": []
+      },
+      "note": "items nonempty"
+    },
+    {
+      "caseId": "curated-batch-empty-identity-fields",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "identityFields nonempty"
+    },
+    {
+      "caseId": "curated-batch-bad-batch-key",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "has space",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "batchKey character set"
+    },
+    {
+      "caseId": "curated-batch-empty-source-key",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "sourceKey at least 1 character"
+    },
+    {
+      "caseId": "curated-batch-bad-evidence-digest",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "short"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "evidenceDigest is a digest"
+    },
+    {
+      "caseId": "curated-batch-oversize-source",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 1000001,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "sizeBytes above the configured source bound"
+    },
+    {
+      "caseId": "curated-batch-duplicate-path",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "same.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "same.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "relativePath unique"
+    },
+    {
+      "caseId": "curated-batch-duplicate-source-key",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "same",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "same",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "sourceKey unique"
+    },
+    {
+      "caseId": "curated-batch-missing-identity-field",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "shelf/one.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          },
+          {
+            "relativePath": "shelf/two.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-2",
+            "metadata": {
+              "shelf": "s1"
+            }
+          }
+        ]
+      },
+      "note": "every identity field present in every item"
+    },
+    {
+      "caseId": "curated-batch-path-parent-segment",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "a/../b.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "no .. segment"
+    },
+    {
+      "caseId": "curated-batch-path-absolute",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "/a.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "no leading slash"
+    },
+    {
+      "caseId": "curated-batch-path-backslash",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "a\\b.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "no backslash"
+    },
+    {
+      "caseId": "curated-batch-path-empty-segment",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "a//b.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "no empty segment"
+    },
+    {
+      "caseId": "curated-batch-path-not-nfc",
+      "schemaId": "cf.curated-batch.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.curated-batch.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchKey": "era-1",
+        "producer": {
+          "name": "synthetic-producer",
+          "version": "1.0.0"
+        },
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "custodyRootLabel": "library-root",
+        "identityFields": [
+          "shelf",
+          "lang"
+        ],
+        "approval": {
+          "actor": "auditor:synthetic",
+          "method": "audit",
+          "evidenceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "items": [
+          {
+            "relativePath": "cafe\u0301.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 10,
+            "mediaType": "text/plain",
+            "sourceKey": "key-1",
+            "metadata": {
+              "shelf": "s1",
+              "lang": "en",
+              "rank": -3
+            }
+          }
+        ]
+      },
+      "note": "path must be NFC"
+    },
+    {
+      "caseId": "new-sources-valid",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": [
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "key-1"
+          },
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "sourceKey": "key-2"
+          }
+        ]
+      },
+      "note": "two new sources"
+    },
+    {
+      "caseId": "new-sources-empty",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": []
+      },
+      "note": "no new source"
+    },
+    {
+      "caseId": "new-sources-unknown-field",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": [
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "key-1"
+          },
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "sourceKey": "key-2"
+          }
+        ],
+        "extra": 1
+      },
+      "note": "additionalProperties false"
+    },
+    {
+      "caseId": "new-sources-bad-source-id",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": [
+          {
+            "sourceId": "nope",
+            "sourceKey": "k"
+          }
+        ]
+      },
+      "note": "sourceId is an id"
+    },
+    {
+      "caseId": "new-sources-bad-batch-digest",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "sources": [
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "key-1"
+          },
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "sourceKey": "key-2"
+          }
+        ]
+      },
+      "note": "digest is lowercase hex"
+    },
+    {
+      "caseId": "new-sources-duplicate-source-key",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": [
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "k"
+          },
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b2",
+            "sourceKey": "k"
+          }
+        ]
+      },
+      "note": "sourceKey unique"
+    },
+    {
+      "caseId": "new-sources-duplicate-source-id",
+      "schemaId": "cf.new-sources.v1",
+      "kind": "semantic_invalid",
+      "instance": {
+        "schemaVersion": "cf.new-sources.v1",
+        "projectId": "00000000-0000-4000-8000-000000000001",
+        "batchDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sources": [
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "k1"
+          },
+          {
+            "sourceId": "00000000-0000-4000-8000-0000000000b1",
+            "sourceKey": "k2"
+          }
+        ]
+      },
+      "note": "sourceId unique"
     }
   ],
   "unicodeCases": [

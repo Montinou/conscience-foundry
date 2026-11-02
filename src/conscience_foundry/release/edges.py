@@ -182,6 +182,8 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
         "cf.metadata-schema.v1": (),
         "cf.withdrawal-list.v1": (),
         "cf.intake-diff.v1": (),
+        "cf.curated-batch.v1": (),
+        "cf.new-sources.v1": (),
     }
 )
 

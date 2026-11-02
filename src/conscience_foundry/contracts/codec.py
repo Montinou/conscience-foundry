@@ -119,3 +119,28 @@ def hash_jcs(domain: str, value: object) -> Digest:
         return hashlib.sha256(domain.encode("utf-8") + b"\n" + canonical).hexdigest()
     except (ValueError, UnicodeError, RecursionError):
         raise ContractError("invalid_schema") from None
+
+
+def digest_canonical_json(data: bytes, *, signed: bool = False) -> Digest:
+    """SHA-256 of the RFC 8785 bytes of one JSON object, whatever its spacing or key order.
+
+    Strict decoding only (no duplicate keys, floats or constants; integers within +/-(2^53-1),
+    non-negative unless `signed`); byte, depth and string bounds are the caller's, applied when
+    the same bytes are admitted as a contract.
+    """
+    try:
+        if type(data) is not bytes:
+            raise ValueError("expected bytes")
+        value = json.loads(
+            data.decode("utf-8"),
+            parse_int=partial(_integer, signed=signed),
+            parse_float=_reject_number,
+            parse_constant=_reject_number,
+            object_pairs_hook=_object,
+        )
+        if not isinstance(value, dict):
+            raise ValueError("expected one object")
+        validate_wire_value(value, allow_null=True, allow_negative=signed)
+        return hashlib.sha256(rfc8785.dumps(cast(Any, value))).hexdigest()
+    except (ValueError, UnicodeError, RecursionError):
+        raise ContractError("invalid_schema") from None

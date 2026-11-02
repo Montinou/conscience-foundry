@@ -40,11 +40,12 @@ _QUANTIFIER = re.compile(r"\{(\d+)(?:,(\d*))?\}")
 
 
 class _Group:
-    """An open or just-closed group: whether it contains a quantifier and where its branches lie."""
+    """An open or just-closed group: what it holds (quantifier, alternation) and its branches."""
 
     def __init__(self, branches: list[int]) -> None:
         self.branches = branches  # [start, end, start, end, ...] offsets into the output pieces
         self.quantified = False
+        self.alternated = False  # an alternation anywhere inside, nested groups included
 
     def overlapping(self, out: list[str]) -> bool:
         spans = list(zip(self.branches[0::2], self.branches[1::2], strict=False))
@@ -67,7 +68,10 @@ def translate_pattern(pattern: str) -> str:
 
     Python `re` backtracks, so a quantified group that contains a quantifier, or whose alternatives
     overlap (one is a prefix of another), can take exponential time on a short input; both are
-    refused rather than admitted behind a timeout.
+    refused rather than admitted behind a timeout. So is any group that holds an alternation, at
+    any depth, under a quantifier that can repeat it (`*`, `+`, `{n,}`, `{n,m}` with m > 1, `{n}`
+    with n > 1): `((a|a))+c` and `(\\w\\w|\\d\\d)+` share their alternatives through a nested group
+    or through classes, which the prefix test cannot see.
     """
     out: list[str] = []
     groups: list[_Group] = []
@@ -120,12 +124,15 @@ def translate_pattern(pattern: str) -> str:
             out.append(")")
             if groups and closed.quantified:
                 groups[-1].quantified = True
+            if groups and closed.alternated:
+                groups[-1].alternated = True
             atom = True
         elif char == "|":
             out.append("|")
             if groups:
                 groups[-1].branches.append(len(out) - 1)
                 groups[-1].branches.append(len(out))
+                groups[-1].alternated = True
             atom = False
         elif char in "^$":
             out.append("^" if char == "^" else "\\Z")
@@ -138,16 +145,22 @@ def translate_pattern(pattern: str) -> str:
                 raise ValueError("nothing to repeat")
             if previous is not None and (previous.quantified or previous.overlapping(out)):
                 raise ValueError("ambiguous repetition")
-            if groups:
-                groups[-1].quantified = True
+            repeats = char != "?"  # `?` takes at most one repetition
             if char == "{":
                 match = _QUANTIFIER.match(pattern, index - 1)
                 if match is None:
                     raise ValueError("malformed quantifier")
                 index = match.end()
                 out.append(match.group())
+                low, high = match.groups("")
+                maximum = int(high) if high else None if "," in match.group() else int(low)
+                repeats = maximum is None or maximum > 1
             else:
                 out.append(char)
+            if repeats and previous is not None and previous.alternated:
+                raise ValueError("repeated alternation")
+            if groups:
+                groups[-1].quantified = True
             if pattern.startswith("?", index):
                 index += 1
                 out.append("?")

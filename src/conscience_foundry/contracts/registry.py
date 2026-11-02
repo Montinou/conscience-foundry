@@ -61,7 +61,12 @@ from conscience_foundry.contracts.extensions import (
     EnrichmentResult,
     EnrichmentSpec,
 )
-from conscience_foundry.contracts.intake import IntakeDiff, WithdrawalList
+from conscience_foundry.contracts.intake import (
+    CuratedBatch,
+    IntakeDiff,
+    NewSources,
+    WithdrawalList,
+)
 from conscience_foundry.contracts.project import (
     PolicyArtifact,
     ProfileDescriptor,
@@ -190,6 +195,8 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.metadata-schema.v1": MetadataSchemaDocument,
         "cf.withdrawal-list.v1": WithdrawalList,
         "cf.intake-diff.v1": IntakeDiff,
+        "cf.curated-batch.v1": CuratedBatch,
+        "cf.new-sources.v1": NewSources,
         "cf.enrichment-spec.v1": EnrichmentSpec,
         "cf.enrichment-request.v1": EnrichmentRequest,
         "cf.enrichment-result.v1": EnrichmentResult,

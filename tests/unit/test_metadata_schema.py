@@ -247,8 +247,8 @@ def test_pattern_matches_with_ecmascript_character_semantics() -> None:
             dot.validate({"field": value})
     unanchored = parse(string_schema("b+"))
     unanchored.validate({"field": "abbc"})
-    group = parse(string_schema("^(?:ab|c){1,2}[x\\-]?$"))
-    group.validate({"field": "abc-"})
+    group = parse(string_schema("^(?:ab|c)[x\\-]?$"))
+    group.validate({"field": "ab-"})
 
 
 @pytest.mark.parametrize(
@@ -265,6 +265,8 @@ def test_pattern_matches_with_ecmascript_character_semantics() -> None:
         "^(a|aa)+$",
         "^(?:a|ab)*c",
         "(?:ab|abc){2}",
+        "((a|a))+c",
+        "^(\\w\\w|\\d\\d)+$",
     ],
 )
 def test_pattern_that_backtracks_exponentially_is_invalid_schema(pattern: str) -> None:
@@ -279,13 +281,37 @@ def test_pattern_that_backtracks_exponentially_is_invalid_schema(pattern: str) -
         ("^(a+)b$", "aab"),
         ("^(?:a+)$", "aa"),
         ("^(?:ab)+$", "abab"),
-        ("^(?:ab|c){1,2}[x\\-]?$", "abc-"),
-        ("^(a|b)+$", "abba"),
+        ("^(?:ab|c){1}[x\\-]?$", "c-"),
+        ("^(a|b)?$", "b"),
+        ("^((a|b))?c$", "ac"),
         ("^(?:a+b)(?:c+d)$", "aabccd"),
     ],
 )
 def test_bounded_group_patterns_stay_admitted(pattern: str, accepted: str) -> None:
     parse(string_schema(pattern)).validate({"field": accepted})
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "^(a|b)+$",
+        "^(?:a|b)*$",
+        "^(?:a|b){1,}$",
+        "^(?:ab|c){1,2}$",
+        "^(?:ab|c){0,2}$",
+        "^(?:ab|c){2}$",
+        "^(?:ab|c){3,3}$",
+        "^(?:x(?:a|b)y)+$",
+        "^(?:(?:(?:a|b)))*$",
+        "^((a|b)c)+d$",
+        "^(?:(?:a|b)c){2,}$",
+        "^(?:a|b)+?$",
+    ],
+)
+def test_repeated_group_containing_an_alternation_is_invalid_schema(pattern: str) -> None:
+    with pytest.raises(ContractError) as error:
+        parse(string_schema(pattern))
+    assert error.value.code == "invalid_schema"
 
 
 def integer_schema(**bounds: int) -> dict[str, object]:
