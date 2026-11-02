@@ -369,6 +369,16 @@ class PinSettings(WireModel):
     capabilities: Annotated[tuple[Name, ...], BeforeValidator(_array)]
 
 
+class LocalReleaseAuthoritySettings(WireModel):
+    """Opt-in marker for the local release authority: the operator approves release actions.
+
+    The authority itself is built by trusted code (``cli.live``) from the project and the policy
+    now in force; this entry carries no credential and no value besides the kind.
+    """
+
+    kind: Literal["local"]
+
+
 class RuntimeConfig(WireModel):
     schema_version: Literal["cfoundry.cli-config.v1"]
     project_id: Id
@@ -389,6 +399,9 @@ class RuntimeConfig(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
     live: LiveSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    release_authority: LocalReleaseAuthoritySettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
