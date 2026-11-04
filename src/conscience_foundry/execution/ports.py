@@ -11,7 +11,7 @@ from conscience_foundry.contracts.admission import SourceAsset
 from conscience_foundry.contracts.common import ContractLimits, Digest, Id, Instant, Money, Ref
 from conscience_foundry.contracts.execution import (
     AttemptState,
-    ExecutionConfig,
+    ExecutionConfiguration,
     ExecutionPlan,
     ResourceEnvelope,
     RunAuthorization,
@@ -218,7 +218,7 @@ class VerifiedPlan:
     model: ExecutionPlan
     authorization_ref: Ref
     authorization: RunAuthorization
-    config: ExecutionConfig
+    config: ExecutionConfiguration
     config_bytes: bytes = field(repr=False)
     tariff_bytes: bytes = field(repr=False)
     resource_policy_bytes: bytes = field(repr=False)

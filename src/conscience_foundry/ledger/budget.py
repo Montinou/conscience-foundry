@@ -27,9 +27,12 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import (
     ExecutionConfig,
+    ExecutionConfiguration,
     ExecutionPlan,
+    LocalExecutionConfig,
     RunAuthorization,
     StageAttempt,
+    execution_scopes,
     validate_plan_authorization,
 )
 from conscience_foundry.contracts.project import PolicyArtifact
@@ -105,7 +108,8 @@ def _spending(
     row: tuple[Any, ...],
     context: BudgetContext,
     amount: Decimal,
-    *, allow_unknown: bool = False,
+    *,
+    allow_unknown: bool = False,
 ) -> None:
     from datetime import datetime
 
@@ -433,14 +437,28 @@ def reserve_attempt(
             plan_bytes=plan_bytes,
             limits=_limits(context, "cf.execution-plan.v1"),
         )
-        config = _parse(
-            ExecutionConfig,
-            execution_config_bytes,
-            plan.execution_config_ref,
-            "cf.execution-config.v1",
-            plan.project_id,
-            context,
-        )
+        schema = plan.execution_config_ref.artifact_schema
+        config: ExecutionConfiguration
+        if schema == "cf.execution-config.v1":
+            config = _parse(
+                ExecutionConfig,
+                execution_config_bytes,
+                plan.execution_config_ref,
+                schema,
+                plan.project_id,
+                context,
+            )
+        elif schema == "cf.local-execution-config.v1":
+            config = _parse(
+                LocalExecutionConfig,
+                execution_config_bytes,
+                plan.execution_config_ref,
+                schema,
+                plan.project_id,
+                context,
+            )
+        else:
+            raise ContractError("unsupported_schema")
         if _identity(config.tariff_ref) != _identity(plan.budget.tariff_ref):
             raise ContractError("forbidden")
         installed = _installed(tx, plan.project_id, plan.run_id)
@@ -452,10 +470,12 @@ def reserve_attempt(
             raise ContractError("forbidden")
         duplicate_allowed = False
         if duplicate_risk is not None:
-            if (type(duplicate_risk) is not DuplicateRiskAuthorization
-                    or duplicate_risk.new_plan_digest != plan_ref.digest
-                    or duplicate_risk.new_authorization_id != auth.authorization_id
-                    or context.duplicate_risk_verifier is None):
+            if (
+                type(duplicate_risk) is not DuplicateRiskAuthorization
+                or duplicate_risk.new_plan_digest != plan_ref.digest
+                or duplicate_risk.new_authorization_id != auth.authorization_id
+                or context.duplicate_risk_verifier is None
+            ):
                 raise ContractError("forbidden")
             try:
                 duplicate_allowed = (
@@ -475,9 +495,13 @@ def reserve_attempt(
             allow_unknown=duplicate_allowed,
         )
         source = _admitted(plan, admission, asset_id, tx, context)
-        for effect in ("read", "extract", "remoteTransfer"):
+        for effect in execution_scopes(config):
             require_permission(context.access, context.current_policy, source, effect)
-        if config.remote_destination_id not in context.current_policy.allowed_remote_destinations:
+        if (
+            isinstance(config, ExecutionConfig)
+            and config.remote_destination_id
+            not in context.current_policy.allowed_remote_destinations
+        ):
             raise ContractError("forbidden")
         reservation = str(uuid4())
         if attempt_id is None:
@@ -487,9 +511,12 @@ def reserve_attempt(
                 TypeAdapter(Id).validate_python(attempt_id)
             except ValidationError:
                 raise ContractError("invalid_schema") from None
-            if tx.connection.execute(sql.SQL(
-                "SELECT 1 FROM {} WHERE project_id=%s AND attempt_id=%s"
-            ).format(tx.table("attempts")), (plan.project_id, attempt_id)).fetchone():
+            if tx.connection.execute(
+                sql.SQL("SELECT 1 FROM {} WHERE project_id=%s AND attempt_id=%s").format(
+                    tx.table("attempts")
+                ),
+                (plan.project_id, attempt_id),
+            ).fetchone():
                 raise ContractError("dispatch_unknown")
         _proof(
             context,

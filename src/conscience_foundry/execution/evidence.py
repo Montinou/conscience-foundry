@@ -27,7 +27,19 @@ from conscience_foundry.contracts.common import (
     Ref,
     WireModel,
 )
-from conscience_foundry.contracts.execution import ExecutionConfig, ExecutionPlan, RunAuthorization
+from conscience_foundry.contracts.execution import (
+    ExecutionConfig,
+    ExecutionConfiguration,
+    ExecutionPlan,
+    LocalExecutionConfig,
+    RunAuthorization,
+    execution_destination,
+    execution_scopes,
+)
+from conscience_foundry.contracts.local_resource import (
+    LocalResourcePolicy,
+    validate_local_resources,
+)
 from conscience_foundry.contracts.project import PolicyArtifact
 from conscience_foundry.contracts.registry import (
     ContractSet,
@@ -75,7 +87,7 @@ class ResultPlan(Protocol):
     @property
     def model(self) -> ExecutionPlan: ...
     @property
-    def config(self) -> ExecutionConfig: ...
+    def config(self) -> ExecutionConfiguration: ...
     @property
     def source_asset(self) -> SourceAsset: ...
 
@@ -87,7 +99,7 @@ class HistoricalResultPlan:
     model: ExecutionPlan
     authorization_ref: Ref
     authorization: RunAuthorization
-    config: ExecutionConfig
+    config: ExecutionConfiguration
     config_bytes: bytes = field(repr=False)
     source_asset: SourceAsset
     manifest: IntakeManifest
@@ -469,7 +481,12 @@ def historical_result_plan(
         raise ContractError("forbidden")
     _, manifest, report = admission_evidence(plan, tx, control)
     asset = source_asset(plan, manifest, report, control)
-    config_bytes, config = read_model(plan.execution_config_ref, ExecutionConfig, control)
+    config_bytes, config = read_artifact(plan.execution_config_ref, control)
+    if type(config) not in (ExecutionConfig, LocalExecutionConfig):
+        raise ContractError("unsupported_schema")
+    if isinstance(config, LocalExecutionConfig):
+        _, local_policy = read_model(config.resource_policy_ref, LocalResourcePolicy, control)
+        validate_local_resources(local_policy, plan.resources)
     if identity(config.tariff_ref) != identity(plan.budget.tariff_ref):
         raise ContractError("forbidden")
     _, contracts = read_model(plan.contract_set_ref, ContractSet, control)
@@ -507,12 +524,21 @@ def verified_plan(
     historical = historical_result_plan(plan_ref, authorization_ref, tx, control)
     config, plan, asset = historical.config, historical.model, historical.source_asset
     tariff_bytes, _ = read_artifact(config.tariff_ref, control, evidence=True)
-    resource_bytes, _ = read_artifact(config.resource_policy_ref, control, evidence=True)
+    resource_bytes, resource_policy = read_artifact(
+        config.resource_policy_ref, control, evidence=True
+    )
+    if isinstance(config, LocalExecutionConfig):
+        if type(resource_policy) is not LocalResourcePolicy:
+            raise ContractError("unsupported_schema")
+        validate_local_resources(resource_policy, plan.resources)
     if spending:
         policy = current_policy(control, plan.project_id)
-        for effect in ("read", "extract", "remoteTransfer"):
+        for effect in execution_scopes(config):
             require_permission(control.access, policy, asset.source_id, effect)
-        if config.remote_destination_id not in policy.allowed_remote_destinations:
+        if (
+            isinstance(config, ExecutionConfig)
+            and config.remote_destination_id not in policy.allowed_remote_destinations
+        ):
             raise ContractError("forbidden")
     return VerifiedPlan(
         plan_ref,
@@ -543,7 +569,7 @@ def _capabilities(
             or identity(capability.tariff_ref) != identity(plan.config.tariff_ref)
             or identity(capability.resource_policy_ref) != identity(plan.config.resource_policy_ref)
             or capability.image_digest != plan.config.image_digest
-            or capability.destination_id != plan.config.remote_destination_id
+            or capability.destination_id != execution_destination(plan.config)
             or capability.resources != plan.model.resources
         ):
             raise ContractError("unsupported_capability")

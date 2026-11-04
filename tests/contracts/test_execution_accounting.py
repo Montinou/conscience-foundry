@@ -591,3 +591,97 @@ def test_authorization_shape_cannot_supply_empty_or_duplicate_plan_allowlist() -
     ):
         with pytest.raises(ValidationError):
             RunAuthorization.model_validate(authorization(**changes))
+
+
+def test_local_execution_configuration_is_distinct_and_strict():
+    from conscience_foundry.contracts.execution import (
+        LocalExecutionConfig,
+        decode_execution_config,
+        execution_destination,
+        execution_scopes,
+    )
+    from conscience_foundry.contracts.local_resource import LocalResourcePolicy
+
+    local = {
+        "schemaVersion": "cf.local-execution-config.v1",
+        "adapterId": "local",
+        "deploymentVersion": "v1",
+        "imageDigest": "a" * 64,
+        "tariffRef": ref(),
+        "resourcePolicyRef": ref(artifactSchema="cf.local-resource-policy.v1"),
+        "localDestinationId": "host",
+    }
+    raw = json.dumps(local).encode()
+    config = decode_execution_config(raw, limits())
+    assert isinstance(config, LocalExecutionConfig)
+    assert config.model_dump(by_alias=True, mode="json") == local
+    assert execution_destination(config) == "host"
+    assert execution_scopes(config) == frozenset({"read", "extract"})
+    for changes in (
+        {"remoteDestinationId": "remote"},
+        {"localDestinationId": ""},
+        {"resourcePolicyRef": ref()},
+        {
+            "resourcePolicyRef": ref(
+                artifactSchema="cf.local-resource-policy.v1", projectId=OTHER_PROJECT
+            )
+        },
+    ):
+        with pytest.raises(ContractError):
+            decode_execution_config(json.dumps(local | changes).encode(), limits())
+    policy = {
+        "schemaVersion": "cf.local-resource-policy.v1",
+        "semantics": "cooperative",
+        "maxCpuMilli": 1000,
+        "maxMemoryMib": 256,
+        "maxWallSeconds": 30,
+        "maxOutputBytes": 4096,
+        "maxConcurrentAttempts": 1,
+        "maxAttemptsPerOperation": 1,
+    }
+    assert (
+        LocalResourcePolicy.from_wire(json.dumps(policy).encode(), limits()).model_dump(
+            by_alias=True
+        )
+        == policy
+    )
+    for changes in ({"unknown": 1}, {"maxCpuMilli": 0}, {"semantics": "other"}):
+        with pytest.raises(ContractError):
+            LocalResourcePolicy.from_wire(json.dumps(policy | changes).encode(), limits())
+
+
+def test_local_resource_policy_enforces_cooperative_bounds():
+    from conscience_foundry.contracts.local_resource import (
+        LocalResourcePolicy,
+        validate_local_resources,
+    )
+
+    fields = {
+        "schemaVersion": "cf.local-resource-policy.v1",
+        "semantics": "cooperative",
+        "maxCpuMilli": 1000,
+        "maxMemoryMib": 256,
+        "maxWallSeconds": 30,
+        "maxOutputBytes": 4096,
+        "maxConcurrentAttempts": 1,
+        "maxAttemptsPerOperation": 1,
+    }
+    policy = LocalResourcePolicy.model_validate(fields)
+    validate_local_resources(policy, ResourceEnvelope.model_validate(resources()))
+    for field, value in (
+        ("cpuMilli", 1001),
+        ("memoryMiB", 257),
+        ("maxWallSeconds", 31),
+        ("maxOutputBytes", 4097),
+        ("maxConcurrentAttempts", 2),
+        ("maxAttemptsPerOperation", 2),
+    ):
+        with pytest.raises(ContractError):
+            validate_local_resources(
+                policy, ResourceEnvelope.model_validate(resources(**{field: value}))
+            )
+    with pytest.raises(ContractError):
+        validate_local_resources(
+            LocalResourcePolicy.model_validate(fields | {"semantics": "hard"}),
+            ResourceEnvelope.model_validate(resources()),
+        )

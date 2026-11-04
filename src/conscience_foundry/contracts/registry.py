@@ -47,6 +47,7 @@ from conscience_foundry.contracts.common import (
 from conscience_foundry.contracts.execution import (
     ExecutionConfig,
     ExecutionPlan,
+    LocalExecutionConfig,
     ResultManifest,
     RunAuthorization,
     StageAttempt,
@@ -67,6 +68,7 @@ from conscience_foundry.contracts.intake import (
     NewSources,
     WithdrawalList,
 )
+from conscience_foundry.contracts.local_resource import LocalResourcePolicy
 from conscience_foundry.contracts.project import (
     PolicyArtifact,
     ProfileDescriptor,
@@ -175,6 +177,8 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.quality-report.v1": QualityReport,
         "cf.revision-review.v1": RevisionReview,
         "cf.execution-config.v1": ExecutionConfig,
+        "cf.local-execution-config.v1": LocalExecutionConfig,
+        "cf.local-resource-policy.v1": LocalResourcePolicy,
         "cf.execution-plan.v1": ExecutionPlan,
         "cf.run-authorization.v1": RunAuthorization,
         "cf.stage-attempt.v1": StageAttempt,

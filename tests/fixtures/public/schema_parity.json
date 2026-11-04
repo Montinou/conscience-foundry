@@ -3,6 +3,122 @@
   "note": "Synthetic, public and offline. Expected canonical text and digests are authored literals, not produced by either canonicalizer.",
   "shapeCases": [
     {
+      "caseId": "local-config-valid",
+      "schemaId": "cf.local-execution-config.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.local-execution-config.v1",
+        "adapterId": "local",
+        "deploymentVersion": "v1",
+        "imageDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tariffRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 17,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.local-resource-policy.v1",
+          "locations": [
+            {
+              "storeId": "synthetic",
+              "objectKey": "sha256/synthetic"
+            }
+          ]
+        },
+        "resourcePolicyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 17,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.local-resource-policy.v1",
+          "locations": [
+            {
+              "storeId": "synthetic",
+              "objectKey": "sha256/synthetic"
+            }
+          ]
+        },
+        "localDestinationId": "host"
+      },
+      "note": "synthetic local contract"
+    },
+    {
+      "caseId": "local-config-unknown",
+      "schemaId": "cf.local-execution-config.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.local-execution-config.v1",
+        "adapterId": "local",
+        "deploymentVersion": "v1",
+        "imageDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tariffRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 17,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.local-resource-policy.v1",
+          "locations": [
+            {
+              "storeId": "synthetic",
+              "objectKey": "sha256/synthetic"
+            }
+          ]
+        },
+        "resourcePolicyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-4000-8000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 17,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.local-resource-policy.v1",
+          "locations": [
+            {
+              "storeId": "synthetic",
+              "objectKey": "sha256/synthetic"
+            }
+          ]
+        },
+        "localDestinationId": "host",
+        "extra": 1
+      },
+      "note": "unknown field rejected"
+    },
+    {
+      "caseId": "local-resource-valid",
+      "schemaId": "cf.local-resource-policy.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.local-resource-policy.v1",
+        "semantics": "cooperative",
+        "maxCpuMilli": 1000,
+        "maxMemoryMib": 256,
+        "maxWallSeconds": 30,
+        "maxOutputBytes": 4096,
+        "maxConcurrentAttempts": 1,
+        "maxAttemptsPerOperation": 1
+      },
+      "note": "synthetic local contract"
+    },
+    {
+      "caseId": "local-resource-unknown",
+      "schemaId": "cf.local-resource-policy.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.local-resource-policy.v1",
+        "semantics": "cooperative",
+        "maxCpuMilli": 1000,
+        "maxMemoryMib": 256,
+        "maxWallSeconds": 30,
+        "maxOutputBytes": 4096,
+        "maxConcurrentAttempts": 1,
+        "maxAttemptsPerOperation": 1,
+        "extra": 1
+      },
+      "note": "unknown field rejected"
+    },
+    {
       "caseId": "span-valid",
       "schemaId": "cf.document-span.v1",
       "kind": "valid",
