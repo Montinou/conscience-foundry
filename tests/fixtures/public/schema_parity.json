@@ -3148,6 +3148,613 @@
         ]
       },
       "note": "sourceId unique"
+    },
+    {
+      "caseId": "cf.enrichment-operation.v1-valid",
+      "schemaId": "cf.enrichment-operation.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-operation.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "assetId": "00000000-0000-0000-0000-000000000002",
+        "canonicalRevisionRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.document-revision.v1",
+          "locations": []
+        },
+        "specRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-spec.v1",
+          "locations": []
+        },
+        "policyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.policy.v1",
+          "locations": []
+        },
+        "inputRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-payload.v1",
+          "locations": []
+        },
+        "contextSpans": [],
+        "omittedContextRefs": []
+      }
+    },
+    {
+      "caseId": "cf.enrichment-operation.v1-extra-field",
+      "schemaId": "cf.enrichment-operation.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-operation.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "assetId": "00000000-0000-0000-0000-000000000002",
+        "canonicalRevisionRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.document-revision.v1",
+          "locations": []
+        },
+        "specRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-spec.v1",
+          "locations": []
+        },
+        "policyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.policy.v1",
+          "locations": []
+        },
+        "inputRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-payload.v1",
+          "locations": []
+        },
+        "contextSpans": [],
+        "omittedContextRefs": [],
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-payload.v1-valid",
+      "schemaId": "cf.enrichment-payload.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-payload.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "schemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "value": {
+          "claim": "example"
+        }
+      }
+    },
+    {
+      "caseId": "cf.enrichment-payload.v1-extra-field",
+      "schemaId": "cf.enrichment-payload.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-payload.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "schemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "value": {
+          "claim": "example"
+        },
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-plan.v1-valid",
+      "schemaId": "cf.enrichment-plan.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-plan.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "runId": "00000000-0000-0000-0000-000000000002",
+        "planId": "00000000-0000-0000-0000-000000000002",
+        "operationRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-operation.v1",
+          "locations": []
+        },
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "admissionReportRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.admission-report.v1",
+          "locations": []
+        },
+        "contractSetRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.contract-set.v1",
+          "locations": []
+        },
+        "limitsRefs": [
+          {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 1,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.contract-limits.v1",
+            "locations": []
+          }
+        ],
+        "allocationPolicyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-allocation-policy.v1",
+          "locations": []
+        },
+        "taskSchemaInstallationRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-schema-installation.v1",
+          "locations": []
+        },
+        "resources": {
+          "cpuMilli": 1,
+          "memoryMiB": 1,
+          "gpuCount": 0,
+          "maxWallSeconds": 1,
+          "maxOutputBytes": 1,
+          "maxConcurrentAttempts": 1,
+          "maxAttemptsPerOperation": 1,
+          "automaticRetries": 0
+        },
+        "budget": {
+          "currency": "USD",
+          "maxRunCost": "1",
+          "maxAttemptCost": "1",
+          "tariffRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 1,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.tariff.v1",
+            "locations": []
+          },
+          "authorizationId": "00000000-0000-0000-0000-000000000002",
+          "validUntil": "2026-10-25T00:00:00.000Z"
+        },
+        "expiresAt": "2026-10-25T01:00:00.000Z"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-plan.v1-extra-field",
+      "schemaId": "cf.enrichment-plan.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-plan.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "runId": "00000000-0000-0000-0000-000000000002",
+        "planId": "00000000-0000-0000-0000-000000000002",
+        "operationRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-operation.v1",
+          "locations": []
+        },
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "admissionReportRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.admission-report.v1",
+          "locations": []
+        },
+        "contractSetRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.contract-set.v1",
+          "locations": []
+        },
+        "limitsRefs": [
+          {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 1,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.contract-limits.v1",
+            "locations": []
+          }
+        ],
+        "allocationPolicyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-allocation-policy.v1",
+          "locations": []
+        },
+        "taskSchemaInstallationRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-schema-installation.v1",
+          "locations": []
+        },
+        "resources": {
+          "cpuMilli": 1,
+          "memoryMiB": 1,
+          "gpuCount": 0,
+          "maxWallSeconds": 1,
+          "maxOutputBytes": 1,
+          "maxConcurrentAttempts": 1,
+          "maxAttemptsPerOperation": 1,
+          "automaticRetries": 0
+        },
+        "budget": {
+          "currency": "USD",
+          "maxRunCost": "1",
+          "maxAttemptCost": "1",
+          "tariffRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 1,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.tariff.v1",
+            "locations": []
+          },
+          "authorizationId": "00000000-0000-0000-0000-000000000002",
+          "validUntil": "2026-10-25T00:00:00.000Z"
+        },
+        "expiresAt": "2026-10-25T01:00:00.000Z",
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-attempt.v1-valid",
+      "schemaId": "cf.enrichment-attempt.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-attempt.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "planId": "00000000-0000-0000-0000-000000000002",
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "attemptId": "00000000-0000-0000-0000-000000000002",
+        "attemptNumber": 1,
+        "reservationId": "00000000-0000-0000-0000-000000000002",
+        "state": "succeeded",
+        "createdAt": "2026-10-25T00:00:00.000Z",
+        "finishedAt": "2026-10-25T01:00:00.000Z",
+        "attemptReportRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-attempt-report.v1",
+          "locations": []
+        }
+      }
+    },
+    {
+      "caseId": "cf.enrichment-attempt.v1-extra-field",
+      "schemaId": "cf.enrichment-attempt.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-attempt.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "planId": "00000000-0000-0000-0000-000000000002",
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "attemptId": "00000000-0000-0000-0000-000000000002",
+        "attemptNumber": 1,
+        "reservationId": "00000000-0000-0000-0000-000000000002",
+        "state": "succeeded",
+        "createdAt": "2026-10-25T00:00:00.000Z",
+        "finishedAt": "2026-10-25T01:00:00.000Z",
+        "attemptReportRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-attempt-report.v1",
+          "locations": []
+        },
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-attempt-report.v1-valid",
+      "schemaId": "cf.enrichment-attempt-report.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-attempt-report.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "attemptId": "00000000-0000-0000-0000-000000000002",
+        "reservationId": "00000000-0000-0000-0000-000000000002",
+        "requestRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-request.v1",
+          "locations": []
+        },
+        "allocationEvidenceRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "synthetic.allocation.v1",
+          "locations": []
+        },
+        "observedState": "succeeded",
+        "observedAt": "2026-10-25T00:00:00.000Z",
+        "reasons": []
+      }
+    },
+    {
+      "caseId": "cf.enrichment-attempt-report.v1-extra-field",
+      "schemaId": "cf.enrichment-attempt-report.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-attempt-report.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "operationKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "attemptId": "00000000-0000-0000-0000-000000000002",
+        "reservationId": "00000000-0000-0000-0000-000000000002",
+        "requestRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-request.v1",
+          "locations": []
+        },
+        "allocationEvidenceRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "synthetic.allocation.v1",
+          "locations": []
+        },
+        "observedState": "succeeded",
+        "observedAt": "2026-10-25T00:00:00.000Z",
+        "reasons": [],
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-schema-installation.v1-valid",
+      "schemaId": "cf.enrichment-schema-installation.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-schema-installation.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "specRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-spec.v1",
+          "locations": []
+        },
+        "inputSchemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "outputSchemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "policyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.policy.v1",
+          "locations": []
+        },
+        "actorId": "00000000-0000-0000-0000-000000000002",
+        "evidenceRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "synthetic.evidence.v1",
+          "locations": []
+        },
+        "installedAt": "2026-10-25T00:00:00.000Z"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-schema-installation.v1-extra-field",
+      "schemaId": "cf.enrichment-schema-installation.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-schema-installation.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "specRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.enrichment-spec.v1",
+          "locations": []
+        },
+        "inputSchemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "outputSchemaRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "json-schema.2020-12",
+          "locations": []
+        },
+        "policyRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "cf.policy.v1",
+          "locations": []
+        },
+        "actorId": "00000000-0000-0000-0000-000000000002",
+        "evidenceRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "synthetic.evidence.v1",
+          "locations": []
+        },
+        "installedAt": "2026-10-25T00:00:00.000Z",
+        "untrustedDisposition": "accepted"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-allocation-policy.v1-valid",
+      "schemaId": "cf.enrichment-allocation-policy.v1",
+      "kind": "valid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-allocation-policy.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "tariffRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "custom.operator-tariff.v1",
+          "locations": []
+        },
+        "fixedChargeUsd": "0.005",
+        "fundedFrom": "2026-10-25T00:00:00.000Z",
+        "fundedUntil": "2026-10-25T01:00:00.000Z"
+      }
+    },
+    {
+      "caseId": "cf.enrichment-allocation-policy.v1-extra-field",
+      "schemaId": "cf.enrichment-allocation-policy.v1",
+      "kind": "shape_invalid",
+      "instance": {
+        "schemaVersion": "cf.enrichment-allocation-policy.v1",
+        "projectId": "00000000-0000-0000-0000-000000000001",
+        "tariffRef": {
+          "schemaVersion": "cf.artifact-ref.v1",
+          "projectId": "00000000-0000-0000-0000-000000000001",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 1,
+          "mediaType": "application/json",
+          "artifactSchema": "custom.operator-tariff.v1",
+          "locations": []
+        },
+        "fixedChargeUsd": "0.005",
+        "fundedFrom": "2026-10-25T00:00:00.000Z",
+        "fundedUntil": "2026-10-25T01:00:00.000Z",
+        "untrustedDisposition": "accepted"
+      }
     }
   ],
   "unicodeCases": [
@@ -3378,5 +3985,1701 @@
       "domain": "cf.revision.v1",
       "digest": "4500363f97402a6e0f7e2c87c21a27ac50d52a39eaf4cbc4f3513a8ce7a1b788"
     }
-  ]
+  ],
+  "preEnrichmentContractSet": {
+    "parentCommit": "338716495b1ed6ccd9b2cfae5e36e8728bfdd62e",
+    "limits": {
+      "schemaVersion": "cf.contract-limits.v1",
+      "version": "synthetic.v1",
+      "maxJsonBytes": 65536,
+      "maxStringScalars": 1024,
+      "maxArrayItems": 128,
+      "maxDepth": 16,
+      "maxManifestItems": 128,
+      "maxSourceBytes": 65536,
+      "maxOutputBytes": 65536,
+      "maxErrorMessageScalars": 80
+    },
+    "contractSet": {
+      "schemaVersion": "cf.contract-set.v1",
+      "version": "parent.v1",
+      "contracts": [
+        {
+          "schemaId": "cf.activation.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "6d18a72d10ea4dde7453daf461db4d4a766d34b21bfbbfc08c1dd01c34fb5308",
+            "sizeBytes": 945,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/6d18a72d10ea4dde7453daf461db4d4a766d34b21bfbbfc08c1dd01c34fb5308"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "dfb0586a887ef5cda282aa99f8c4a9913eaa44dbed4175b391ba8a8a7877e896",
+            "sizeBytes": 169,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/dfb0586a887ef5cda282aa99f8c4a9913eaa44dbed4175b391ba8a8a7877e896"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.admission-report.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9d82f045dd77291cc182638108e65e6d9c0451b4a260b2048678ada10168f7dc",
+            "sizeBytes": 3716,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9d82f045dd77291cc182638108e65e6d9c0451b4a260b2048678ada10168f7dc"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "e4c63828d945820f6a646ed26af9a92aae477a8469c0f4cb98ca8d44f085eb6f",
+            "sizeBytes": 181,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/e4c63828d945820f6a646ed26af9a92aae477a8469c0f4cb98ca8d44f085eb6f"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.annotation-set.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "e59abe63d25076cc211d5d5e29b5ccf05e59dd56f4986c0f754af9a37e7513b2",
+            "sizeBytes": 1960,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/e59abe63d25076cc211d5d5e29b5ccf05e59dd56f4986c0f754af9a37e7513b2"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "2c151e74a18624add965917e90133fab25373cac9d94e339ac3d6ffc0275f1a3",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/2c151e74a18624add965917e90133fab25373cac9d94e339ac3d6ffc0275f1a3"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.artifact-manifest.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a780c4ccb990d3b8cacf65b9296f2ceddeda15b9f1b0261ae738354be7769008",
+            "sizeBytes": 2739,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a780c4ccb990d3b8cacf65b9296f2ceddeda15b9f1b0261ae738354be7769008"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9008ccee59dffb5fb85ac3c634888fb06645a608dd2d533d600257b4f3dfc2cf",
+            "sizeBytes": 183,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9008ccee59dffb5fb85ac3c634888fb06645a608dd2d533d600257b4f3dfc2cf"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.artifact-ref.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5c01e91c823dc1f564d0e723695b206e4692b7dbccedeb914670f1fb1b95e5ab",
+            "sizeBytes": 1194,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5c01e91c823dc1f564d0e723695b206e4692b7dbccedeb914670f1fb1b95e5ab"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "8952acb06305280f588ea0c92a4e82751493c2b5cddd4a0d995b1b886d16cf1c",
+            "sizeBytes": 173,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/8952acb06305280f588ea0c92a4e82751493c2b5cddd4a0d995b1b886d16cf1c"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.billing-adjustment.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "de454dd824fd307a4aa6b13acff3129c556e84b4aa6657f19c953a8aca5f6698",
+            "sizeBytes": 2664,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/de454dd824fd307a4aa6b13acff3129c556e84b4aa6657f19c953a8aca5f6698"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aea15f0b140b1e9c94acc8cf293290fd33a3bf96f706c1de54158e41b39424e3",
+            "sizeBytes": 185,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/aea15f0b140b1e9c94acc8cf293290fd33a3bf96f706c1de54158e41b39424e3"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.budget-event.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "ae66d91bfe0114b74c72c7394706f75e6c18afae87a0ff5324c6eaafcbd7f49b",
+            "sizeBytes": 2763,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/ae66d91bfe0114b74c72c7394706f75e6c18afae87a0ff5324c6eaafcbd7f49b"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "914ee8d685673101246ef8e3eaa747903fb5a19200064f81d2584db7bd50e6fc",
+            "sizeBytes": 173,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/914ee8d685673101246ef8e3eaa747903fb5a19200064f81d2584db7bd50e6fc"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.canonical-text.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "33dcd90b3f70e6064c93c9bfd4e48c74043ae24fbf0e4fc191b9b743f4e6abfe",
+            "sizeBytes": 96,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/33dcd90b3f70e6064c93c9bfd4e48c74043ae24fbf0e4fc191b9b743f4e6abfe"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "3144ef32d1ff99d1ffbe15515559d7f888641c5da09aad38f8fc2d8c14636e05",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/3144ef32d1ff99d1ffbe15515559d7f888641c5da09aad38f8fc2d8c14636e05"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.contract-limits.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "cd9175650c02fe1d8288e59ba75f6b9cf85374aa0d682d5ec78b3b1c4ca7e206",
+            "sizeBytes": 1379,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/cd9175650c02fe1d8288e59ba75f6b9cf85374aa0d682d5ec78b3b1c4ca7e206"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "02ca85a221e5220f2ee0d7b1782b64724940304fa98f2a65a7e1bf302513b6e5",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/02ca85a221e5220f2ee0d7b1782b64724940304fa98f2a65a7e1bf302513b6e5"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.contract-set.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f0ffa4621b5eaea55f9be5706bacf2e174a625ccabe19806f1bcd45aecc39b2d",
+            "sizeBytes": 2575,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f0ffa4621b5eaea55f9be5706bacf2e174a625ccabe19806f1bcd45aecc39b2d"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "8c7231ed5befacefcbecbe4c26431aa6d7f502a917b1ce7cd5f1c47d1c88687e",
+            "sizeBytes": 173,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/8c7231ed5befacefcbecbe4c26431aa6d7f502a917b1ce7cd5f1c47d1c88687e"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.coverage-report.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f13435757eca9edd5b98e27170ca1a063565620793ebf6d33080d631b9d3e064",
+            "sizeBytes": 4012,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f13435757eca9edd5b98e27170ca1a063565620793ebf6d33080d631b9d3e064"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5e625c01299d11b83da0d5fe74a0f3fe07f314a99579cf1702154bf25ae0d169",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5e625c01299d11b83da0d5fe74a0f3fe07f314a99579cf1702154bf25ae0d169"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.curated-batch.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "e236f59977b705f020b734c9ef2758756ec4da051468750e964977045a34018e",
+            "sizeBytes": 2614,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/e236f59977b705f020b734c9ef2758756ec4da051468750e964977045a34018e"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "c8af2e0ca917573a32289acd9c40753067a1dcfd3402e1d4d84e434a3b8746ad",
+            "sizeBytes": 175,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/c8af2e0ca917573a32289acd9c40753067a1dcfd3402e1d4d84e434a3b8746ad"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.decision-release.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "8810e56d273ed355faa61bd0848eafa1b8da8359ec7a26664a79771315d2794d",
+            "sizeBytes": 2555,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/8810e56d273ed355faa61bd0848eafa1b8da8359ec7a26664a79771315d2794d"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9d13daa0de3f50cd268db778dcf59969a453bf62967f4c126874e4b0c6756b01",
+            "sizeBytes": 181,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9d13daa0de3f50cd268db778dcf59969a453bf62967f4c126874e4b0c6756b01"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.decision-request.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "40dc3da824a08284c65fc8b2ebc15365119c18992f96780f565837703a80f12e",
+            "sizeBytes": 2507,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/40dc3da824a08284c65fc8b2ebc15365119c18992f96780f565837703a80f12e"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5344590e027a47aa25d7b16cbc46ea121d293254812b4309904e7395c487a2d0",
+            "sizeBytes": 181,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5344590e027a47aa25d7b16cbc46ea121d293254812b4309904e7395c487a2d0"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.decision-result.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "b5d7a241ba939b079deda244f6061523676c22900233d3243757eedac6fd26b7",
+            "sizeBytes": 3912,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/b5d7a241ba939b079deda244f6061523676c22900233d3243757eedac6fd26b7"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "57ce9d344d94c475bd73f0d30fca5d7d2c37afef14cbd4e1932b42edf7d82264",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/57ce9d344d94c475bd73f0d30fca5d7d2c37afef14cbd4e1932b42edf7d82264"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.decision-task.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5626ab221853790aeb384993f3bc9d4adb050cd62b6cc770d5b4842ad533bfd2",
+            "sizeBytes": 2023,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5626ab221853790aeb384993f3bc9d4adb050cd62b6cc770d5b4842ad533bfd2"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "ec4b1aaffd7e58e56e0f0bb23575c02b635e8d46eefd605c8c9922ae8dbde089",
+            "sizeBytes": 175,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/ec4b1aaffd7e58e56e0f0bb23575c02b635e8d46eefd605c8c9922ae8dbde089"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.document-revision.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "97f57ea7da2983a4436a555e34450a007e6145e6ae839c8a3dd2c2a534997959",
+            "sizeBytes": 3117,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/97f57ea7da2983a4436a555e34450a007e6145e6ae839c8a3dd2c2a534997959"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "71aec2d2aa9d8b3310d82c721f9320bc7ac2825677243f1ad8c0a391331b9c1b",
+            "sizeBytes": 183,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/71aec2d2aa9d8b3310d82c721f9320bc7ac2825677243f1ad8c0a391331b9c1b"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.document-span.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "136c102b6c007478058fd62446015fbd4a993bdc59b7d2fdf1778dcf459621ba",
+            "sizeBytes": 989,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/136c102b6c007478058fd62446015fbd4a993bdc59b7d2fdf1778dcf459621ba"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "e5dda3cdcb2a49a115e43fb09a2d02b451a9d1f54e7f029ea5c811949a2c3366",
+            "sizeBytes": 175,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/e5dda3cdcb2a49a115e43fb09a2d02b451a9d1f54e7f029ea5c811949a2c3366"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.enrichment-request.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "1f9f9b73ea891dd22613735e237a93fce51b4af7315b3568ae586b196a3b0b8c",
+            "sizeBytes": 3652,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/1f9f9b73ea891dd22613735e237a93fce51b4af7315b3568ae586b196a3b0b8c"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "74665205aea36abdcb28d1f2f5dc503e1c26316cd568cf5a247259a1ef13174d",
+            "sizeBytes": 185,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/74665205aea36abdcb28d1f2f5dc503e1c26316cd568cf5a247259a1ef13174d"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.enrichment-result.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "994e61b959698ef7e836b5fe0151ebd3c7736dd202c1917fff068be442636277",
+            "sizeBytes": 3683,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/994e61b959698ef7e836b5fe0151ebd3c7736dd202c1917fff068be442636277"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "50ccd0b03c3bf63a572d26b48efbbc4c2ea2bee244635a16e3e51364bd651144",
+            "sizeBytes": 183,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/50ccd0b03c3bf63a572d26b48efbbc4c2ea2bee244635a16e3e51364bd651144"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.enrichment-spec.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9c28903aa93a08efede1fb7a7c354f7f6d78164bc159fca56e79a2a6721ebadc",
+            "sizeBytes": 2529,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9c28903aa93a08efede1fb7a7c354f7f6d78164bc159fca56e79a2a6721ebadc"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "655ca8600b7ea4335fafaf72c0904bfa159dc1aac0d8d63a575e422fe1e0a74d",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/655ca8600b7ea4335fafaf72c0904bfa159dc1aac0d8d63a575e422fe1e0a74d"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.execution-config.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "47142b040ff68ffb1ac0ecb056cd1689ccabbd3b5de96c975948392b5e39f13f",
+            "sizeBytes": 1980,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/47142b040ff68ffb1ac0ecb056cd1689ccabbd3b5de96c975948392b5e39f13f"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "ceadf2ad7b86593c08c717a473ec14c5fb5dde4545d473b4a5c214a5bf174793",
+            "sizeBytes": 181,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/ceadf2ad7b86593c08c717a473ec14c5fb5dde4545d473b4a5c214a5bf174793"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.execution-plan.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "e26c80ebcabe71091b5c91922fd6747e3861f39307e899f9ba9381953ca67014",
+            "sizeBytes": 4894,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/e26c80ebcabe71091b5c91922fd6747e3861f39307e899f9ba9381953ca67014"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "64c17edca1c9545601338a17f6434b6278a260a0a1803e02cc9118e915a9d73a",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/64c17edca1c9545601338a17f6434b6278a260a0a1803e02cc9118e915a9d73a"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.extraction-spec.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "4f2d78dd6788e4e986f13aacdf7d3eeb8568a84d9aa600e41077306ace81cbe6",
+            "sizeBytes": 2155,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/4f2d78dd6788e4e986f13aacdf7d3eeb8568a84d9aa600e41077306ace81cbe6"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "52f9c4941c13a7287d6a9ffa17b03091c3f0a51afde32392d9b83b352b84afc4",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/52f9c4941c13a7287d6a9ffa17b03091c3f0a51afde32392d9b83b352b84afc4"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.import-receipt.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "c368c42c24f534467f935e771c5cee555900923b15a4f4600857d7caf38900fa",
+            "sizeBytes": 3077,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/c368c42c24f534467f935e771c5cee555900923b15a4f4600857d7caf38900fa"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "439547df156d2bc1162008ded1b8ef55f897fb47dd0fac75810e2eeb380b1d07",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/439547df156d2bc1162008ded1b8ef55f897fb47dd0fac75810e2eeb380b1d07"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.intake-diff.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f7ee398710f485171504bb85dace80f5fc5d0f7a11a7cb3d806b633403ae8049",
+            "sizeBytes": 2029,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f7ee398710f485171504bb85dace80f5fc5d0f7a11a7cb3d806b633403ae8049"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "0ce8ea46a3c9c60961af0c0216afaef99deea4d8b06469e7b1bb25e191f7e9cb",
+            "sizeBytes": 171,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/0ce8ea46a3c9c60961af0c0216afaef99deea4d8b06469e7b1bb25e191f7e9cb"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.intake.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "7a060225a266631f02d316dafbe9a1e42d4b9ebcc696eee88ce5c7c357669d6a",
+            "sizeBytes": 3355,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/7a060225a266631f02d316dafbe9a1e42d4b9ebcc696eee88ce5c7c357669d6a"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "1001a03374639992575050b9bd381132d4a9e2d49470bfd2bf17d74b0b4ea71e",
+            "sizeBytes": 161,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/1001a03374639992575050b9bd381132d4a9e2d49470bfd2bf17d74b0b4ea71e"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.library-release.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5aa26e29b805924fd8d15baa7e8049aacf2f971a2313a7b6dc201c8560d63040",
+            "sizeBytes": 3418,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5aa26e29b805924fd8d15baa7e8049aacf2f971a2313a7b6dc201c8560d63040"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9dee3036c6f1a2c786b0f4796971a31a81658bdcf0d5b3194ba9532a5184e868",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9dee3036c6f1a2c786b0f4796971a31a81658bdcf0d5b3194ba9532a5184e868"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.local-execution-config.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "1baf6a9d26e296191c256a9224efeaa904f58ac15ed1ccbdff5fbea129bc4ac3",
+            "sizeBytes": 1994,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/1baf6a9d26e296191c256a9224efeaa904f58ac15ed1ccbdff5fbea129bc4ac3"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "1eb1f63cee68efe0edc1f046f3bdb72d94fa0eaf93225eb2c5b6e4f1e3bb23f3",
+            "sizeBytes": 193,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/1eb1f63cee68efe0edc1f046f3bdb72d94fa0eaf93225eb2c5b6e4f1e3bb23f3"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.local-resource-policy.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5f054e93fa89c817a4c85f61fdaa9210f37cd0af8d9088b585644a90085cfcd8",
+            "sizeBytes": 1190,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5f054e93fa89c817a4c85f61fdaa9210f37cd0af8d9088b585644a90085cfcd8"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "d86c868a24d99ffec3e149e2d8a3d21cd2c37a85a45f6fb034d35d4950bde1bc",
+            "sizeBytes": 191,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/d86c868a24d99ffec3e149e2d8a3d21cd2c37a85a45f6fb034d35d4950bde1bc"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.metadata-schema.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "bb45af909f6ba65aabcfdd9647f5153ee41b55e6e9845d3ead730801ee608264",
+            "sizeBytes": 2667,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/bb45af909f6ba65aabcfdd9647f5153ee41b55e6e9845d3ead730801ee608264"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "4bc53dd5649ddf071d6c4ff0c00819f36b43905192d2954989de54bb202c8ff6",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/4bc53dd5649ddf071d6c4ff0c00819f36b43905192d2954989de54bb202c8ff6"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.new-sources.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "960faffc3e3d967db985071f9e93c2b8cc561d72d2e340a57d1345ea2c861308",
+            "sizeBytes": 1004,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/960faffc3e3d967db985071f9e93c2b8cc561d72d2e340a57d1345ea2c861308"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "cb4768e048a667c9f907b34e2bcedf05554adf0fcd01eb755ea2265757e35c91",
+            "sizeBytes": 171,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/cb4768e048a667c9f907b34e2bcedf05554adf0fcd01eb755ea2265757e35c91"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.operation-result-record.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "b912f8a70cdc165022c388bb441c4066ffc29839dda97577c5c470c2f7e21e30",
+            "sizeBytes": 2692,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/b912f8a70cdc165022c388bb441c4066ffc29839dda97577c5c470c2f7e21e30"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "ddde2cf9a64c55a9453100882f66f74be5b3bb3bbde47b260fa210163e6f1b50",
+            "sizeBytes": 195,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/ddde2cf9a64c55a9453100882f66f74be5b3bb3bbde47b260fa210163e6f1b50"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.origin-map.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a7249480fa58fef2161bdc00e5725f8826119f9c1bd2e042f78b284b8ba843c2",
+            "sizeBytes": 634,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a7249480fa58fef2161bdc00e5725f8826119f9c1bd2e042f78b284b8ba843c2"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "183bdb2e0712feb38bd431165de06e7dbd2385a287e77b5c390b370c5bafe89d",
+            "sizeBytes": 169,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/183bdb2e0712feb38bd431165de06e7dbd2385a287e77b5c390b370c5bafe89d"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.policy.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "6188bf351cf7c15602927921559d95f85b536cf155964645252ea69d06ffd47b",
+            "sizeBytes": 1952,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/6188bf351cf7c15602927921559d95f85b536cf155964645252ea69d06ffd47b"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "69ef94a4254472324b2b95f7a2d478b866b96895be6651dda50edad722f631a9",
+            "sizeBytes": 161,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/69ef94a4254472324b2b95f7a2d478b866b96895be6651dda50edad722f631a9"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.profile.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "da1265f0c1f4cf83ca7099f3bdfd4742d086d166a26ebc95ad7ada0f7871f193",
+            "sizeBytes": 2068,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/da1265f0c1f4cf83ca7099f3bdfd4742d086d166a26ebc95ad7ada0f7871f193"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "320298e3f2d47bb2bf30d5dd6a0bdf9cee0c4760948010c80a52f464e8769777",
+            "sizeBytes": 163,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/320298e3f2d47bb2bf30d5dd6a0bdf9cee0c4760948010c80a52f464e8769777"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.project.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "0606997c6740c11db6172e9c5412a4732d7bbfe97266013299b712ab53096103",
+            "sizeBytes": 2139,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/0606997c6740c11db6172e9c5412a4732d7bbfe97266013299b712ab53096103"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f80b02174b8d89031c95f94e5bd74b13f6175622c45b543500a643b8ddd87de7",
+            "sizeBytes": 163,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f80b02174b8d89031c95f94e5bd74b13f6175622c45b543500a643b8ddd87de7"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.provenance-report.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "1d6d205255d0700ad21154c8e210e78a6392b0c475393b5d29133cfa28bf178b",
+            "sizeBytes": 2702,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/1d6d205255d0700ad21154c8e210e78a6392b0c475393b5d29133cfa28bf178b"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5d829c3758ad91bcab60bf029526182a684cf0fd24083b90551493d443d51f20",
+            "sizeBytes": 183,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5d829c3758ad91bcab60bf029526182a684cf0fd24083b90551493d443d51f20"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.publication-authorization.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "dcf4a132976cbc63b26c5add33ebca4ffa06d9b7fc40322ae96525f358e452f0",
+            "sizeBytes": 2221,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/dcf4a132976cbc63b26c5add33ebca4ffa06d9b7fc40322ae96525f358e452f0"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "0c7ab46ad6032fed1c7330930284a43c4ffa501a65b9d058a78969b9d9b7799a",
+            "sizeBytes": 199,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/0c7ab46ad6032fed1c7330930284a43c4ffa501a65b9d058a78969b9d9b7799a"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.publication-record.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "cb50d926e37a9938129b5f659e89c1d7e3811f098cb3791da75356b85356b7a1",
+            "sizeBytes": 2707,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/cb50d926e37a9938129b5f659e89c1d7e3811f098cb3791da75356b85356b7a1"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "3eb9219c3749eae02c1075bb0b3eec82dbd983a6bad46ea806f0e2caa271ae52",
+            "sizeBytes": 185,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/3eb9219c3749eae02c1075bb0b3eec82dbd983a6bad46ea806f0e2caa271ae52"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.quality-report.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "033098e6cd80f50c3098fbaa858ead66a35823ba101af79afdf62f30447dd737",
+            "sizeBytes": 1853,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/033098e6cd80f50c3098fbaa858ead66a35823ba101af79afdf62f30447dd737"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f0131b4189e7f87f398eef47e08f16eacb1acf8659c49e80b7bd6be0e7ec958b",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f0131b4189e7f87f398eef47e08f16eacb1acf8659c49e80b7bd6be0e7ec958b"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.raw-original.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "ddc7443001f0bb2c86fe72b2887ddebeae9fb94b6a9337b3016388ef49e20093",
+            "sizeBytes": 94,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/ddc7443001f0bb2c86fe72b2887ddebeae9fb94b6a9337b3016388ef49e20093"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "5cf9c2f2c000b7474cef6a206f0e1d65368933c7582c49d957064650e71787a5",
+            "sizeBytes": 173,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/5cf9c2f2c000b7474cef6a206f0e1d65368933c7582c49d957064650e71787a5"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.result.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "463bb0a4b6fd82678d859d90778034a748d67e257fad6bd95aec492eb5f2ff17",
+            "sizeBytes": 4547,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/463bb0a4b6fd82678d859d90778034a748d67e257fad6bd95aec492eb5f2ff17"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "b65ba9b0b18ed2cd250bfbbdd6fc336de2fa5508ef9847f559592775635800c0",
+            "sizeBytes": 161,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/b65ba9b0b18ed2cd250bfbbdd6fc336de2fa5508ef9847f559592775635800c0"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.retention.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "9a8ca9892dfda563376b92ad54cd3c768042b29f16c540ccf701f9e71d066311",
+            "sizeBytes": 1041,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/9a8ca9892dfda563376b92ad54cd3c768042b29f16c540ccf701f9e71d066311"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "4fed8169f767d184fe9572d3fb098dfb442d2f0f5b565b04ff3c0e0e33fa543b",
+            "sizeBytes": 167,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/4fed8169f767d184fe9572d3fb098dfb442d2f0f5b565b04ff3c0e0e33fa543b"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.revision-review.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "3451a775f8a33fcbb464745e1ccf1ee3d294c4bc4c637cba260889cfdf66d745",
+            "sizeBytes": 1879,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/3451a775f8a33fcbb464745e1ccf1ee3d294c4bc4c637cba260889cfdf66d745"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a02c8d4b9b697990929d4fbd57d606e943504735223834d654e205780b500619",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a02c8d4b9b697990929d4fbd57d606e943504735223834d654e205780b500619"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.run-authorization.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "c69de0e3c599b97b4b84c48c9f45412442ca7bc97f6171fd31639f9b61897952",
+            "sizeBytes": 1669,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/c69de0e3c599b97b4b84c48c9f45412442ca7bc97f6171fd31639f9b61897952"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "319e4e4e5a2970b2725de4fedf52e7a3dd973f15aaca924062c0fba0c4bcfb56",
+            "sizeBytes": 183,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/319e4e4e5a2970b2725de4fedf52e7a3dd973f15aaca924062c0fba0c4bcfb56"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.run-report.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "3ca9503adad27c4115b48054808f83ad6c3275f3743557ad2c5a1071f479cc30",
+            "sizeBytes": 4391,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/3ca9503adad27c4115b48054808f83ad6c3275f3743557ad2c5a1071f479cc30"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f1ff7d301a614bef7904a10653b06d3a44d579418785d7e91ca34ba94764f195",
+            "sizeBytes": 169,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f1ff7d301a614bef7904a10653b06d3a44d579418785d7e91ca34ba94764f195"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.semantic-rules.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "311997e650e7d331be995983a5eb306f69cd768fa19689dda4d7f98655247407",
+            "sizeBytes": 554,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/311997e650e7d331be995983a5eb306f69cd768fa19689dda4d7f98655247407"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a625dcbe6606f80c652a1f1fc6de515eb25fab41482ffa3730c18781fc97b840",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a625dcbe6606f80c652a1f1fc6de515eb25fab41482ffa3730c18781fc97b840"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.source-asset.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "2768b82d36ca652bdaf93ce5f08d6b24d0e633e17f53f4a1a0aab74e66d71e57",
+            "sizeBytes": 2086,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/2768b82d36ca652bdaf93ce5f08d6b24d0e633e17f53f4a1a0aab74e66d71e57"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "8273f7f17f3c3a9f8ea0a8acff3c69e0057b4dfba04e26ff3c0a59d692f43393",
+            "sizeBytes": 173,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/8273f7f17f3c3a9f8ea0a8acff3c69e0057b4dfba04e26ff3c0a59d692f43393"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.stage-attempt.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a3f3216b1aa4424bc9b8c56758ec4f0011d15b87c904c5ec7ed1c391f9f5fe5b",
+            "sizeBytes": 3918,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a3f3216b1aa4424bc9b8c56758ec4f0011d15b87c904c5ec7ed1c391f9f5fe5b"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "f11838cb46e15449185bc7a13bd0cbde8174c929bd6bc79b9d0a8699c87efe5c",
+            "sizeBytes": 175,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/f11838cb46e15449185bc7a13bd0cbde8174c929bd6bc79b9d0a8699c87efe5c"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.storage-config.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "a7c93ea7d597272bf081ca63de14fd35d5b0de8819e05f2d54627eee1de3f2a9",
+            "sizeBytes": 1945,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/a7c93ea7d597272bf081ca63de14fd35d5b0de8819e05f2d54627eee1de3f2a9"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "b6d802480f3dcb82f49430513502e71219535a85a9f00b4a7457e386b4cac612",
+            "sizeBytes": 177,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/b6d802480f3dcb82f49430513502e71219535a85a9f00b4a7457e386b4cac612"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.technical-metadata.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "fa0ce2d1dbd40d1555257f889c1aae0f28a6f60867a2b43ba361b62bb2b290c5",
+            "sizeBytes": 391,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/fa0ce2d1dbd40d1555257f889c1aae0f28a6f60867a2b43ba361b62bb2b290c5"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "aa98ce554ef3c9c909ec34cb9a7ecb24e33f983f0d96979541fc9cab3a4a1368",
+            "sizeBytes": 185,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/aa98ce554ef3c9c909ec34cb9a7ecb24e33f983f0d96979541fc9cab3a4a1368"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "cf.withdrawal-list.v1",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "44a6665b3a9a1c7e3cb9f3596d8ac99ef08706da61c0391abc190879a6967c55",
+            "sizeBytes": 2431,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/44a6665b3a9a1c7e3cb9f3596d8ac99ef08706da61c0391abc190879a6967c55"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "4cf61634c90f14d76f1fe05ea8770119decd65bb52b5a1cfb689bb543625ef60",
+            "sizeBytes": 179,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/4cf61634c90f14d76f1fe05ea8770119decd65bb52b5a1cfb689bb543625ef60"
+              }
+            ]
+          }
+        },
+        {
+          "schemaId": "json-schema.2020-12",
+          "schemaRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "38a2763e774ad021d435f4cbe126ada0fbe9362a347ec987fc2d1f9d3744a5dd",
+            "sizeBytes": 207,
+            "mediaType": "application/json",
+            "artifactSchema": "json-schema.2020-12",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/38a2763e774ad021d435f4cbe126ada0fbe9362a347ec987fc2d1f9d3744a5dd"
+              }
+            ]
+          },
+          "semanticRulesRef": {
+            "schemaVersion": "cf.artifact-ref.v1",
+            "projectId": "00000000-0000-0000-0000-000000000001",
+            "digest": "69f16ed218766584caac6391ac74692e67c191a09d43ebf0b1c2de03193c06bf",
+            "sizeBytes": 175,
+            "mediaType": "application/json",
+            "artifactSchema": "cf.semantic-rules.v1",
+            "locations": [
+              {
+                "storeId": "parent",
+                "objectKey": "sha256/69f16ed218766584caac6391ac74692e67c191a09d43ebf0b1c2de03193c06bf"
+              }
+            ]
+          }
+        }
+      ],
+      "compatiblePairs": []
+    }
+  }
 }
