@@ -345,7 +345,9 @@ class LocalExecutor:
                     # Missing handshake, unavailable wait, or uncertain durable write is unknown.
                     return
 
-            waiter = threading.Thread(target=watch, name="cf-local-waiter", daemon=True)
+            # The controller owns the wait status. Normal interpreter shutdown
+            # must keep this thread alive until that status is durably recorded.
+            waiter = threading.Thread(target=watch, name="cf-local-waiter", daemon=False)
             self._waiters[attempt.attempt_id] = waiter
             waiter.start()
 

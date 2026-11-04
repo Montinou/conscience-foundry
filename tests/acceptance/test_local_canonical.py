@@ -34,15 +34,25 @@ pytestmark = pytest.mark.database
 
 
 @pytest.mark.parametrize(
-    ("pretty_bootstrap", "interrupted", "expired", "rollback", "drift", "cancelled", "failed"),
+    (
+        "pretty_bootstrap",
+        "interrupted",
+        "expired",
+        "rollback",
+        "drift",
+        "cancelled",
+        "failed",
+        "console",
+    ),
     [
-        (False, False, False, False, False, False, False),
-        (False, False, False, False, False, False, True),
-        (False, False, False, False, False, True, False),
-        (True, True, False, False, False, False, False),
-        (False, False, True, False, False, False, False),
-        (False, False, False, True, False, False, False),
-        (False, False, False, False, True, False, False),
+        (False, False, False, False, False, False, False, False),
+        (False, False, False, False, False, False, True, False),
+        (False, False, False, False, False, True, False, False),
+        (True, True, False, False, False, False, False, False),
+        (False, False, True, False, False, False, False, False),
+        (False, False, False, True, False, False, False, False),
+        (False, False, False, False, True, False, False, False),
+        pytest.param(False, False, False, False, False, False, False, True, id="console-process"),
     ],
 )
 def test_real_local_cli_canonical_flow(
@@ -56,6 +66,7 @@ def test_real_local_cli_canonical_flow(
     drift,
     cancelled,
     failed,
+    console,
 ):
     """No injected estimator or observation facts and no seeded canonical result."""
     current = now()
@@ -479,6 +490,86 @@ raise SystemExit(worker.main())
         ASSET,
         "--execute",
     )
+    if console:
+        # Hold the real worker after its handshake until the console has had a
+        # chance to exit. This makes the lost-waiter race deterministic.
+        import subprocess
+        import time
+
+        gate_path = tmp_path / "hold-worker"
+        gate_path.touch()
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(
+            "import conscience_foundry.execution.local_executor as e\n"
+            "target = \"runpy.run_module('conscience_foundry.execution.local_worker', "
+            "run_name='__main__')\"\n"
+            "gate = '''import time\nfrom pathlib import Path\n"
+            "import conscience_foundry.execution.local_worker as worker\n"
+            "original = worker.reconstruct_authority\n"
+            "def held(*args):\n"
+            "    deadline = time.monotonic() + 30\n"
+            f"    while Path({str(gate_path)!r}).exists() and time.monotonic() < deadline:\n"
+            "        time.sleep(0.05)\n"
+            "    return original(*args)\n"
+            "worker.reconstruct_authority = held\n"
+            "raise SystemExit(worker.main())\n'''\n"
+            "assert target in e._WORKER_BOOTSTRAP\n"
+            "e._WORKER_BOOTSTRAP = e._WORKER_BOOTSTRAP.replace(target, gate)\n"
+        )
+        console_path = str(Path(sys.executable).with_name("cfoundry"))
+        child_env = {**os.environ, "PYTHONPATH": str(site)}
+        process = subprocess.Popen(
+            [console_path, "--config", str(env.config_path), *dispatch_args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=child_env,
+        )
+        try:
+            try:
+                deadline = time.monotonic() + 30
+                while not list(journal.glob("*/handshake.json")) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                assert list(journal.glob("*/handshake.json")), "worker handshake missing"
+                # Old daemon waiter lets the command exit while its worker is held;
+                # the fixed command is still alive until the gate is released.
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+            finally:
+                gate_path.unlink(missing_ok=True)
+            raw, error = process.communicate(timeout=60)
+        except BaseException:
+            gate_path.unlink(missing_ok=True)
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
+            raise
+        assert process.returncode == 0, (raw, error)
+        attempt_id = json.loads(raw)["attempt"]["attemptId"]
+        assert (journal / attempt_id / "exit.json").exists()
+
+        def console_run(*args):
+            return subprocess.run(
+                [console_path, "--config", str(env.config_path), *args],
+                capture_output=True,
+                text=True,
+                env=os.environ,
+                timeout=60,
+                check=False,
+            )
+
+        reconciled = console_run("reconcile", "--attempt-id", attempt_id, "--execute")
+        assert reconciled.returncode == 0, (reconciled.stdout, reconciled.stderr)
+        result = json.loads(reconciled.stdout)
+        assert result["attempt"]["state"] == "succeeded"
+        assert result["selection"]["outcome"] == "selected"
+        receipts = console_run("local-receipts", "--attempt-id", attempt_id, "--execute")
+        assert receipts.returncode == 0, (receipts.stdout, receipts.stderr)
+        assert {"attemptRef", "storageRef"} <= json.loads(receipts.stdout).keys()
+        return
     if drift:
         from conscience_foundry.execution import local_runtime
 

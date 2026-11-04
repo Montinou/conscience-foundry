@@ -54,6 +54,10 @@ commands reopen trusted state and never initialize or reset it. Each effect requ
 explicit command grant. This worker is cooperative and deterministic; it is not a hard OS sandbox
 or a CPU/RSS quota.
 
+An executing local dispatch waits for its owned worker to terminate before the CLI process exits,
+so it can persist the worker's independently observed exit status. A forcibly terminated controller
+may leave the outcome unknown; its reservation remains outstanding until independently reconciled.
+
 After an attempt has reached a confirmed terminal state and been reconciled, while its funding
 window is open, issue `cfoundry local-receipts --attempt-id ID --execute`. Save both returned
 Refs as JSON files. Settle each terminal attempt using `cfoundry record-billing --attempt-id ID
