@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, cast
@@ -41,6 +42,7 @@ from conscience_foundry.contracts.common import (
     Digest,
     Id,
     Instant,
+    Money,
     PositiveInteger,
     Ref,
     ScalarString,
@@ -48,6 +50,7 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.contracts.project import EFFECT_NAMES, PolicyArtifact
+from conscience_foundry.execution.local_contracts import LocalWorkerGrant
 from conscience_foundry.execution.modal_live import staging_config
 from conscience_foundry.execution.ports import (
     ControlContext,
@@ -65,6 +68,7 @@ from conscience_foundry.storage.staging_s3 import StagingConfig
 
 if TYPE_CHECKING:
     from conscience_foundry.cli.live import LiveWiring
+    from conscience_foundry.cli.local_execution import LocalWiring
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -84,6 +88,8 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
                 "pause",
                 "resume",
                 "record-billing",
+                "local-receipts",
+                "close-local-storage",
             }
         ),
         "review": frozenset({"review"}),
@@ -107,7 +113,7 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
 # recorded settlement, manual unknown-outcome marks, budget reconciliation and control reads
 # still have no CLI command, so no grant can authorize them.
 _SETTLEMENT = frozenset({"reconcile", "cancel"})
-_BILLING = _SETTLEMENT | {"record-billing"}
+_BILLING = _SETTLEMENT | {"record-billing", "close-local-storage"}
 _DEADLINE = frozenset({"dispatch", "reconcile"})
 ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -379,6 +385,44 @@ class LocalReleaseAuthoritySettings(WireModel):
     kind: Literal["local"]
 
 
+class LocalExecutionSettings(WireModel):
+    """Explicit operator-owned settings for the cooperative local route."""
+
+    journal_root: AbsolutePath
+    allocator_root: AbsolutePath
+    bootstrap_path: AbsolutePath
+    bootstrap_digest: Digest
+    attempt_root: AbsolutePath
+    runtime_manifest_path: AbsolutePath
+    trusted_quote_manifest_path: AbsolutePath
+    destination_id: Name
+    attempt_price_usd: Money
+    storage_price_usd: Money
+    run_storage_capacity_bytes: PositiveInteger
+    operator_storage_capacity_bytes: PositiveInteger
+    resource_policy_ref: Ref
+    funded_from: Instant
+    funded_until: Instant
+    semantics: Literal["cooperative"]
+    control_actions: Annotated[
+        tuple[Literal["pause", "resume", "cancel_attempt", "mark_unknown_outcome"], ...],
+        BeforeValidator(_array),
+    ] = ()
+
+    @model_validator(mode="after")
+    def validate_funding(self) -> Self:
+        if (
+            Decimal(self.attempt_price_usd) <= 0
+            or Decimal(self.storage_price_usd) <= 0
+            or self.funded_from >= self.funded_until
+            or self.run_storage_capacity_bytes > self.operator_storage_capacity_bytes
+            or self.resource_policy_ref.artifact_schema != "cf.local-resource-policy.v1"
+            or len(set(self.control_actions)) != len(self.control_actions)
+        ):
+            raise ValueError("invalid local funding")
+        return self
+
+
 class RuntimeConfig(WireModel):
     schema_version: Literal["cfoundry.cli-config.v1"]
     project_id: Id
@@ -398,6 +442,9 @@ class RuntimeConfig(WireModel):
     project_max_live_attempts: PositiveInteger | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    local_execution: LocalExecutionSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     live: LiveSettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -408,7 +455,16 @@ class RuntimeConfig(WireModel):
     @model_validator(mode="after")
     def live_needs_a_project_cap(self) -> Self:
         """A live section always carries the project-wide cap; there is no default for it."""
-        if self.live is not None and self.project_max_live_attempts is None:
+        if self.live is not None and self.local_execution is not None:
+            raise ValueError("local and live execution are mutually exclusive")
+        if (
+            self.local_execution is not None
+            and self.local_execution.resource_policy_ref.project_id != self.project_id
+        ):
+            raise ValueError("local resource policy project mismatch")
+        if (
+            self.live is not None or self.local_execution is not None
+        ) and self.project_max_live_attempts is None:
             raise ValueError("a live section requires project_max_live_attempts")
         return self
 
@@ -427,10 +483,13 @@ class TrustedServices:
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
     staged_reader: Callable[[Id, Id], ObjectStore] | None = None
+    staged_writer: Callable[[Id, Id], ObjectStore] | None = None
+    local_grants: Callable[[StageAttempt], LocalWorkerGrant] | None = None
     stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = None
     issuer_scopes: Callable[[ExecutionPlan, Id], tuple[frozenset[str], str]] | None = None
     """Reports what the credential issuer would mint for a plan and attempt: (read keys, write
     prefix). Preflight compares it with the plan; it never mints anything."""
+    local: LocalWiring | None = None
     live: LiveWiring | None = None
     """The live wiring a config's ``live`` section stands for (``cli.live.build_services``); its
     session is set only by ``run-pilot``, and only while that session is open."""
@@ -593,6 +652,8 @@ class Runtime:
         self.access = AccessContext(
             config.project_id, config.operator.actor_id, frozenset(config.operator.scopes)
         )
+        if services.local is not None:
+            self.services = services.local.bind(self)
 
     def close(self) -> None:
         self._stack.close()
@@ -704,6 +765,7 @@ class Runtime:
             store=self.store,
             transport_limits=self.config.transport_limits,
             staged_reader=self.services.staged_reader,
+            staged_writer=self.services.staged_writer,
             stage_inputs=self.services.stage_inputs,
             project_max_live_attempts=self.config.project_max_live_attempts,
             deadline_token=self._deadline_token(),

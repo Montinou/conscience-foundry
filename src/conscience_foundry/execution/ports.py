@@ -275,6 +275,8 @@ class ControlContext:
     transport_limits: ContractLimits = field(repr=False)
     staged_reader: Callable[[Id, Id], ObjectStore] | None = field(default=None, repr=False)
     """Read-only view of one (project, attempt) staging prefix; None keeps local-only results."""
+    staged_writer: Callable[[Id, Id], ObjectStore] | None = field(default=None, repr=False)
+    """Optional metered destination for an attempt's staged result import."""
     stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = field(
         default=None, repr=False
     )

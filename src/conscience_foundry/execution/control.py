@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field, replace
-from typing import Literal, cast, get_args
+from typing import Any, Literal, cast, get_args
 from uuid import uuid4
 
 from psycopg import sql
@@ -48,6 +48,7 @@ from conscience_foundry.execution.evidence import (
     read_model,
     verified_plan,
 )
+from conscience_foundry.execution.local_contracts import LocalWorkerGrant
 from conscience_foundry.execution.ports import (
     ControlContext,
     EvidenceBinding,
@@ -274,6 +275,84 @@ def _grants(
         raise ContractError("authorization_expired")
 
 
+def _local_grants(
+    grants: object,
+    plan: ExecutionPlan,
+    auth: RunAuthorization,
+    plan_ref: Ref,
+    config: object,
+    control: ControlContext,
+) -> None:
+    from conscience_foundry.contracts.common import Instant
+    from conscience_foundry.execution.local_contracts import (
+        LocalGrantFacts,
+        LocalGrantProof,
+        LocalWorkerGrant,
+    )
+
+    if type(grants) is not LocalWorkerGrant or type(config) is not LocalExecutionConfig:
+        raise ContractError("forbidden")
+    bound = control.transport_limits
+    try:
+        TypeAdapter(Id).validate_python(grants.attempt_id)
+        TypeAdapter(Instant).validate_python(grants.expires_at)
+        if (
+            (grants.project_id, grants.run_id, grants.plan_digest, grants.destination_id)
+            != (plan.project_id, plan.run_id, plan_ref.digest, config.local_destination_id)
+            or type(grants.output_scope) is not bytes
+            or not grants.output_scope
+            or len(grants.output_scope) > bound.max_source_bytes
+            or type(grants.nonce) is not str
+            or not grants.nonce
+            or len(grants.nonce) > bound.max_string_scalars
+            or len(plan.input_refs) > bound.max_array_items
+            or plan.execution_config_ref.artifact_schema != config.schema_version
+            or plan.execution_config_ref.size_bytes != len(encoded(config))
+            or plan.execution_config_ref.digest != hashlib.sha256(encoded(config)).hexdigest()
+        ):
+            raise ContractError("forbidden")
+        if not clock(control) < grants.expires_at <= min(plan.expires_at, auth.expires_at):
+            raise ContractError("authorization_expired")
+        proof = LocalGrantProof(
+            grants.project_id,
+            grants.run_id,
+            grants.plan_digest,
+            grants.attempt_id,
+            grants.destination_id,
+            grants.expires_at,
+            plan.input_refs,
+            grants.output_scope,
+            hashlib.sha256(grants.nonce.encode()).hexdigest(),
+        )
+        authority = getattr(control.evidence_authority, "local_grant", None)
+        if not callable(authority):
+            raise ContractError("forbidden")
+        facts = authority(proof)
+        if type(facts) is not LocalGrantFacts or facts.scopes != frozenset({"read", "extract"}):
+            raise ContractError("forbidden")
+        if (
+            LocalGrantProof(
+                facts.project_id,
+                facts.run_id,
+                facts.plan_digest,
+                facts.attempt_id,
+                facts.destination_id,
+                facts.expires_at,
+                facts.input_refs,
+                facts.output_scope,
+                facts.nonce_digest,
+            )
+            != proof
+        ):
+            raise ContractError("forbidden")
+        if not clock(control) < grants.expires_at <= min(plan.expires_at, auth.expires_at):
+            raise ContractError("authorization_expired")
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError("forbidden") from None
+
+
 def _mint(issuer: TransportIssuer, attempt: StageAttempt) -> TransportGrants:
     """Ask the trusted issuer for this exact claimed attempt; anything else is a refusal."""
     try:
@@ -281,6 +360,16 @@ def _mint(issuer: TransportIssuer, attempt: StageAttempt) -> TransportGrants:
     except Exception:
         raise ContractError("forbidden") from None
     if type(minted) is not TransportGrants or minted.attempt_id != attempt.attempt_id:
+        raise ContractError("forbidden")
+    return minted
+
+
+def _mint_local(issuer: Any, attempt: StageAttempt) -> LocalWorkerGrant:
+    try:
+        minted = issuer(attempt)
+    except Exception:
+        raise ContractError("forbidden") from None
+    if type(minted) is not LocalWorkerGrant or minted.attempt_id != attempt.attempt_id:
         raise ContractError("forbidden")
     return minted
 
@@ -348,9 +437,21 @@ def dispatch(
     with ledger.transaction() as tx:
         tx.lock(context.project_id, plan.run_id)
         verified = verified_plan(plan_ref, authorization_ref, tx, control, spending=True)
-        # No trusted local executor or settings are composed in this phase.
         if isinstance(verified.config, LocalExecutionConfig):
-            raise ContractError("adapter_unavailable")
+            try:
+                from conscience_foundry.execution.local_executor import LocalExecutor
+            except ImportError:
+                raise ContractError("adapter_unavailable") from None
+            if (
+                type(executor) is not LocalExecutor
+                or prepared is not None
+                or not callable(grants)
+                or not callable(getattr(control.evidence_authority, "local_grant", None))
+                or control.stage_inputs is not None
+                or control.staged_reader is None
+                or control.staged_writer is None
+            ):
+                raise ContractError("adapter_unavailable")
         if verified.model != plan or verified.authorization != authorization:
             raise ContractError("hash_mismatch")
         if verified.data != encoded(plan):
@@ -446,11 +547,23 @@ def dispatch(
                 ),
                 action="input_staging_refused",
             )
+    minted: LocalWorkerGrant | TransportGrants
     try:
-        minted = prepared if prepared is not None else _mint(cast(TransportIssuer, grants), attempt)
-        _grants(
-            minted, plan, authorization, plan_ref, execution_destination(verified.config), control
-        )
+        if isinstance(verified.config, LocalExecutionConfig):
+            minted = _mint_local(grants, attempt)
+            _local_grants(minted, plan, authorization, plan_ref, verified.config, control)
+        else:
+            minted = (
+                prepared if prepared is not None else _mint(cast(TransportIssuer, grants), attempt)
+            )
+            _grants(
+                minted,
+                plan,
+                authorization,
+                plan_ref,
+                execution_destination(verified.config),
+                control,
+            )
     except ContractError:
         # No executor was invoked: local control can prove no submission effect.
         # Financial liability still needs the separate final-no-liability gate.
@@ -665,9 +778,14 @@ def _reconcile_observation(
     # Outside any transaction: remote reads must not hold a lock or a connection.
     if observation.result_ref is not None and control.staged_reader is not None:
         try:
+            destination = (
+                control.staged_writer(attested.attempt.project_id, attested.attempt.attempt_id)
+                if control.staged_writer is not None
+                else control.store
+            )
             import_staged_result(
                 control.staged_reader(attested.attempt.project_id, attested.attempt.attempt_id),
-                control.store,
+                destination,
                 observation.result_ref,
                 control.access,
                 limits_by_schema=control.limits_by_schema,
@@ -695,6 +813,30 @@ def _apply(
         ):
             raise ContractError("determinism_conflict")
         plan = verified_plan(plan_ref, auth_ref, tx, control, spending=False)
+        if observation.result_ref is not None:
+            current = tx.connection.execute(
+                sql.SQL(
+                    "SELECT o.held, EXISTS(SELECT 1 FROM {} h WHERE h.project_id=%s "
+                    "AND h.operation_key=%s), EXISTS(SELECT 1 FROM {} w "
+                    "WHERE w.project_id=%s AND w.asset_id=%s AND w.source_id=%s) "
+                    "FROM {} o WHERE o.project_id=%s AND o.operation_key=%s"
+                ).format(
+                    tx.table("integrity_holds"),
+                    tx.table("admission_withdrawals"),
+                    tx.table("operations"),
+                ),
+                (
+                    attempt.project_id,
+                    attempt.operation_key,
+                    attempt.project_id,
+                    plan.source_asset.asset_id,
+                    plan.source_asset.source_id,
+                    attempt.project_id,
+                    attempt.operation_key,
+                ),
+            ).fetchone()
+            if current is None or any(current):
+                raise ContractError("forbidden")
         seen = observation_seen(tx, attempt, observation.evidence, request)
         verified = None
         record = None

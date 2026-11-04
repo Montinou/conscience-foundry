@@ -272,65 +272,93 @@ class LocalAttemptStore:
         exclusive: bool = False,
     ) -> bool:
         self._live()
-        with (
-            self.authority.write_permit(self.project_id, self.grant.run_id, self.attempt_id, ref),
-            stream() if callable(stream) else nullcontext(stream) as source,
-        ):
+        with self.authority.write_permit(self.project_id, self.grant.run_id, self.attempt_id, ref):
             with self._directory() as directory:
-                temporary = ".tmp-" + uuid.uuid4().hex
-                fd = -1
                 try:
-                    fd = os.open(
-                        temporary,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                        0o600,
-                        dir_fd=directory,
-                    )
-                    _copy_verified(source, fd, ref, ref.size_bytes)
-                    os.fsync(fd)
+                    with self._snapshot(directory, name, ref):
+                        pass
+                except ContractError as error:
+                    if error.code != "artifact_missing":
+                        raise
+                else:
+                    if not callable(stream):
+                        total = 0
+                        digest = hashlib.sha256()
+                        while True:
+                            chunk = stream.read(min(IO_CHUNK_BYTES, ref.size_bytes - total + 1))
+                            if type(chunk) is not bytes:
+                                raise ContractError("invalid_schema")
+                            if not chunk:
+                                break
+                            total += len(chunk)
+                            if total > ref.size_bytes:
+                                raise ContractError("hash_mismatch")
+                            digest.update(chunk)
+                        if total != ref.size_bytes or digest.hexdigest() != ref.digest:
+                            raise ContractError("hash_mismatch")
                     self._live()
                     self.authority.revalidate_write(
                         self.project_id, self.grant.run_id, self.attempt_id, ref
                     )
-                    held = os.fstat(fd)
-                    candidate = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
-                    if (candidate.st_dev, candidate.st_ino) != (held.st_dev, held.st_ino):
-                        raise ContractError("dispatch_unknown")
+                    return not exclusive
+                with stream() if callable(stream) else nullcontext(stream) as source:
+                    temporary = ".tmp-" + uuid.uuid4().hex
+                    fd = -1
                     try:
-                        os.link(
+                        fd = os.open(
                             temporary,
-                            name,
-                            src_dir_fd=directory,
-                            dst_dir_fd=directory,
-                            follow_symlinks=False,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o600,
+                            dir_fd=directory,
                         )
-                        published = os.stat(name, dir_fd=directory, follow_symlinks=False)
-                        current = os.fstat(fd)
-                        if (published.st_dev, published.st_ino) != (held.st_dev, held.st_ino) or (
-                            current.st_dev,
-                            current.st_ino,
-                            current.st_size,
-                            current.st_mtime_ns,
-                        ) != (held.st_dev, held.st_ino, held.st_size, held.st_mtime_ns):
+                        _copy_verified(source, fd, ref, ref.size_bytes)
+                        os.fsync(fd)
+                        self._live()
+                        self.authority.revalidate_write(
+                            self.project_id, self.grant.run_id, self.attempt_id, ref
+                        )
+                        held = os.fstat(fd)
+                        candidate = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                        if (candidate.st_dev, candidate.st_ino) != (held.st_dev, held.st_ino):
                             raise ContractError("dispatch_unknown")
-                    except FileExistsError:
-                        if exclusive:
-                            os.unlink(temporary, dir_fd=directory)
-                            os.fsync(directory)
-                            return False
-                        with self._snapshot(directory, name, ref):
-                            pass
-                    os.fsync(directory)
-                    os.unlink(temporary, dir_fd=directory)
-                    os.fsync(directory)
-                    return True
-                except ContractError:
-                    raise
-                except OSError:
-                    raise ContractError("dispatch_unknown") from None
-                finally:
-                    if fd >= 0:
-                        os.close(fd)
+                        try:
+                            os.link(
+                                temporary,
+                                name,
+                                src_dir_fd=directory,
+                                dst_dir_fd=directory,
+                                follow_symlinks=False,
+                            )
+                            published = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                            current = os.fstat(fd)
+                            if (published.st_dev, published.st_ino) != (
+                                held.st_dev,
+                                held.st_ino,
+                            ) or (
+                                current.st_dev,
+                                current.st_ino,
+                                current.st_size,
+                                current.st_mtime_ns,
+                            ) != (held.st_dev, held.st_ino, held.st_size, held.st_mtime_ns):
+                                raise ContractError("dispatch_unknown")
+                        except FileExistsError:
+                            if exclusive:
+                                os.unlink(temporary, dir_fd=directory)
+                                os.fsync(directory)
+                                return False
+                            with self._snapshot(directory, name, ref):
+                                pass
+                        os.fsync(directory)
+                        os.unlink(temporary, dir_fd=directory)
+                        os.fsync(directory)
+                        return True
+                    except ContractError:
+                        raise
+                    except OSError:
+                        raise ContractError("dispatch_unknown") from None
+                    finally:
+                        if fd >= 0:
+                            os.close(fd)
 
     def put_verified(self, stream: BinaryIO, expected: Ref, context: AccessContext) -> Ref:
         self._check(expected, context)

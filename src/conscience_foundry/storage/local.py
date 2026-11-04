@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import BinaryIO, Protocol
 
@@ -51,7 +52,14 @@ class LocalObjectStore:
             store_id=self.store_id, object_key=f"sha256/{ref.digest[:2]}/{ref.digest}"
         )
 
-    def put_verified(self, stream: BinaryIO, expected: Ref, context: AccessContext) -> Ref:
+    def put_verified(
+        self,
+        stream: BinaryIO,
+        expected: Ref,
+        context: AccessContext,
+        *,
+        before_publish: Callable[[], None] | None = None,
+    ) -> Ref:
         self.locator._authorize(expected, context, "write")
         ceiling = self.locator._ceiling(expected)
         if expected.size_bytes > ceiling:
@@ -73,6 +81,8 @@ class LocalObjectStore:
             os.fsync(temporary_fd)
             os.close(temporary_fd)
             temporary_fd = -1
+            if before_publish is not None:
+                before_publish()
             try:
                 os.link(
                     temporary,

@@ -396,3 +396,25 @@ def test_unexpected_stream_failure_is_redacted_and_cleans_partial_file(tmp_path:
     assert exc.value.code == "unavailable"
     assert "private" not in str(exc.value)
     assert not [p for p in root.rglob("*") if p.is_file()]
+
+
+def test_prepublication_guard_runs_after_copy_and_refuses_publish(tmp_path: Path) -> None:
+    root = tmp_path / "store"
+    root.mkdir()
+    store, registry = configured({"primary": root})
+    payload = b"synthetic-guarded-object"
+    seen = []
+
+    def refuse() -> None:
+        seen.append(True)
+        assert any(path.name.startswith(".tmp-") for path in root.rglob("*"))
+        raise ContractError("authorization_expired")
+
+    try:
+        with pytest.raises(ContractError, match="authorization_expired"):
+            store.put_verified(io.BytesIO(payload), ref(payload), CONTEXT, before_publish=refuse)
+        assert seen == [True]
+        with pytest.raises(ContractError, match="artifact_missing"):
+            store.open_verified(ref(payload), CONTEXT)
+    finally:
+        registry.close()

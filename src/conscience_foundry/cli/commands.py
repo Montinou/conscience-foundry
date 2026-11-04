@@ -17,7 +17,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, cast, get_args
 from uuid import uuid4
 
 import psycopg
@@ -88,7 +88,11 @@ from conscience_foundry.execution.evidence import (
     read_model,
     source_asset,
 )
-from conscience_foundry.execution.ports import ManualRetry, TransportGrants
+from conscience_foundry.execution.ports import (
+    ExecutionGrant,
+    ManualRetry,
+    TransportIssuer,
+)
 from conscience_foundry.intake.build import build_intake, read_custody_file, write_outputs
 from conscience_foundry.intake.identity import decision_id, source_id
 from conscience_foundry.intake.metadata_schema import MetadataSchema
@@ -715,8 +719,17 @@ def _dispatch(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     services = rt.services
     executor, transport = services.executor, services.transport_grants
-    if executor is None or transport is None:
+    local = services.local_grants
+    if (
+        executor is None
+        or (rt.config.local_execution is None and transport is None)
+        or (rt.config.local_execution is not None and local is None)
+    ):
         raise ContractError("adapter_unavailable")
+    if (rt.config.local_execution is None and local is not None) or (
+        rt.config.local_execution is not None and transport is not None
+    ):
+        raise ContractError("forbidden")
     if isinstance(executor, live.PilotOnlyExecutor):
         # The live runtime is held only by run-pilot; nothing is read, reserved or minted here.
         raise ContractError(live.LIVE_REQUIRES_PILOT)
@@ -748,8 +761,11 @@ def _dispatch(inv: Invocation) -> Outcome:
         ):
             raise ContractError("paused")
 
-    def issue(claimed: StageAttempt) -> TransportGrants:
+    def issue(claimed: StageAttempt) -> ExecutionGrant:
         # Asked by the ledger only after the attempt is reserved, funded and claimed.
+        if local is not None:
+            return local(claimed)
+        assert transport is not None
         return transport(plan, claimed, plan_ref)
 
     try:
@@ -759,7 +775,7 @@ def _dispatch(inv: Invocation) -> Outcome:
             rt.access,
             rt.ledger,
             executor,
-            issue,
+            cast(TransportIssuer, issue),
             control=control,
             plan_ref=plan_ref,
             authorization_ref=authorization_ref,
@@ -798,11 +814,57 @@ def _reconcile(inv: Invocation) -> Outcome:
     )
 
 
+def _local_receipts(inv: Invocation) -> Outcome:
+    rt = inv.rt
+    local = rt.services.local
+    if local is None or rt.config.local_execution is None:
+        raise ContractError("adapter_unavailable")
+    attempt, _ = local.committed(rt.config.project_id, _id(inv.args.attempt_id))
+    issuer = local.receipt_issuer(attempt)
+    return _ok(
+        attemptRef=_dump(issuer.attempt_candidate(attempt)),
+        storageRef=_dump(issuer.storage_candidate(attempt)),
+    )
+
+
+def _close_local_storage_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--evidence", required=True, help="reference file for the storage candidate"
+    )
+
+
+def _close_local_storage(inv: Invocation) -> Outcome:
+    from conscience_foundry.execution.evidence import authorize, current_policy
+
+    rt = inv.rt
+    local = rt.services.local
+    if local is None or rt.config.local_execution is None:
+        raise ContractError("adapter_unavailable")
+    run = _id(inv.args.run_id)
+    candidate = _ref_file(rt, inv.args.evidence)
+    authorize(rt.control, "final_billing", rt.config.project_id, run)
+    current_policy(rt.control, rt.config.project_id)
+    event = local.close_storage(rt, run, candidate)
+    return _ok(
+        runId=run,
+        reservationId=event.reservation_id,
+        amountUsd=event.amount_usd,
+        evidenceRef=_dump(candidate),
+    )
+
+
 def _record_billing_arguments(parser: argparse.ArgumentParser) -> None:
     _attempt_argument(parser)
-    parser.add_argument("--amount", required=True, help="USD actually billed for the attempt")
     parser.add_argument(
-        "--evidence", required=True, help="reference of the operator's billing document"
+        "--amount",
+        required=True,
+        help="USD settled: configured local allocation charge or actual provider bill",
+    )
+    parser.add_argument(
+        "--evidence",
+        required=True,
+        help="reference file for local allocation evidence or provider billing document",
     )
 
 
@@ -1311,8 +1373,22 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE, EVIDENCE, EXECUTOR),
     ),
     Command(
+        "local-receipts",
+        "publish local allocation candidates",
+        _attempt_argument,
+        _local_receipts,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
+        "close-local-storage",
+        "close and settle local storage",
+        _close_local_storage_arguments,
+        _close_local_storage,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
         "record-billing",
-        "record the final actual billing of an attempt from the operator's billing document",
+        "settle an attempt using local allocation evidence or an operator billing document",
         _record_billing_arguments,
         _record_billing,
         (DATABASE, EVIDENCE),
@@ -1418,6 +1494,9 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
                     resolve_r2_credentials(destination)
                 except ContractError as error:
                     blockers.append(("backup_credential", error.code))
+        elif need == TRANSPORT and runtime.config.local_execution is not None:
+            if runtime.services.local_grants is None:
+                blockers.append(("local_grants", "adapter_unavailable"))
         elif getattr(runtime.services, need) is None:
             blockers.append((need, "adapter_unavailable"))
     return blockers
