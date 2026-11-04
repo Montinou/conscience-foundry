@@ -96,6 +96,7 @@ from conscience_foundry.contracts.release import (
     PublicationRecord,
     RetentionPolicy,
 )
+from conscience_foundry.contracts.task_schema_registry import TaskSchemaRegistry
 from conscience_foundry.intake.metadata_schema import MetadataSchemaDocument
 
 JSON_SCHEMA_ID = "json-schema.2020-12"
@@ -499,7 +500,11 @@ def technical_metadata_binding(
 
 
 def validate_artifact(
-    artifact: Ref, data: bytes, *, limits_by_schema: Mapping[str, ContractLimits]
+    artifact: Ref,
+    data: bytes,
+    *,
+    limits_by_schema: Mapping[str, ContractLimits],
+    task_schemas: TaskSchemaRegistry | None = None,
 ) -> WireModel | dict[str, object] | bytes:
     """Validate bytes against installed rules; no traversal or authority claim.
 
@@ -530,7 +535,13 @@ def validate_artifact(
     if schema_id == JSON_SCHEMA_ID:
         parsed = load_json(data, limits, signed=True)
         if data not in {_schema_bytes(key) for key in registered_schema_ids()}:
-            raise ContractError("unsupported_schema")
+            if type(task_schemas) is not TaskSchemaRegistry or not task_schemas.permits(
+                artifact, data
+            ):
+                raise ContractError("unsupported_schema")
+            from conscience_foundry.enrichment.schema import validate_schema
+
+            validate_schema(data, limits=limits)
         return parsed
     model = SCHEMA_MODELS[schema_id].from_wire(data, limits)
     if getattr(model, "project_id", artifact.project_id) != artifact.project_id:

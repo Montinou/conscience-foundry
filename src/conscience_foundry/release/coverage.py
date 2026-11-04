@@ -21,6 +21,7 @@ from conscience_foundry.execution.evidence import (
     read_model,
 )
 from conscience_foundry.ledger.db import LedgerTxn
+from conscience_foundry.ledger.enrichment import require_enrichment_schema
 from conscience_foundry.policy.access import AccessContext, require_permission
 from conscience_foundry.release.context import (
     ReleaseContext,
@@ -150,6 +151,28 @@ def capture(
         raise ContractError("invalid_schema")
     tx.lock(project)
     digests = tuple(ref.digest for ref in admissions)
+    extension = tx.connection.execute(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c "
+        "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname=%s AND c.relname='enrichment_operations' AND c.relkind='r')",
+        (tx.schema,),
+    ).fetchone()
+    installed = bool(extension and extension[0])
+    if installed:
+        require_enrichment_schema(tx)
+
+    def canonical(alias: str) -> sql.Composable:
+        if not installed:
+            return sql.SQL("TRUE")
+        return sql.SQL(
+            "NOT EXISTS (SELECT 1 FROM {} e WHERE e.project_id={}.project_id "
+            "AND e.operation_key={}.operation_key)"
+        ).format(
+            sql.Identifier(tx.schema, "enrichment_operations"),
+            sql.Identifier(alias),
+            sql.Identifier(alias),
+        )
+
     # No administrative payload is retrieved before this fixed identity-only
     # routing finds every source implicated by supplied batches and related runs.
     assets = tuple(
@@ -168,8 +191,9 @@ def capture(
         for row in metadata_ids(
             tx,
             sql.SQL(
-                "SELECT operation_key FROM {} WHERE project_id=%s AND asset_id=ANY(%s::uuid[])"
-            ).format(tx.table("operations")),
+                "SELECT o.operation_key FROM {} o WHERE o.project_id=%s "
+                "AND o.asset_id=ANY(%s::uuid[]) AND {}"
+            ).format(tx.table("operations"), canonical("o")),
             (project, list(assets)),
             release,
         )
@@ -271,7 +295,9 @@ def capture(
     rows["attempts"] = bounded_rows(
         tx,
         "attempts",
-        sql.SQL("t.project_id=%s AND (t.run_id=ANY(%s::uuid[]) OR t.operation_key=ANY(%s))"),
+        sql.SQL(
+            "t.project_id=%s AND (t.run_id=ANY(%s::uuid[]) OR t.operation_key=ANY(%s)) AND {}"
+        ).format(canonical("t")),
         (project, list(run_ids), list(ops)),
         release,
         budget,
