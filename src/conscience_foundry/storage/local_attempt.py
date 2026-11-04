@@ -428,3 +428,37 @@ class LocalAttemptStore:
         if ref.project_id != self.project_id:
             raise ContractError("forbidden")
         return ref
+
+
+def read_local_result(root: Path, grant: LocalWorkerGrant) -> tuple[ResultManifest, Ref] | None:
+    """Reopen an existing attempt without creating directories or requesting write access."""
+    if type(grant) is not LocalWorkerGrant:
+        raise ContractError("forbidden")
+    view = object.__new__(LocalAttemptStore)
+    view.root, view.project_id, view.attempt_id, view.grant = (
+        root,
+        grant.project_id,
+        grant.attempt_id,
+        grant,
+    )
+    with view._directory() as directory:
+        try:
+            raw_pointer = view._read(directory, "result", 65536)
+        except ContractError as error:
+            if error.code == "artifact_missing":
+                return None
+            raise
+        ref = Ref.from_wire(raw_pointer, _pointer_limits(max(len(raw_pointer), 1)))
+        if ref.project_id != grant.project_id or ref.artifact_schema != "cf.result.v1":
+            raise ContractError("forbidden")
+        with view._snapshot(directory, "object-" + ref.digest, ref) as stream:
+            raw = stream.read()
+        result = ResultManifest.from_wire(raw, _pointer_limits(max(len(raw), 1)))
+        if result.project_id != grant.project_id or result.attempt_id != grant.attempt_id:
+            raise ContractError("forbidden")
+        for output in result.outputs:
+            if output.project_id != grant.project_id:
+                raise ContractError("forbidden")
+            with view._snapshot(directory, "object-" + output.digest, output):
+                pass
+        return result, ref
