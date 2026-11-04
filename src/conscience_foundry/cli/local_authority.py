@@ -332,7 +332,7 @@ class LocalEvidenceWriter:
             or type(data) is not bytes
         ):
             raise ContractError("forbidden")
-        bound = self.guard.control.limits_by_schema.get("cf.stage-attempt.v1")
+        bound = self.guard.control.limits_by_schema.get("cf.local-process-observation.v1")
         if type(bound) is not ContractLimits:
             raise ContractError("limits_missing")
         observation = LocalProcessObservation.from_wire(data, bound)

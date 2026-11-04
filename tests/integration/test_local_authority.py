@@ -645,6 +645,7 @@ def test_issuer_binds_nonce_to_committed_allocation(
     from conscience_foundry.ledger.budget import reserve_storage
 
     case = local_case(tmp_path)
+    case.schemas["cf.local-process-observation.v1"] = case.bound
     case.setup(ledger)
     capability = case.authority.estimates[case.estimate.digest][1]
     case.authority.storage_estimates[case.estimate.digest] = ("1", (case.plan_ref,), (capability,))
@@ -1192,6 +1193,7 @@ def test_real_committed_worker_publishes_and_metered_import(
         )
         quotes.append((case.put(quote), encoded(quote)))
     case.schemas["cfoundry.local-allocation-estimate.v1"] = case.bound
+    case.schemas["cf.local-process-observation.v1"] = case.bound
     trusted = LocalControlAuthority(
         policy=policy,
         estimates=tuple(quotes),

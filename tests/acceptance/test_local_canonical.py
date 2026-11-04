@@ -689,6 +689,85 @@ raise SystemExit(worker.main())
     assert result.payload["selection"]["outcome"] == "selected"
     assert count(ledger, "operation_results") == 1
     assert count(ledger, "attempts") == 1
+    # Exercise the actual composed executor callback with independent schema limits.
+    from contextlib import contextmanager
+
+    from conscience_foundry.cli.local_authority import LocalCommittedGuard, LocalProcessObservation
+    from conscience_foundry.contracts.execution import StageAttempt
+    from conscience_foundry.execution import evidence as evidence_module
+
+    # The deliberately tiny stage limit cannot admit the persisted attempt itself.
+    # Verify that read under its installed limit, then isolate the composed writer
+    # with independently acquired committed facts and the two synthetic bounds.
+    original_read_model = evidence_module.read_model
+
+    def read_committed_with_installed_limit(ref, model, control):
+        if model is not StageAttempt:
+            return original_read_model(ref, model, control)
+        configured = bound_limits[stage_schema]
+        bound_limits[stage_schema] = stage_original
+        try:
+            return original_read_model(ref, model, control)
+        finally:
+            bound_limits[stage_schema] = configured
+
+    with monkeypatch.context() as patch:
+        patch.setattr(evidence_module, "read_model", read_committed_with_installed_limit)
+        bound_runtime = Runtime(load_config(env.config_path), services, "reconcile")
+    try:
+        stage_schema = "cf.stage-attempt.v1"
+        obs_schema = "cf.local-process-observation.v1"
+        bound_limits = bound_runtime.limits
+        stage_original, obs_original = bound_limits[stage_schema], bound_limits[obs_schema]
+        bound_attempt, _ = bound_runtime.services.local.committed(PROJECT, attempt_id)
+        bound_guard = bound_runtime.services.local.guard_for(bound_attempt)
+        with bound_guard.evidence(bound_attempt) as bound_facts:
+            pass
+        observation_model = LocalProcessObservation(
+            schema_version="cf.local-process-observation.v1",
+            attempt_id=attempt_id,
+            action="observe",
+            observed_state=bound_runtime.services.executor._inspect(bound_attempt).state,
+        )
+        observation = json.dumps(
+            json.loads(encoded(observation_model)), sort_keys=True, separators=(",", ":")
+        ).encode()
+        strict = case.bound.model_copy(update={"max_json_bytes": len(observation) - 1})
+        ample = case.bound.model_copy(update={"max_json_bytes": len(observation)})
+        writes = []
+        original_import = bound_runtime.services.local.allocator.import_writer
+
+        def track_import(*args):
+            writes.append(True)
+            return original_import(*args)
+
+        @contextmanager
+        def already_verified(guard, candidate):
+            assert candidate == bound_attempt
+            yield bound_facts
+
+        outcomes = []
+        with monkeypatch.context() as patch:
+            patch.setattr(LocalCommittedGuard, "evidence", already_verified)
+            patch.setattr(bound_runtime.services.local.allocator, "import_writer", track_import)
+            for stage_bound, obs_bound in ((strict, ample), (ample, strict), (ample, None)):
+                bound_limits[stage_schema] = stage_bound
+                if obs_bound is None:
+                    bound_limits.pop(obs_schema, None)
+                else:
+                    bound_limits[obs_schema] = obs_bound
+                writes.clear()
+                try:
+                    bound_runtime.services.executor.evidence(bound_attempt, obs_schema, observation)
+                    outcomes.append(("published", len(writes)))
+                except ContractError as error:
+                    outcomes.append((error.code, len(writes)))
+            bound_limits[stage_schema], bound_limits[obs_schema] = stage_original, obs_original
+        assert outcomes == [("published", 1), ("limit_exceeded", 0), ("limits_missing", 0)], (
+            outcomes
+        )
+    finally:
+        bound_runtime.close()
     from test_execution_control import attempt_row
     from test_ledger_db import ACTOR
 
@@ -825,6 +904,30 @@ raise SystemExit(worker.main())
         "--execute",
     )
     assert billed.exit == 0, billed.raw
+    # Both durable candidates independently pass the production pre-close validator.
+    # Stop at close_storage so neither call can close or settle the reservation.
+    before_candidates = (root / "allocator.json").read_bytes()
+    prior_events = count(ledger, "budget_events")
+    preclose_reached = []
+
+    def stop_before_close(self, *args):
+        preclose_reached.append(True)
+        raise RuntimeError("synthetic stop after pre-close validation")
+
+    second_storage_file = env.input(
+        "second-storage.json", second_storage.model_dump_json(by_alias=True)
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(LocalAllocator, "close_storage", stop_before_close)
+        for candidate_file in (storage_file, second_storage_file):
+            previous = len(preclose_reached)
+            checked = run(
+                "close-local-storage", "--run-id", RUN, "--evidence", candidate_file, "--execute"
+            )
+            assert checked.exit != 0
+            assert len(preclose_reached) == previous + 1
+    assert (root / "allocator.json").read_bytes() == before_candidates
+    assert count(ledger, "budget_events") == prior_events
     # A cross-run or tampered candidate must not mutate the allocator.
     before_close = (root / "allocator.json").read_bytes()
     wrong_run = run(
@@ -991,7 +1094,7 @@ raise SystemExit(worker.main())
         "--run-id",
         RUN,
         "--evidence",
-        env.input("second-storage.json", second_storage.model_dump_json(by_alias=True)),
+        second_storage_file,
         "--execute",
     )
     assert conflicting.exit != 0
