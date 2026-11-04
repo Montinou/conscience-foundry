@@ -74,6 +74,46 @@ def test_real_local_cli_canonical_flow(
 
     monkeypatch.setattr(fixtures, "TIME", current)
     monkeypatch.setattr(fixtures, "EXPIRY", expiry)
+    if not failed:
+        from dataclasses import replace
+
+        from test_ledger_db import admission, reference
+
+        def distinct_admission():
+            base = admission(extra_asset=True)
+            payload = b"Second synthetic text"
+            intake = IntakeManifest.from_wire(base.evidence.manifest_bytes, case_bound)
+            second_item = intake.items[1].model_copy(
+                update={
+                    "original_digest": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+            )
+            intake = intake.model_copy(update={"items": (intake.items[0], second_item)})
+            intake_raw = encoded(intake)
+            snapshot = reference(payload, "cf.raw-original.v1").model_copy(
+                update={"media_type": "text/plain"}
+            )
+            entry = base.report.entries[1].model_copy(update={"snapshot_ref": snapshot})
+            report = base.report.model_copy(
+                update={
+                    "manifest_digest": hashlib.sha256(intake_raw).hexdigest(),
+                    "entries": (base.report.entries[0], entry),
+                }
+            )
+            report_raw = encoded(report)
+            return replace(
+                base,
+                manifest_ref=reference(intake_raw, "cf.intake.v1"),
+                report=report,
+                report_ref=reference(report_raw, "cf.admission-report.v1"),
+                evidence=replace(base.evidence, manifest_bytes=intake_raw, report_bytes=report_raw),
+            )
+
+        from test_ledger_db import limits
+
+        case_bound = limits()
+        monkeypatch.setattr(fixtures, "admission", distinct_admission)
     if failed:
         from dataclasses import replace
 
@@ -115,6 +155,14 @@ def test_real_local_cli_canonical_flow(
 
         monkeypatch.setattr(fixtures, "admission", invalid_admission)
     case = local_case(tmp_path, source_bytes=b"\xff" if failed else b"Synthetic text")
+    if not failed:
+        import io
+
+        second_original = case.data.report.entries[1].snapshot_ref
+        assert second_original is not None
+        case.store.put_verified(io.BytesIO(b"Second synthetic text"), second_original, case.access)
+    else:
+        second_original = case.original
     manifest = runtime_manifest()
     identity = runtime_digest(manifest)
     case.spec = case.spec.model_copy(update={"image_digest": identity})
@@ -148,7 +196,29 @@ def test_real_local_cli_canonical_flow(
         }
     )
     case.plan_ref = case.put(case.plan)
-    other_plan = case.plan.model_copy(update={"plan_id": "00000000-0000-0000-0000-0000000000f1"})
+    second = intake.items[1] if not failed else intake.items[0]
+    second_key = operation_key(
+        F1Operation(
+            PROJECT,
+            second.asset_id,
+            second.source_id,
+            (second_original.digest,),
+            case.spec_ref.digest,
+            intake.profile_id,
+            intake.profile_version,
+            intake.policy_ref.digest,
+            case.plan.contract_set_ref.digest,
+            (case.limits_ref.digest,),
+        ),
+        limits=case.bound,
+    )
+    other_plan = case.plan.model_copy(
+        update={
+            "plan_id": "00000000-0000-0000-0000-0000000000f1",
+            "operation_key": second_key,
+            "input_refs": (second_original,),
+        }
+    )
     other_ref = case.put(other_plan)
     case.auth = case.auth.model_copy(
         update={
@@ -180,6 +250,10 @@ def test_real_local_cli_canonical_flow(
         "cfoundry.local-storage-allocation.v1",
     ):
         case.schemas[name] = case.bound
+    # Each installed schema has an independent byte ceiling.
+    case.schemas["cfoundry.local-allocation-estimate.v1"] = case.bound.model_copy(
+        update={"max_json_bytes": max(len(raw) for _, raw in quotes)}
+    )
     # Runtime file inventory can be larger than a single contract payload.
     metadata = case.bound.model_copy(
         update={
@@ -396,7 +470,7 @@ raise SystemExit(worker.main())
     dispatch_args = (
         "dispatch",
         "--plan-ref",
-        ref_file(env, "plan-ref.json", other_ref),
+        ref_file(env, "plan-ref.json", case.plan_ref),
         "--authorization-ref",
         ref_file(env, "auth-ref.json", case.auth_ref),
         "--evidence-ref",
@@ -591,7 +665,7 @@ raise SystemExit(worker.main())
     retry = run(
         "dispatch",
         "--plan-ref",
-        ref_file(env, "plan-ref.json", other_ref),
+        ref_file(env, "plan-ref.json", case.plan_ref),
         "--authorization-ref",
         ref_file(env, "auth-ref.json", case.auth_ref),
         "--evidence-ref",
@@ -658,6 +732,50 @@ raise SystemExit(worker.main())
     assert candidates.exit == 0, candidates.raw
     attempt_receipt = candidates.payload["attemptRef"]
     storage_receipt = candidates.payload["storageRef"]
+    second_dispatch = run(
+        "dispatch",
+        "--plan-ref",
+        ref_file(env, "first-plan-ref.json", other_ref),
+        "--authorization-ref",
+        ref_file(env, "first-auth-ref.json", case.auth_ref),
+        "--evidence-ref",
+        ref_file(env, "first-attempt-quote.json", quotes[0][0]),
+        "--asset-id",
+        second.asset_id,
+        "--execute",
+    )
+    assert second_dispatch.exit == 0, second_dispatch.raw
+    second_attempt = second_dispatch.payload["attempt"]["attemptId"]
+    assert second_attempt != attempt_id
+    for _ in range(100):
+        second_result = run("reconcile", "--attempt-id", second_attempt, "--execute")
+        if second_result.exit == 0 and second_result.payload["attempt"]["state"] in (
+            "succeeded",
+            "failed",
+        ):
+            break
+        time.sleep(0.1)
+    assert second_result.payload["attempt"]["state"] == "succeeded", second_result.raw
+    second_candidates = run("local-receipts", "--attempt-id", second_attempt, "--execute")
+    assert second_candidates.exit == 0, second_candidates.raw
+    second_storage = Ref.model_validate(second_candidates.payload["storageRef"])
+    assert second_storage != Ref.model_validate(storage_receipt)
+    second_billed = run(
+        "record-billing",
+        "--attempt-id",
+        second_attempt,
+        "--amount",
+        "4",
+        "--evidence",
+        env.input(
+            "second-attempt-receipt.json", json.dumps(second_candidates.payload["attemptRef"])
+        ),
+        "--execute",
+    )
+    assert second_billed.exit == 0, second_billed.raw
+    assert {Ref.model_validate(storage_receipt), second_storage} <= set(
+        allocator.durable_refs(PROJECT, RUN)
+    )
     storage_file = env.input("storage-receipt.json", json.dumps(storage_receipt))
     import io
 
@@ -812,16 +930,34 @@ raise SystemExit(worker.main())
     # A crash after durable closure can still settle historical evidence.
     close_original = LocalAllocator.close_storage
 
+    crash_reached = []
+
     def crash_after_close(self, *args):
         close_original(self, *args)
+        crash_reached.append(True)
         raise RuntimeError("synthetic interruption")
 
     with monkeypatch.context() as patch:
         patch.setattr(LocalAllocator, "close_storage", crash_after_close)
         crashed = run(
-            "close-local-storage", "--run-id", RUN, "--evidence", alternative_file, "--execute"
+            "close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute"
         )
     assert crashed.exit != 0
+    assert crash_reached == [True]
+    state = json.loads((root / "allocator.json").read_bytes())["runs"][RUN]
+    assert state["closed"]
+    assert {Ref.model_validate(storage_receipt), second_storage} <= {
+        Ref.model_validate(ref) for ref in state["closed_refs"]
+    }
+    with ledger.transaction() as tx:
+        storage_row = tx.connection.execute(
+            sql.SQL(
+                "SELECT final_billing FROM {} WHERE project_id=%s AND run_id=%s "
+                "AND scope='run_storage'"
+            ).format(tx.table("reservations")),
+            (PROJECT, RUN),
+        ).fetchone()
+    assert storage_row is not None and storage_row[0] is False
     closed = run("close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute")
     assert closed.exit == 0, closed.raw
     before_replay = count(ledger, "budget_events")
@@ -850,6 +986,15 @@ raise SystemExit(worker.main())
         ).exit
         != 0
     )
+    conflicting = run(
+        "close-local-storage",
+        "--run-id",
+        RUN,
+        "--evidence",
+        env.input("second-storage.json", second_storage.model_dump_json(by_alias=True)),
+        "--execute",
+    )
+    assert conflicting.exit != 0
     other_location = dict(
         storage_receipt, locations=[{"storeId": "synthetic", "objectKey": "wrong"}]
     )
@@ -886,6 +1031,6 @@ raise SystemExit(worker.main())
     unpinned = Runtime(load_config(env.config_path), services, "reconcile")
     try:
         with pytest.raises(ContractError):
-            unpinned.services.local.committed(PROJECT, attempt_id)
+            unpinned.services.local.committed(PROJECT, second_attempt)
     finally:
         unpinned.close()

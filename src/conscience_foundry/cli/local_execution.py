@@ -414,7 +414,7 @@ class LocalWiring:
             policy=bootstrap.allocation_policy(),
             estimates=tuple((ref, raw) for ref, raw, _ in self.pins.estimates),
             plans=pins,
-            limits=rt.limit("cfoundry.local-allocation-estimate.v1"),
+            limits_by_schema=rt.limits,
             delegate=delegate,
             operator=rt.access,
         )

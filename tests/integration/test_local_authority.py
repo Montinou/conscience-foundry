@@ -14,6 +14,19 @@ from conscience_foundry.ledger.db import Ledger
 pytestmark = pytest.mark.database
 
 
+def local_limits(bound):
+    return {
+        key: bound
+        for key in (
+            "cfoundry.local-allocation-estimate.v1",
+            "cf.local-process-observation.v1",
+            "cfoundry.local-attempt-allocation.v1",
+            "cfoundry.local-storage-allocation.v1",
+            "cf.budget-event.v1",
+        )
+    }
+
+
 def test_staged_writer_refusal_keeps_result_unaccepted(ledger: Ledger, tmp_path: Path) -> None:
     case, executor, attempt, remote = started(ledger, tmp_path)
     result, _ = remote.stage(attempt, lambda: case.result(attempt))
@@ -141,7 +154,7 @@ def test_estimate_verification_is_pure_and_rejects_forged_bytes(tmp_path: Path) 
         policy=policy,
         estimates=((quote_ref, quote_bytes),),
         plans=(pin,),
-        limits=case.bound,
+        limits_by_schema=local_limits(case.bound),
         delegate=Delegate(),
     )
     request = encoded(plan)
@@ -1183,7 +1196,7 @@ def test_real_committed_worker_publishes_and_metered_import(
         policy=policy,
         estimates=tuple(quotes),
         plans=(pin,),
-        limits=case.bound,
+        limits_by_schema=local_limits(case.bound),
         delegate=case.authority,
         operator=case.access,
     )
@@ -2018,7 +2031,11 @@ def test_shared_config_quote_selects_each_attempt_and_validates_complete_mapping
         )
         quotes.append((case.put(quote), encoded(quote)))
     authority = LocalControlAuthority(
-        policy=policy, estimates=tuple(quotes), plans=pins, limits=case.bound, allocator=alloc
+        policy=policy,
+        estimates=tuple(quotes),
+        plans=pins,
+        limits_by_schema=local_limits(case.bound),
+        allocator=alloc,
     )
     for pin in pins:
         request = encoded(pin.plan)
@@ -2082,7 +2099,7 @@ def test_shared_config_quote_selects_each_attempt_and_validates_complete_mapping
             policy=policy,
             estimates=((forged_ref, encoded(forged_quote)),),
             plans=pins,
-            limits=case.bound,
+            limits_by_schema=local_limits(case.bound),
             allocator=alloc,
         )
         forged_claim = replace(claim, evidence_ref=forged_ref)
@@ -2283,7 +2300,7 @@ def test_two_committed_plans_share_config_and_fixed_attempt_quote(
         policy=policy,
         estimates=tuple(quotes),
         plans=pins,
-        limits=case.bound,
+        limits_by_schema=local_limits(case.bound),
         allocator=alloc,
         delegate=case.authority,
     )

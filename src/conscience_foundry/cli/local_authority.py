@@ -661,17 +661,27 @@ class LocalControlAuthority:
         policy: LocalAllocationPolicy,
         estimates: tuple[tuple[Ref, bytes], ...],
         plans: tuple[LocalPlanPin, ...],
-        limits: ContractLimits,
+        limits_by_schema: Mapping[str, ContractLimits],
         allocator: LocalAllocator | None = None,
         executor: object | None = None,
         delegate: object | None = None,
         operator: AccessContext | None = None,
     ) -> None:
-        if type(policy) is not LocalAllocationPolicy or type(limits) is not ContractLimits:
+        required = (
+            "cfoundry.local-allocation-estimate.v1",
+            "cf.local-process-observation.v1",
+            "cfoundry.local-attempt-allocation.v1",
+            "cfoundry.local-storage-allocation.v1",
+            "cf.budget-event.v1",
+        )
+        if type(policy) is not LocalAllocationPolicy or any(
+            type(limits_by_schema.get(schema)) is not ContractLimits for schema in required
+        ):
             raise ContractError("invalid_schema")
         if type(estimates) is not tuple or type(plans) is not tuple:
             raise ContractError("invalid_schema")
-        self.policy, self.limits = policy, limits
+        self.policy = policy
+        self.limits_by_schema = MappingProxyType({key: limits_by_schema[key] for key in required})
         self.allocator, self.executor, self.delegate = allocator, executor, delegate
         self.operator = operator
         self.plans = {pin.ref.digest: pin for pin in plans if type(pin) is LocalPlanPin}
@@ -687,7 +697,9 @@ class LocalControlAuthority:
                 or ref.size_bytes != len(raw)
             ):
                 raise ContractError("forbidden")
-            quote = LocalAllocationEstimate.from_wire(raw, limits)
+            quote = LocalAllocationEstimate.from_wire(
+                raw, self.limits_by_schema["cfoundry.local-allocation-estimate.v1"]
+            )
             if quote.scope in parsed or ref.project_id != quote.project_id:
                 raise ContractError("forbidden")
             parsed[quote.scope] = (ref, raw, quote)
@@ -755,7 +767,9 @@ class LocalControlAuthority:
             or proof.binding.reservation_id != proof.attempt.reservation_id
         ):
             raise ContractError("forbidden")
-        record = LocalProcessObservation.from_wire(proof.evidence_bytes, self.limits)
+        record = LocalProcessObservation.from_wire(
+            proof.evidence_bytes, self.limits_by_schema["cf.local-process-observation.v1"]
+        )
         canonical = json.dumps(
             record.model_dump(mode="json", by_alias=True), sort_keys=True, separators=(",", ":")
         ).encode()
@@ -990,8 +1004,12 @@ class LocalControlAuthority:
             or claim.plan_ref is None
         ):
             raise ContractError("forbidden")
-        event = BudgetEvent.from_wire(claim.request_bytes, self.limits)
-        observation = LocalProcessObservation.from_wire(proof.evidence_bytes, self.limits)
+        event = BudgetEvent.from_wire(
+            claim.request_bytes, self.limits_by_schema["cf.budget-event.v1"]
+        )
+        observation = LocalProcessObservation.from_wire(
+            proof.evidence_bytes, self.limits_by_schema["cf.local-process-observation.v1"]
+        )
         pin = self.plans.get(claim.plan_ref.digest)
         if (
             encoded(event) != claim.request_bytes
@@ -1073,8 +1091,17 @@ class LocalControlAuthority:
             != claim.authorization_ref.digest
         ):
             raise ContractError("forbidden")
-        receipt = LocalAllocationReceipt.from_wire(proof.evidence_bytes, self.limits)
-        event = BudgetEvent.from_wire(claim.request_bytes, self.limits)
+        if claim.evidence_ref.artifact_schema not in (
+            "cfoundry.local-attempt-allocation.v1",
+            "cfoundry.local-storage-allocation.v1",
+        ):
+            raise ContractError("forbidden")
+        receipt = LocalAllocationReceipt.from_wire(
+            proof.evidence_bytes, self.limits_by_schema[claim.evidence_ref.artifact_schema]
+        )
+        event = BudgetEvent.from_wire(
+            claim.request_bytes, self.limits_by_schema["cf.budget-event.v1"]
+        )
         storage = receipt.schema_version == "cfoundry.local-storage-allocation.v1"
         pin = self.plans.get(receipt.plan_ref.digest)
         expected_price = self.policy.storage_price_usd if storage else self.policy.attempt_price_usd
