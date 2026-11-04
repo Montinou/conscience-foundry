@@ -56,6 +56,52 @@ class ExecutionConfig(WireModel):
         return self
 
 
+class LocalExecutionConfig(WireModel):
+    schema_version: Literal["cf.local-execution-config.v1"]
+    adapter_id: NonemptyString
+    deployment_version: Version
+    image_digest: Digest
+    tariff_ref: Ref
+    resource_policy_ref: Ref
+    local_destination_id: NonemptyString
+
+    @model_validator(mode="after")
+    def reference_project(self) -> Self:
+        if (
+            self.tariff_ref.project_id != self.resource_policy_ref.project_id
+            or self.resource_policy_ref.artifact_schema != "cf.local-resource-policy.v1"
+        ):
+            raise ValueError("invalid local resource policy reference")
+        return self
+
+
+ExecutionConfiguration = ExecutionConfig | LocalExecutionConfig
+
+
+def decode_execution_config(data: bytes, limits: ContractLimits) -> ExecutionConfiguration:
+    from conscience_foundry.contracts.codec import load_json
+
+    parsed = load_json(data, limits)
+    schema = parsed.get("schemaVersion")
+    if schema == "cf.execution-config.v1":
+        return ExecutionConfig.from_wire(data, limits)
+    if schema == "cf.local-execution-config.v1":
+        return LocalExecutionConfig.from_wire(data, limits)
+    raise ContractError("unsupported_schema")
+
+
+def execution_destination(config: ExecutionConfiguration) -> str:
+    if isinstance(config, LocalExecutionConfig):
+        return config.local_destination_id
+    return config.remote_destination_id
+
+
+def execution_scopes(config: ExecutionConfiguration) -> frozenset[str]:
+    if isinstance(config, LocalExecutionConfig):
+        return frozenset({"read", "extract"})
+    return frozenset({"read", "extract", "remoteTransfer"})
+
+
 class ResourceEnvelope(WireModel):
     cpu_milli: PositiveInteger
     memory_mib: PositiveInteger = Field(alias="memoryMiB")

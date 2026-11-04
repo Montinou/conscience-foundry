@@ -26,8 +26,10 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import (
     ExecutionPlan,
+    LocalExecutionConfig,
     RunAuthorization,
     StageAttempt,
+    execution_destination,
 )
 from conscience_foundry.execution.evidence import (
     admission_evidence,
@@ -346,6 +348,9 @@ def dispatch(
     with ledger.transaction() as tx:
         tx.lock(context.project_id, plan.run_id)
         verified = verified_plan(plan_ref, authorization_ref, tx, control, spending=True)
+        # No trusted local executor or settings are composed in this phase.
+        if isinstance(verified.config, LocalExecutionConfig):
+            raise ContractError("adapter_unavailable")
         if verified.model != plan or verified.authorization != authorization:
             raise ContractError("hash_mismatch")
         if verified.data != encoded(plan):
@@ -357,7 +362,7 @@ def dispatch(
                 plan,
                 authorization,
                 plan_ref,
-                verified.config.remote_destination_id,
+                execution_destination(verified.config),
                 control,
             )
         existing = tx.connection.execute(
@@ -444,7 +449,7 @@ def dispatch(
     try:
         minted = prepared if prepared is not None else _mint(cast(TransportIssuer, grants), attempt)
         _grants(
-            minted, plan, authorization, plan_ref, verified.config.remote_destination_id, control
+            minted, plan, authorization, plan_ref, execution_destination(verified.config), control
         )
     except ContractError:
         # No executor was invoked: local control can prove no submission effect.

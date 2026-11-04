@@ -655,3 +655,43 @@ def test_registry_admission_binds_envelope_project_and_bootstrap_pins(tmp_path: 
     )
     with pytest.raises(ContractError, match="hash_mismatch"):
         validate_artifact(envelope, payload, limits_by_schema=configured)
+
+
+def test_local_schemas_are_installed_and_old_sets_refuse(tmp_path: Path) -> None:
+    bundle = export_bundle(tmp_path)
+    local_ids = {"cf.local-execution-config.v1", "cf.local-resource-policy.v1"}
+    assert local_ids <= set(registered_schema_ids())
+    old = bundle.model_copy(
+        update={"contracts": tuple(b for b in bundle.contracts if b.schema_id not in local_ids)}
+    )
+    with pytest.raises(ContractError, match="unsupported_schema"):
+        validate_contract_set(
+            old, project_id=PROJECT, limits_by_schema={k: limits() for k in registered_schema_ids()}
+        )
+    with pytest.raises(ContractError, match="limits_missing"):
+        validate_contract_set(
+            bundle,
+            project_id=PROJECT,
+            limits_by_schema={k: limits() for k in registered_schema_ids() if k not in local_ids},
+        )
+
+
+def test_local_config_reference_edges_are_registered() -> None:
+    from conscience_foundry.contracts.execution import LocalExecutionConfig
+
+    config = LocalExecutionConfig.model_validate(
+        {
+            "schemaVersion": "cf.local-execution-config.v1",
+            "adapterId": "local",
+            "deploymentVersion": "v1",
+            "imageDigest": "a" * 64,
+            "tariffRef": ref("test.tariff.v1"),
+            "resourcePolicyRef": ref("cf.local-resource-policy.v1"),
+            "localDestinationId": "host",
+        }
+    )
+    edges = edge_roles("cf.local-execution-config.v1", config)
+    assert {edge.ref.artifact_schema for edge in edges} == {
+        "test.tariff.v1",
+        "cf.local-resource-policy.v1",
+    }

@@ -47,6 +47,8 @@ _RULES: Mapping[str, tuple[tuple[str, Literal["content", "audit"]], ...]] = Mapp
             ("quality_report_ref", "content"),
         ),
         "cf.execution-config.v1": (("tariff_ref", "audit"), ("resource_policy_ref", "audit")),
+        "cf.local-execution-config.v1": (("tariff_ref", "audit"), ("resource_policy_ref", "audit")),
+        "cf.local-resource-policy.v1": (),
         "cf.execution-plan.v1": (
             ("execution_config_ref", "audit"),
             ("admission_report_ref", "audit"),
