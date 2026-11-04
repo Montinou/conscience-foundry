@@ -8,8 +8,8 @@ Trust model:
 * ``LiveModalSession`` is the ``ModalSdk`` the executor drives. It opens one ephemeral app for
   the profile the operator named and stops it on every exit, an interrupt included. Before each
   spawn it reads the function's options back from the platform and refuses (``unsupported_
-  capability``) unless they are exactly the ones the capability record relies on: no retries,
-  non-preemptible, one container, the configured timeouts.
+  capability``) unless they match the configured options. This readback does not establish a
+  platform restart bound.
 * SDK exceptions are never copied: each is mapped to a ``ModalPoll`` state, or to a stable
   ``ContractError`` code. Only an exception that proves the function itself ended without
   publishing a result (a remote error, or a worker ``ContractError`` whose code is in
@@ -22,7 +22,7 @@ Trust model:
   terminated. The session keeps a record of its own calls and serves no other.
 * ``capability_record_from_live`` builds, offline, the capability record the executor's gate
   reads: only from the operator's configuration, the image and code digests, and evidence records
-  of what was declared. It claims nothing the live preflight has not still to confirm.
+  of what was declared. The platform restart bound remains unknown.
 * ``container_entry`` is the function the container runs. Its input is the plan, the attempt, the
   transient grants and the staging labels; the grants carry two temporary R2 credentials, one
   read-only and one scoped to the attempt prefix. The SDK loggers are quieted before any client is
@@ -211,10 +211,8 @@ LEASE_TEST_ID = "tests/adapters/test_lease.py::test_two_workers_one_executes"
 """The offline test that shows two workers on one attempt execute it once."""
 CAPABILITY_SOURCE_SCHEMA = "cf.capability-source.v1"
 RESTART_SEMANTICS = (
-    "The function is registered with retries=0, nonpreemptible=True and max_containers=1, so the "
-    "platform neither retries the call nor restarts its container after a crash or a preemption: "
-    "max_platform_restarts is 0. The live session reads these options back from the platform "
-    "before every spawn and refuses unless they are exactly these."
+    "Configured function options, option readback, leases and controller deadlines do not "
+    "establish a platform restart bound. The platform restart bound is unknown."
 )
 
 
@@ -290,16 +288,10 @@ def capability_record_from_live(
 ) -> CapabilityRecord:
     """The capability record for the ephemeral deployment the operator's config describes.
 
-    Offline: nothing is read from the platform. The bounds are the configured ones (GPU and
-    function retries are fixed at zero, platform restarts at zero because the function is
-    non-preemptible with retries off), ``total_bound_seconds`` is the configured sum including the
-    cancel margin, and the record is valid for ``capability_valid_seconds`` from ``now``. The
-    image digest is the SHA-256 of the canonical image spec and the deployment version is derived
-    from the code digest, so a record is evidence for exactly one image and one code tree.
-
-    Three evidence records are stored through ``evidence`` and cited: the declared options, the
-    restart-semantics statement and the id of the lease test. Whether the platform honors them is
-    for the live preflight; this function never asserts it.
+    Offline: nothing is read from the platform. Configured options and deadlines do not
+    establish a platform restart bound, so it and the total bound remain unknown. The image
+    and code digests identify the described deployment. Evidence records contain declared
+    configuration, the restart limitation and the lease test; none proves a restart bound.
     """
     try:
         _DIGEST.validate_python(code_digest)
@@ -317,7 +309,7 @@ def capability_record_from_live(
             "startupTimeoutSeconds": config.startup_timeout_seconds,
             "executionTimeoutSeconds": config.execution_timeout_seconds,
             "cancelMarginSeconds": config.cancel_margin_seconds,
-            "totalBoundSeconds": config.total_bound_seconds,
+            "requestedTotalTimeoutSeconds": config.total_bound_seconds,
             "imageSpec": dict(image_spec),
             "codeDigest": code_digest,
         }
@@ -356,9 +348,7 @@ def capability_record_from_live(
                 "startup_timeout_seconds": config.startup_timeout_seconds,
                 "scheduling_timeout_seconds": config.scheduling_timeout_seconds,
                 "execution_timeout_seconds": config.execution_timeout_seconds,
-                "platform_restart_bound": "bounded",
-                "max_platform_restarts": 0,
-                "total_bound_seconds": config.total_bound_seconds,
+                "platform_restart_bound": "unknown",
                 "cancellation": "terminates_containers",
                 "deadline_enforcement": "entry_and_every_bounded_step",
                 "valid_until": valid_until,

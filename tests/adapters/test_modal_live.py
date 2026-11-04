@@ -1464,12 +1464,18 @@ def test_record_validates_against_plan() -> None:
     scenario = build()
     record, log = build_record(scenario)
 
-    validate_capabilities(record, scenario.plan)
+    assert record.platform_restart_bound == "unknown"
+    assert record.max_platform_restarts is None and record.total_bound_seconds is None
+    serialized = record.model_dump(exclude_none=True)
+    assert "max_platform_restarts" not in serialized and "total_bound_seconds" not in serialized
+    assert CapabilityRecord.model_validate(serialized) == record
+    with pytest.raises(ContractError) as blocked:
+        validate_capabilities(record, scenario.plan)
+    assert blocked.value.code == "unsupported_capability"
     canonical = json.dumps(IMAGE_SPEC, sort_keys=True, separators=(",", ":")).encode()
     assert record.image_digest == hashlib.sha256(canonical).hexdigest()
     assert (record.cpu_milli, record.memory_mib, record.gpu_count) == (1000, 512, 0)
-    assert (record.function_retries, record.platform_restart_bound) == (0, "bounded")
-    assert record.max_platform_restarts == 0
+    assert (record.function_retries, record.platform_restart_bound) == (0, "unknown")
     assert record.cancellation == "terminates_containers"
     assert record.deadline_enforcement == "entry_and_every_bounded_step"
     assert record.deployment_version == "ephemeral-" + CODE_DIGEST[:16]
@@ -1484,7 +1490,6 @@ def test_record_validates_against_plan() -> None:
         record.startup_timeout_seconds,
         record.execution_timeout_seconds,
     ) == (120, 60, 300)
-    assert record.total_bound_seconds == 120 + 60 + 300 + 30
     assert record.valid_until == "2030-01-01T01:00:00.000Z"  # now + capabilityValidSeconds
 
     # three evidence records: the declared options, the restart semantics and the lease test
@@ -1494,11 +1499,18 @@ def test_record_validates_against_plan() -> None:
     ]
     kinds = {json.loads(data)["kind"] for _, data in log}
     assert kinds == {"declared_function_options", "restart_semantics", "lease_test"}
+    declared = next(
+        json.loads(data)
+        for _, data in log
+        if json.loads(data)["kind"] == "declared_function_options"
+    )
+    assert declared["requestedTotalTimeoutSeconds"] == 510
+    assert "totalBoundSeconds" not in declared
     texts = [data.decode() for _, data in log]
     assert any("test_lease.py::test_two_workers_one_executes" in text for text in texts)
     assert not any(TOKEN_SECRET in text or "SYNTHETIC_PARENT" in text for text in texts)
 
-    # the executor accepts the built record for exactly the deployment it describes
+    # even a matching deployment is refused before any spawn
     pin = ModalPin(
         "synthetic-app",
         "synthetic-worker",
@@ -1510,7 +1522,10 @@ def test_record_validates_against_plan() -> None:
     )
     sdk = FakeModal()
     executor = make_executor(scenario, sdk, record=record, pin=pin)
-    assert executor.submit(scenario.plan, scenario.attempt, scenario.grants).remote_call_id
+    with pytest.raises(ContractError) as refused:
+        executor.submit(scenario.plan, scenario.attempt, scenario.grants)
+    assert refused.value.code == "unsupported_capability"
+    assert sdk.spawned == []
     # the record is built from the image and code it names: another spec is another digest
     other, _ = build_record(scenario)
     assert other == record
@@ -1572,7 +1587,14 @@ def test_record_refuses_unusable_inputs() -> None:
 def test_record_rejected_when_total_exceeds_max_wall() -> None:
     # the record's total (scheduling + startup + execution + cancel margin) is 510 s
     fits = build(resources={"max_wall_seconds": 510})
-    record, _ = build_record(fits)
+    generated, _ = build_record(fits)
+    record = generated.model_copy(
+        update={
+            "platform_restart_bound": "bounded",
+            "max_platform_restarts": 0,
+            "total_bound_seconds": 510,
+        }
+    )
     assert record.total_bound_seconds == 510
     validate_capabilities(record, fits.plan)
 
@@ -1599,25 +1621,34 @@ def test_record_rejected_when_total_exceeds_max_wall() -> None:
 
 def test_restart_gate_closes_for_built_record() -> None:
     scenario = build()
-    record, _ = build_record(scenario)
-    validate_capabilities(record, scenario.plan)
+    generated, _ = build_record(scenario)
+    with pytest.raises(ContractError) as blocked:
+        validate_capabilities(generated, scenario.plan)
+    assert blocked.value.code == "unsupported_capability"
+    record = generated.model_copy(
+        update={
+            "platform_restart_bound": "bounded",
+            "max_platform_restarts": 0,
+            "total_bound_seconds": 510,
+        }
+    )
 
     def changed(**changes: Any) -> CapabilityRecord:
         value = record.model_dump(exclude_none=True) | changes
         return CapabilityRecord.model_validate(value)
 
-    # one platform restart repeats startup and execution: the built total no longer covers it
+    # One platform restart repeats startup and execution: the synthetic total no longer covers it
     with pytest.raises(ContractError) as restarts:
         validate_capabilities(changed(max_platform_restarts=1), scenario.plan)
     assert restarts.value.code == "unsupported_capability"
     # without an evidenced bound the gate stays shut
     for unproven in ("unknown", "unbounded"):
         value = record.model_dump(exclude_none=True) | {"platform_restart_bound": unproven}
-        value.pop("max_platform_restarts")
+        value.pop("max_platform_restarts", None)
         with pytest.raises(ContractError) as blocked:
             validate_capabilities(CapabilityRecord.model_validate(value), scenario.plan)
         assert blocked.value.code == "unsupported_capability"
-    # the built record is the only shape the live path produces: no retries, no gpu
+    # This synthetic fixture assumes no retries and no GPU; retries remain unsupported.
     assert record.function_retries == 0 and record.gpu_count == 0
     with pytest.raises(ContractError):
         validate_capabilities(changed(function_retries=1), scenario.plan)

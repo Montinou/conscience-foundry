@@ -251,7 +251,14 @@ class Pilot:
             TIME,
             sink,
         )
-        self.record = record
+        # Synthetic bounded capability for offline lifecycle coverage; never live proof.
+        self.record = record.model_copy(
+            update={
+                "platform_restart_bound": "bounded",
+                "max_platform_restarts": 0,
+                "total_bound_seconds": settings.total_bound_seconds,
+            }
+        )
         self.auth = c.auth.model_copy(update={"expires_at": PACKET_EXPIRY})
         self.auth_bytes = encoded(self.auth)
         self.plan_bytes = encoded(c.plan)
@@ -296,7 +303,7 @@ class Pilot:
         }
         self.estimate_bytes = wire(estimate)
         self.estimate_ref = ref_wire(self.estimate_bytes, "cfoundry.cost-estimate.v1")
-        capabilities = record.model_dump_json(by_alias=True, exclude_none=True).encode()
+        capabilities = self.record.model_dump_json(by_alias=True, exclude_none=True).encode()
         backup_bytes = wire(backup)
         plan_wire = json.loads(self.plan_bytes)
         self.packet_wire: dict[str, Any] = {
