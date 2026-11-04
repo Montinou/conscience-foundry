@@ -356,6 +356,8 @@ def test_worker_has_no_ledger_or_model_dependency() -> None:
         "clock",
         "lease",
         "nonce",
+        "local_authority",
+        "expected_runtime_digest",
     }
     assert not {"dsn", "database", "connection", "ledger", "credentials"} & parameters
     tree = ast.parse(Path(inspect.getfile(worker_module)).read_text())

@@ -59,6 +59,7 @@ from conscience_foundry.contracts.execution import (
 from conscience_foundry.execution.capabilities import CapabilityRecord, validate_capabilities
 from conscience_foundry.execution.ports import (
     AttemptStaging,
+    ExecutionGrant,
     Observation,
     Submission,
     TransportGrants,
@@ -135,8 +136,10 @@ class ModalExecutor:
     # -- submit ---------------------------------------------------------------------
 
     def submit(
-        self, plan: ExecutionPlan, attempt: StageAttempt, grants: TransportGrants
+        self, plan: ExecutionPlan, attempt: StageAttempt, grants: ExecutionGrant
     ) -> Submission:
+        if type(grants) is not TransportGrants:
+            raise ContractError("forbidden")
         plan_bytes = self._admit(plan, attempt, grants)
         if any(name in _CORE_PAYLOAD_KEYS for name in self.payload_extras):
             raise ContractError("invalid_schema")  # extras add to the payload, never replace it
