@@ -461,3 +461,263 @@ def test_manifest_read_stays_bound_to_verified_parent_during_swap(tmp_path, monk
     monkeypatch.setattr(os, "open", swap_on_final_open)
     assert _read_manifest(manifest, 100) == b"approved"
     assert swapped
+
+
+def test_local_composition_requires_private_evidence_limits_before_effects(tmp_path, monkeypatch):
+    from conscience_foundry.cli.live import build_services
+    from conscience_foundry.contracts.common import ContractError
+
+    env = Env(tmp_path, monkeypatch)
+    parsed = RuntimeConfig.model_validate(
+        env.config() | {"localExecution": local_settings(tmp_path), "projectMaxLiveAttempts": 1}
+    )
+    with pytest.raises(ContractError, match="limits_missing"):
+        build_services(parsed)
+
+
+def test_local_control_actions_are_explicit_unique_and_known(tmp_path, monkeypatch):
+    env = Env(tmp_path, monkeypatch)
+    settings = local_settings(tmp_path)
+
+    def parse(extra):
+        return RuntimeConfig.model_validate(
+            env.config() | {"localExecution": settings | extra, "projectMaxLiveAttempts": 1}
+        ).local_execution
+
+    assert parse({}).control_actions == ()
+    assert parse({"controlActions": ["pause", "cancel_attempt"]}).control_actions == (
+        "pause",
+        "cancel_attempt",
+    )
+    with pytest.raises(ValidationError):
+        parse({"controlActions": ["pause", "pause"]})
+    with pytest.raises(ValidationError):
+        parse({"controlActions": ["manual_retry"]})
+
+
+def test_local_delegate_requires_allowlist_grant_and_current_policy(tmp_path, monkeypatch):
+    import hashlib
+    from dataclasses import replace
+
+    from test_ledger_db import ACTOR, PROJECT, TIME
+
+    from conscience_foundry.cli.config import Runtime, TrustedServices
+    from conscience_foundry.cli.local_execution import LocalOperatorDelegate
+    from conscience_foundry.contracts.common import ContractError
+    from conscience_foundry.execution.ports import ControlProof, EvidenceBinding
+
+    env = Env(tmp_path, monkeypatch)
+    settings = local_settings(tmp_path) | {"controlActions": ["pause"]}
+    config = RuntimeConfig.model_validate(
+        env.config() | {"localExecution": settings, "projectMaxLiveAttempts": 1}
+    )
+    runtime = Runtime(config, TrustedServices(clock=lambda: TIME), "pause")
+    ref = reference(b"proof", "cf.operator-proof.v1")
+    binding = EvidenceBinding(
+        ref.digest, hashlib.sha256(b"request").hexdigest(), PROJECT, None, None, None, None, None
+    )
+    proof = ControlProof(binding, ref, b"proof", b"request", ACTOR, "pause", None, TIME)
+    delegate = LocalOperatorDelegate(runtime, reference(b"auth", "cf.run-authorization.v1"))
+    assert delegate.control(proof).action == "pause"
+    with pytest.raises(ContractError):
+        delegate.control(replace(proof, action="resume"))
+    wrong = Runtime(config, TrustedServices(clock=lambda: TIME), "reconcile")
+    with pytest.raises(ContractError):
+        LocalOperatorDelegate(wrong, reference(b"auth", "cf.run-authorization.v1")).control(proof)
+    monkeypatch.setattr(
+        runtime, "current_policy", lambda _: (_ for _ in ()).throw(ContractError("forbidden"))
+    )
+    with pytest.raises(ContractError):
+        delegate.control(proof)
+
+
+def test_local_delegate_installs_only_exact_independent_authorization(tmp_path, monkeypatch):
+    import hashlib
+    from dataclasses import replace
+
+    from test_execution_control import Case
+    from test_ledger_db import PROJECT, RUN, TIME
+
+    from conscience_foundry.cli.config import Runtime, TrustedServices
+    from conscience_foundry.cli.local_execution import LocalOperatorDelegate
+    from conscience_foundry.contracts.common import ArtifactLocation, ContractError
+    from conscience_foundry.execution.evidence import encoded
+    from conscience_foundry.execution.ports import BudgetProof, EvidenceBinding
+    from conscience_foundry.ledger._budget_inputs import BudgetEvidenceClaim
+
+    case = Case(tmp_path)
+    env = Env(tmp_path, monkeypatch)
+    config = RuntimeConfig.model_validate(
+        env.config() | {"localExecution": local_settings(tmp_path), "projectMaxLiveAttempts": 1}
+    )
+    runtime = Runtime(config, TrustedServices(clock=lambda: TIME), "authorize-run")
+    auth = case.auth
+    raw = encoded(auth)
+    ref = reference(raw, auth.schema_version)
+    claim = BudgetEvidenceClaim(
+        "install_run_authorization",
+        ref,
+        PROJECT,
+        RUN,
+        None,
+        None,
+        TIME,
+        ref,
+        None,
+        None,
+        raw,
+        hashlib.sha256(raw).hexdigest(),
+    )
+    proof = BudgetProof(claim, EvidenceBinding.from_budget(claim), raw, auth, ())
+    delegate = LocalOperatorDelegate(runtime, ref)
+    assert delegate.budget(proof).approved_grant_digest == ref.digest
+    altered = ref.model_copy(
+        update={"locations": (ArtifactLocation(store_id="synthetic", object_key="different"),)}
+    )
+    altered_claim = replace(claim, evidence_ref=altered, authorization_ref=altered)
+    with pytest.raises(ContractError):
+        delegate.budget(
+            replace(proof, claim=altered_claim, binding=EvidenceBinding.from_budget(altered_claim))
+        )
+    with pytest.raises(ContractError):
+        delegate.budget(replace(proof, evidence_bytes=raw + b" "))
+    forged = replace(claim, request_bytes=b"forged")
+    with pytest.raises(ContractError):
+        delegate.budget(replace(proof, claim=forged, binding=EvidenceBinding.from_budget(forged)))
+    with pytest.raises(ContractError):
+        LocalOperatorDelegate(runtime, reference(b"other", auth.schema_version)).budget(proof)
+    with pytest.raises(ContractError):
+        delegate.budget(replace(proof, claim=replace(claim, purpose="manual_retry")))
+
+
+def test_runtime_manifest_is_bounded_strict_and_pin_checked(tmp_path, monkeypatch):
+    import json
+
+    from test_ledger_db import limits
+
+    from conscience_foundry.cli.local_execution import read_runtime_identity
+    from conscience_foundry.contracts.common import ContractError
+    from conscience_foundry.execution.local_runtime import runtime_digest
+
+    path = tmp_path / "runtime.json"
+    value = {"os": ["Darwin", "release", "version", "arm64"], "files": {"interpreter": "a" * 64}}
+    path.write_text(json.dumps(value))
+    bound = limits()
+    digest = runtime_digest(value)
+    monkeypatch.setattr(
+        "conscience_foundry.execution.local_runtime.verify_runtime",
+        lambda got: (
+            None if got == digest else (_ for _ in ()).throw(ContractError("hash_mismatch"))
+        ),
+    )
+    assert read_runtime_identity(path, bound, (digest,)) == digest
+    with pytest.raises(ContractError):
+        read_runtime_identity(path, bound, ("b" * 64,))
+    path.write_text('{"os":[],"os":[],"files":{}}')
+    with pytest.raises(ContractError):
+        read_runtime_identity(path, bound, (digest,))
+    path.write_text(json.dumps(value | {"files": {"interpreter": "not-a-digest"}}))
+    with pytest.raises(ContractError):
+        read_runtime_identity(path, bound, (digest,))
+
+
+def test_local_composition_refuses_missing_independent_manifest(tmp_path, monkeypatch):
+    from conscience_foundry.cli.live import build_services
+    from conscience_foundry.contracts.common import ContractError
+
+    env = Env(tmp_path, monkeypatch)
+    for name in (
+        "cfoundry.local-allocation-estimate.v1",
+        "cf.local-process-observation.v1",
+        "cfoundry.local-attempt-allocation.v1",
+        "cfoundry.local-storage-allocation.v1",
+    ):
+        env.schemas[name] = env.bound
+    env.write_config()
+    parsed = RuntimeConfig.model_validate(
+        env.config() | {"localExecution": local_settings(tmp_path), "projectMaxLiveAttempts": 1}
+    )
+    with pytest.raises(ContractError, match="config_insecure"):
+        build_services(parsed)
+
+
+def test_missing_local_optional_adapter_refuses_cleanly(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    import sys
+
+    env = Env(tmp_path, monkeypatch)
+    env.extra.update({"localExecution": local_settings(tmp_path), "projectMaxLiveAttempts": 1})
+    env.write_config()
+    script = """
+import importlib.abc, sys
+class Block(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "psutil" or fullname.startswith("psutil."):
+            raise ModuleNotFoundError(name=fullname)
+sys.meta_path.insert(0, Block())
+from conscience_foundry.cli.config import load_config
+from conscience_foundry.cli.live import build_services
+from conscience_foundry.contracts.common import ContractError
+try:
+    build_services(load_config(sys.argv[1]))
+except ContractError as error:
+    assert error.code == "adapter_unavailable"
+else:
+    raise AssertionError("local adapter unexpectedly available")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(env.config_path)],
+        env={"PATH": os.defpath, "PYTHONNOUSERSITE": "1"},
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+
+
+def test_runtime_manifest_refuses_symlink_ancestor(tmp_path, monkeypatch):
+    import json
+
+    from test_ledger_db import limits
+
+    from conscience_foundry.cli.local_execution import read_runtime_identity
+    from conscience_foundry.contracts.common import ContractError
+    from conscience_foundry.execution.local_runtime import runtime_digest
+
+    target = tmp_path / "real"
+    target.mkdir()
+    value = {"os": ["Darwin", "release", "version", "arm64"], "files": {"interpreter": "a" * 64}}
+    (target / "runtime.json").write_text(json.dumps(value))
+    link = tmp_path / "alias"
+    link.symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr("conscience_foundry.execution.local_runtime.verify_runtime", lambda _: None)
+    with pytest.raises(ContractError):
+        read_runtime_identity(link / "runtime.json", limits(), (runtime_digest(value),))
+
+
+def test_runtime_manifest_can_be_in_git_worktree_but_quote_manifest_cannot(tmp_path, monkeypatch):
+    import json
+
+    from test_ledger_db import PROJECT, limits
+
+    from conscience_foundry.cli.local_execution import read_runtime_identity
+    from conscience_foundry.cli.local_manifest import load_local_manifest
+    from conscience_foundry.contracts.common import ContractError
+    from conscience_foundry.execution.local_runtime import runtime_digest
+
+    quote, _, bounds = manifest_fixture(tmp_path)
+    runtime = tmp_path / "runtime.json"
+    value = {"os": ["Darwin", "release", "version", "arm64"], "files": {"interpreter": "a" * 64}}
+    runtime.write_text(json.dumps(value))
+    (tmp_path / ".git").write_text("gitdir: /private/synthetic-worktree")
+    monkeypatch.setattr("conscience_foundry.execution.local_runtime.verify_runtime", lambda _: None)
+    assert read_runtime_identity(runtime, limits(), (runtime_digest(value),)) == runtime_digest(
+        value
+    )
+    with pytest.raises(ContractError, match="config_insecure"):
+        load_local_manifest(
+            quote,
+            project_id=PROJECT,
+            limits_by_schema=bounds,
+            resource_policy_ref=reference(b"resource", "cf.local-resource-policy.v1"),
+        )

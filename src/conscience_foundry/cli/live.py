@@ -607,6 +607,20 @@ def build_services(
     ``modal_module`` replaces ``import modal`` for the session (tests inject a fake); ``http`` is
     the Cloudflare API caller (``cloudflare_http`` when omitted).
     """
+    if config.local_execution is not None:
+        try:
+            from conscience_foundry.cli.local_execution import build_local_services
+        except ModuleNotFoundError as error:
+            if error.name == "psutil" or (error.name and error.name.startswith("psutil.")):
+                raise ContractError("adapter_unavailable") from None
+            raise
+
+        services = build_local_services(config)
+        return (
+            replace(services, release_authority=_release_authority(config))
+            if config.release_authority is not None
+            else services
+        )
     settings = config.live
     if settings is None:
         if config.release_authority is None:

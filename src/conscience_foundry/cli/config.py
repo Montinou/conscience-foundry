@@ -50,6 +50,7 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.contracts.project import EFFECT_NAMES, PolicyArtifact
+from conscience_foundry.execution.local_contracts import LocalWorkerGrant
 from conscience_foundry.execution.modal_live import staging_config
 from conscience_foundry.execution.ports import (
     ControlContext,
@@ -67,6 +68,7 @@ from conscience_foundry.storage.staging_s3 import StagingConfig
 
 if TYPE_CHECKING:
     from conscience_foundry.cli.live import LiveWiring
+    from conscience_foundry.cli.local_execution import LocalWiring
 
 CONFIG_MAX_BYTES = 1 << 20
 """Syntax ceiling for the operator's own config/limits/policy files, before limits are known."""
@@ -400,6 +402,10 @@ class LocalExecutionSettings(WireModel):
     funded_from: Instant
     funded_until: Instant
     semantics: Literal["cooperative"]
+    control_actions: Annotated[
+        tuple[Literal["pause", "resume", "cancel_attempt", "mark_unknown_outcome"], ...],
+        BeforeValidator(_array),
+    ] = ()
 
     @model_validator(mode="after")
     def validate_funding(self) -> Self:
@@ -409,6 +415,7 @@ class LocalExecutionSettings(WireModel):
             or self.funded_from >= self.funded_until
             or self.run_storage_capacity_bytes > self.operator_storage_capacity_bytes
             or self.resource_policy_ref.artifact_schema != "cf.local-resource-policy.v1"
+            or len(set(self.control_actions)) != len(self.control_actions)
         ):
             raise ValueError("invalid local funding")
         return self
@@ -474,10 +481,13 @@ class TrustedServices:
     connect: Callable[[str], Connection] | None = None
     clock: Callable[[], Instant] | None = None
     staged_reader: Callable[[Id, Id], ObjectStore] | None = None
+    staged_writer: Callable[[Id, Id], ObjectStore] | None = None
+    local_grants: Callable[[StageAttempt], LocalWorkerGrant] | None = None
     stage_inputs: Callable[[ExecutionPlan, AccessContext], tuple[Ref, ...]] | None = None
     issuer_scopes: Callable[[ExecutionPlan, Id], tuple[frozenset[str], str]] | None = None
     """Reports what the credential issuer would mint for a plan and attempt: (read keys, write
     prefix). Preflight compares it with the plan; it never mints anything."""
+    local: LocalWiring | None = None
     live: LiveWiring | None = None
     """The live wiring a config's ``live`` section stands for (``cli.live.build_services``); its
     session is set only by ``run-pilot``, and only while that session is open."""
@@ -640,6 +650,8 @@ class Runtime:
         self.access = AccessContext(
             config.project_id, config.operator.actor_id, frozenset(config.operator.scopes)
         )
+        if services.local is not None:
+            self.services = services.local.bind(self)
 
     def close(self) -> None:
         self._stack.close()
@@ -751,6 +763,7 @@ class Runtime:
             store=self.store,
             transport_limits=self.config.transport_limits,
             staged_reader=self.services.staged_reader,
+            staged_writer=self.services.staged_writer,
             stage_inputs=self.services.stage_inputs,
             project_max_live_attempts=self.config.project_max_live_attempts,
             deadline_token=self._deadline_token(),

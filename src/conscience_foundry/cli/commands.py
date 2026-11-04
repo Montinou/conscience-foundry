@@ -17,7 +17,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, cast, get_args
 from uuid import uuid4
 
 import psycopg
@@ -88,7 +88,11 @@ from conscience_foundry.execution.evidence import (
     read_model,
     source_asset,
 )
-from conscience_foundry.execution.ports import ManualRetry, TransportGrants
+from conscience_foundry.execution.ports import (
+    ExecutionGrant,
+    ManualRetry,
+    TransportIssuer,
+)
 from conscience_foundry.intake.build import build_intake, read_custody_file, write_outputs
 from conscience_foundry.intake.identity import decision_id, source_id
 from conscience_foundry.intake.metadata_schema import MetadataSchema
@@ -715,8 +719,17 @@ def _dispatch(inv: Invocation) -> Outcome:
     rt, args = inv.rt, inv.args
     services = rt.services
     executor, transport = services.executor, services.transport_grants
-    if executor is None or transport is None:
+    local = services.local_grants
+    if (
+        executor is None
+        or (rt.config.local_execution is None and transport is None)
+        or (rt.config.local_execution is not None and local is None)
+    ):
         raise ContractError("adapter_unavailable")
+    if (rt.config.local_execution is None and local is not None) or (
+        rt.config.local_execution is not None and transport is not None
+    ):
+        raise ContractError("forbidden")
     if isinstance(executor, live.PilotOnlyExecutor):
         # The live runtime is held only by run-pilot; nothing is read, reserved or minted here.
         raise ContractError(live.LIVE_REQUIRES_PILOT)
@@ -748,8 +761,11 @@ def _dispatch(inv: Invocation) -> Outcome:
         ):
             raise ContractError("paused")
 
-    def issue(claimed: StageAttempt) -> TransportGrants:
+    def issue(claimed: StageAttempt) -> ExecutionGrant:
         # Asked by the ledger only after the attempt is reserved, funded and claimed.
+        if local is not None:
+            return local(claimed)
+        assert transport is not None
         return transport(plan, claimed, plan_ref)
 
     try:
@@ -759,7 +775,7 @@ def _dispatch(inv: Invocation) -> Outcome:
             rt.access,
             rt.ledger,
             executor,
-            issue,
+            cast(TransportIssuer, issue),
             control=control,
             plan_ref=plan_ref,
             authorization_ref=authorization_ref,
@@ -1418,6 +1434,9 @@ def _preflight(runtime: Runtime, command: Command) -> list[tuple[str, str]]:
                     resolve_r2_credentials(destination)
                 except ContractError as error:
                     blockers.append(("backup_credential", error.code))
+        elif need == TRANSPORT and runtime.config.local_execution is not None:
+            if runtime.services.local_grants is None:
+                blockers.append(("local_grants", "adapter_unavailable"))
         elif getattr(runtime.services, need) is None:
             blockers.append((need, "adapter_unavailable"))
     return blockers

@@ -55,7 +55,7 @@ def _limit(limits: Mapping[str, ContractLimits], schema: str) -> ContractLimits:
     return result
 
 
-def _read_manifest(path: Path, limit: int) -> bytes:
+def _read_manifest(path: Path, limit: int, *, reject_git_worktree: bool = True) -> bytes:
     if not path.is_absolute() or any(part in ("..", "") for part in path.parts[1:]):
         raise ContractError("config_insecure")
     fds: list[int] = []
@@ -68,12 +68,13 @@ def _read_manifest(path: Path, limit: int) -> bytes:
             fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             fds.append(fd)
             links.append((parent, part, fd))
-        for fd in fds:
-            try:
-                os.stat(".git", dir_fd=fd, follow_symlinks=False)
-            except FileNotFoundError:
-                continue
-            raise ContractError("config_insecure")
+        if reject_git_worktree:
+            for fd in fds:
+                try:
+                    os.stat(".git", dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                raise ContractError("config_insecure")
         fd = os.open(
             path.name,
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
