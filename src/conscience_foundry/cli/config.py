@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, cast
@@ -41,6 +42,7 @@ from conscience_foundry.contracts.common import (
     Digest,
     Id,
     Instant,
+    Money,
     PositiveInteger,
     Ref,
     ScalarString,
@@ -379,6 +381,39 @@ class LocalReleaseAuthoritySettings(WireModel):
     kind: Literal["local"]
 
 
+class LocalExecutionSettings(WireModel):
+    """Explicit operator-owned settings for the cooperative local route."""
+
+    journal_root: AbsolutePath
+    allocator_root: AbsolutePath
+    bootstrap_path: AbsolutePath
+    bootstrap_digest: Digest
+    attempt_root: AbsolutePath
+    runtime_manifest_path: AbsolutePath
+    trusted_quote_manifest_path: AbsolutePath
+    destination_id: Name
+    attempt_price_usd: Money
+    storage_price_usd: Money
+    run_storage_capacity_bytes: PositiveInteger
+    operator_storage_capacity_bytes: PositiveInteger
+    resource_policy_ref: Ref
+    funded_from: Instant
+    funded_until: Instant
+    semantics: Literal["cooperative"]
+
+    @model_validator(mode="after")
+    def validate_funding(self) -> Self:
+        if (
+            Decimal(self.attempt_price_usd) <= 0
+            or Decimal(self.storage_price_usd) <= 0
+            or self.funded_from >= self.funded_until
+            or self.run_storage_capacity_bytes > self.operator_storage_capacity_bytes
+            or self.resource_policy_ref.artifact_schema != "cf.local-resource-policy.v1"
+        ):
+            raise ValueError("invalid local funding")
+        return self
+
+
 class RuntimeConfig(WireModel):
     schema_version: Literal["cfoundry.cli-config.v1"]
     project_id: Id
@@ -398,6 +433,9 @@ class RuntimeConfig(WireModel):
     project_max_live_attempts: PositiveInteger | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    local_execution: LocalExecutionSettings | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     live: LiveSettings | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -408,7 +446,16 @@ class RuntimeConfig(WireModel):
     @model_validator(mode="after")
     def live_needs_a_project_cap(self) -> Self:
         """A live section always carries the project-wide cap; there is no default for it."""
-        if self.live is not None and self.project_max_live_attempts is None:
+        if self.live is not None and self.local_execution is not None:
+            raise ValueError("local and live execution are mutually exclusive")
+        if (
+            self.local_execution is not None
+            and self.local_execution.resource_policy_ref.project_id != self.project_id
+        ):
+            raise ValueError("local resource policy project mismatch")
+        if (
+            self.live is not None or self.local_execution is not None
+        ) and self.project_max_live_attempts is None:
             raise ValueError("a live section requires project_max_live_attempts")
         return self
 
