@@ -284,8 +284,10 @@ def test_substituted_stage_closure_refuses_spawn(situation, monkeypatch):
     spawn.assert_not_called()
 
 
-def test_restart_observes_durable_pointer_before_worker_record(tmp_path, monkeypatch):
+@pytest.mark.parametrize("uncertain", [False, True])
+def test_restart_observes_durable_pointer_before_worker_record(tmp_path, monkeypatch, uncertain):
     import io
+    import os
 
     from test_local_attempt_store import SyntheticAuthority
     from test_modal import execute, read_manifest
@@ -346,7 +348,24 @@ def test_restart_observes_durable_pointer_before_worker_record(tmp_path, monkeyp
     context = AccessContext(grant.project_id, grant.attempt_id, frozenset({"read", "extract"}))
     for ref in (*manifest.outputs, manifest_ref):
         store.put_verified(io.BytesIO(scenario.store.objects[ref.digest]), ref, context)
-    store.publish_result(grant.attempt_id, manifest_ref)
+    if uncertain:
+        original_fsync = os.fsync
+        calls = 0
+
+        def fail_post_link(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("pointer directory fsync failed")
+            original_fsync(fd)
+
+        with monkeypatch.context() as fault:
+            fault.setattr(os, "fsync", fail_post_link)
+            with pytest.raises(ContractError) as error:
+                store.publish_result(grant.attempt_id, manifest_ref)
+            assert error.value.code == "dispatch_unknown"
+    else:
+        store.publish_result(grant.attempt_id, manifest_ref)
     reopened_factory = Mock(side_effect=AssertionError("observe must not create store"))
     restarted = LocalExecutor(
         journal_root, "local", "a" * 64, StepClock(), evidence, reopened_factory
@@ -369,6 +388,13 @@ def test_restart_observes_durable_pointer_before_worker_record(tmp_path, monkeyp
     observed_running = restarted.observe(scenario.attempt)
     assert observed_running.state in {"running", "unknown_outcome"}
     assert observed_running.result_ref is None
+    (journal_root / grant.attempt_id / "exit.json").write_text(
+        json.dumps({**identity, "exit_code": 1})
+    )
+    abnormal = restarted.observe(scenario.attempt)
+    assert (abnormal.state, abnormal.result_ref) == ("unknown_outcome", None)
+    if uncertain:
+        return
     (journal_root / grant.attempt_id / "exit.json").write_text(
         json.dumps({**identity, "exit_code": 0})
     )
@@ -547,3 +573,81 @@ def test_non_child_wait_without_exit_code_remains_unresolved(situation, monkeypa
     directory = executor.journal_root / scenario.attempt.attempt_id
     assert (directory / "signal_sent.json").exists()
     assert not (directory / "exit.json").exists()
+
+
+def test_invalid_attempt_id_refuses_every_journal_entrypoint(situation, monkeypatch):
+    from dataclasses import replace
+
+    scenario, grant, executor, _ = situation
+    invalid = scenario.attempt.model_copy(update={"attempt_id": "../outside"})
+    grant = replace(grant, attempt_id=invalid.attempt_id)
+    factory = Mock(side_effect=AssertionError("must not access store"))
+    executor.store_factory = factory
+    with pytest.raises(ContractError):
+        executor.submit(scenario.plan, invalid, grant)
+    assert not (executor.journal_root.parent / "outside").exists()
+    factory.assert_not_called()
+    reader = Mock(side_effect=AssertionError("must not read escaped journal"))
+    monkeypatch.setattr("conscience_foundry.execution.local_executor._read", reader)
+    assert executor.observe(invalid).state == "unknown_outcome"
+    assert executor.cancel(invalid).state == "unknown_outcome"
+    reader.assert_not_called()
+
+
+def test_spawn_ignores_shadow_package_in_caller_cwd(situation, monkeypatch, tmp_path):
+    import subprocess
+
+    scenario, grant, executor, _ = situation
+    hostile = tmp_path / "cwd"
+    package = hostile / "conscience_foundry" / "execution"
+    package.mkdir(parents=True)
+    (package.parent / "__init__.py").write_text("")
+    (package / "__init__.py").write_text("")
+    marker = hostile / "shadow-executed"
+    (package / "local_worker.py").write_text(
+        "from pathlib import Path\n" + f"Path({str(marker)!r}).touch()\n"
+    )
+    monkeypatch.chdir(hostile)
+    original = subprocess.Popen
+    children = []
+
+    def capture(*args, **kwargs):
+        child = original(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", capture)
+    executor.submit(scenario.plan, scenario.attempt, grant)
+    assert children
+    children[0].wait(timeout=10)
+    assert not marker.exists()
+    assert children[0].returncode == 3
+    assert (executor.journal_root / scenario.attempt.attempt_id / "handshake.json").exists()
+
+
+def test_spawn_refuses_when_isolated_package_is_not_the_verified_package(
+    situation, monkeypatch, tmp_path
+):
+    import subprocess
+
+    from conscience_foundry.execution import local_runtime
+
+    scenario, grant, executor, _ = situation
+    different = tmp_path / "different" / "execution" / "local_runtime.py"
+    different.parent.mkdir(parents=True)
+    different.write_text("")
+    monkeypatch.setattr(local_runtime, "__file__", str(different))
+    original = subprocess.Popen
+    children = []
+
+    def capture(*args, **kwargs):
+        child = original(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", capture)
+    executor.submit(scenario.plan, scenario.attempt, grant)
+    assert children
+    children[0].wait(timeout=10)
+    assert children[0].returncode == 3
+    assert not (executor.journal_root / scenario.attempt.attempt_id / "handshake.json").exists()

@@ -19,8 +19,9 @@ from typing import Any
 import psutil
 from pydantic import TypeAdapter
 
-from conscience_foundry.contracts.common import ContractError, Digest, Instant, Ref
+from conscience_foundry.contracts.common import ContractError, Digest, Id, Instant, Ref
 from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
+from conscience_foundry.execution import local_runtime
 from conscience_foundry.execution.local_contracts import LocalWorkerGrant
 from conscience_foundry.execution.local_runtime import verify_runtime
 from conscience_foundry.execution.modal_adapter import EvidenceSink
@@ -31,6 +32,16 @@ from conscience_foundry.storage.local_attempt import LocalAttemptStore, read_loc
 
 _SCHEMA = "cf.local-process-observation.v1"
 _MAX_RECORD = 1024 * 1024
+_WORKER_BOOTSTRAP = """\
+import importlib.util, pathlib, runpy, sys
+spec = importlib.util.find_spec('conscience_foundry')
+paths = None if spec is None else spec.submodule_search_locations
+if (paths is None or len(paths) != 1
+        or pathlib.Path(paths[0]).resolve() != pathlib.Path(sys.argv[1]).resolve()):
+    raise SystemExit(3)
+sys.argv = ['conscience_foundry.execution.local_worker', sys.argv[2]]
+runpy.run_module('conscience_foundry.execution.local_worker', run_name='__main__')
+"""
 
 
 def _json(value: object) -> bytes:
@@ -173,6 +184,10 @@ class LocalExecutor:
             or type(grants) is not LocalWorkerGrant
         ):
             raise ContractError("forbidden")
+        try:
+            TypeAdapter(Id).validate_python(attempt.attempt_id)
+        except Exception:
+            raise ContractError("forbidden") from None
         plan_raw = plan.model_dump_json(by_alias=True, exclude_none=True).encode()
         if (
             grants.project_id != plan.project_id
@@ -247,8 +262,10 @@ class LocalExecutor:
             process = subprocess.Popen(
                 [
                     sys.executable,
-                    "-m",
-                    "conscience_foundry.execution.local_worker",
+                    "-I",
+                    "-c",
+                    _WORKER_BOOTSTRAP,
+                    str(Path(local_runtime.__file__).resolve().parent.parent),
                     str(directory / "job.json"),
                 ],
                 env={"PATH": os.defpath, "PYTHONNOUSERSITE": "1"},
@@ -350,9 +367,10 @@ class LocalExecutor:
             raise ContractError("unavailable") from None
 
     def observe(self, attempt: StageAttempt) -> Observation:
-        directory = self.journal_root / attempt.attempt_id
         standing = attempt.state == "cancel_requested"
         try:
+            TypeAdapter(Id).validate_python(attempt.attempt_id)
+            directory = self.journal_root / attempt.attempt_id
             intent = _read(directory, "intent.json")
             if (
                 intent.get("project_id") != attempt.project_id
@@ -416,8 +434,10 @@ class LocalExecutor:
                     or type(terminal["exit_code"]) is not int
                 ):
                     raise ValueError("invalid exit evidence")
-                if found is not None:
+                if found is not None and terminal["exit_code"] == 0:
                     return self._finish(attempt, "observe", result.status, ref)
+                if found is not None:
+                    return self._finish(attempt, "observe", "unknown_outcome")
                 sent: dict[str, Any] | None
                 request: dict[str, Any] | None
                 try:
@@ -440,8 +460,9 @@ class LocalExecutor:
             )
 
     def cancel(self, attempt: StageAttempt) -> Observation:
-        directory = self.journal_root / attempt.attempt_id
         try:
+            TypeAdapter(Id).validate_python(attempt.attempt_id)
+            directory = self.journal_root / attempt.attempt_id
             intent = _read(directory, "intent.json")
             if (
                 intent.get("project_id") != attempt.project_id
