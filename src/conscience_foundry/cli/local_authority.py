@@ -557,15 +557,19 @@ class LocalClosureGuard:
             ).fetchall()
             storage = tx.connection.execute(
                 sql.SQL(
-                    "SELECT reservation_id::text FROM {} WHERE project_id=%s AND run_id=%s "
-                    "AND scope='run_storage' AND NOT final_billing AND outstanding_usd>0"
-                ).format(tx.table("reservations")),
+                    "SELECT r.reservation_id::text,a.authorization_ref FROM {} r JOIN {} a "
+                    "ON (r.project_id,r.run_id,r.authorization_id)="
+                    "(a.project_id,a.run_id,a.authorization_id) "
+                    "WHERE r.project_id=%s AND r.run_id=%s AND r.scope='run_storage' "
+                    "AND NOT r.final_billing AND r.outstanding_usd>0"
+                ).format(tx.table("reservations"), tx.table("authorizations")),
                 (project_id, run_id),
             ).fetchall()
             if (
                 not rows
                 or len(storage) != 1
                 or storage[0][0] != receipt.reservation_id
+                or Ref.model_validate(storage[0][1]) != receipt.authorization_ref
                 or any(
                     row[2] not in {"succeeded", "failed", "cancelled"}
                     or row[3] is not True
@@ -591,6 +595,7 @@ class LocalClosureGuard:
                         if (
                             facts.reservation_id != expected_attempts[attempt_id]
                             or facts.storage_reservation_id != receipt.reservation_id
+                            or facts.authorization_ref != receipt.authorization_ref
                             or not callable(self.allocator.policy_reader)
                             or self.allocator.policy_reader(
                                 project_id, facts.source_id, facts.actor_id
@@ -994,7 +999,7 @@ class LocalControlAuthority:
             or event.cost_status != "unknown"
             or event.amount_usd is not None
             or event.scope != "attempt"
-            or identity(event.evidence_ref) != identity(claim.evidence_ref)
+            or event.evidence_ref != claim.evidence_ref
             or (event.project_id, event.run_id, event.attempt_id, event.reservation_id)
             != (claim.project_id, claim.run_id, claim.attempt_id, claim.reservation_id)
             or observation.action != "observe"
@@ -1041,6 +1046,16 @@ class LocalControlAuthority:
             return BillingFacts(proof.binding, "unknown", None, False, False, False)
 
     def _receipt(self, proof: BudgetProof) -> BillingFacts:
+        # Final evidence always independently requires closed storage.
+        return self._receipt_checked(proof, require_closed=True)
+
+    def preclose_storage_candidate(self, proof: BudgetProof) -> BillingFacts:
+        """Pure validation of an already durable storage candidate before closure."""
+        if proof.claim.evidence_ref.artifact_schema != "cfoundry.local-storage-allocation.v1":
+            raise ContractError("forbidden")
+        return self._receipt_checked(proof, require_closed=False)
+
+    def _receipt_checked(self, proof: BudgetProof, *, require_closed: bool) -> BillingFacts:
         from conscience_foundry.contracts.accounting import BudgetEvent
         from conscience_foundry.execution.local_executor import LocalExecutor, _grant, _read
         from conscience_foundry.execution.ports import BillingFacts
@@ -1079,13 +1094,13 @@ class LocalControlAuthority:
             != (claim.project_id, claim.run_id, claim.reservation_id)
             or (not storage and receipt.attempt_id != claim.attempt_id)
             or (storage and claim.attempt_id is not None)
-            or identity(receipt.authorization_ref) != identity(claim.authorization_ref)
-            or identity(receipt.resource_policy_ref) != identity(self.policy.resource_policy_ref)
+            or receipt.authorization_ref != claim.authorization_ref
+            or receipt.resource_policy_ref != self.policy.resource_policy_ref
             or (receipt.funded_from, receipt.funded_until)
             != (self.policy.funded_from, self.policy.funded_until)
             or pin is None
-            or identity(pin.ref) != identity(receipt.plan_ref)
-            or identity(pin.config_ref) != identity(receipt.config_ref)
+            or pin.ref != receipt.plan_ref
+            or pin.config_ref != receipt.config_ref
             or (
                 not storage
                 and (claim.plan_ref is None or identity(claim.plan_ref) != identity(pin.ref))
@@ -1112,7 +1127,7 @@ class LocalControlAuthority:
             self.operator.actor_id,
             authorization_digest=claim.authorization_ref.digest,
             operator_ref=claim.evidence_ref,
-            require_closed=storage,
+            require_closed=storage and require_closed,
         ) as facts:
             inspection = self.executor._inspect(attempt)
             if (

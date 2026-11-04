@@ -14,6 +14,7 @@ from conscience_foundry.cli.local_authority import (
     LocalReceiptIssuer,
 )
 from conscience_foundry.cli.local_manifest import LocalQuoteManifestPins
+from conscience_foundry.contracts.accounting import BudgetEvent
 from conscience_foundry.contracts.common import (
     ContractError,
     ContractLimits,
@@ -196,6 +197,122 @@ class LocalWiring:
 
     def __init__(self, config: RuntimeConfig, pins: LocalQuoteManifestPins, digest: Digest) -> None:
         self.config, self.pins, self.digest = config, pins, digest
+
+    def close_storage(self, rt: Runtime, run: Id, candidate: Ref) -> BudgetEvent:
+        """Verify retained evidence, close its allocation and settle or replay once."""
+        import hashlib
+        from uuid import uuid4
+
+        from psycopg import sql
+
+        from conscience_foundry.cli.local_authority import LocalClosureGuard, LocalControlAuthority
+        from conscience_foundry.contracts.accounting import BudgetEvent
+        from conscience_foundry.contracts.execution import RunAuthorization
+        from conscience_foundry.execution.evidence import (
+            budget_context,
+            encoded,
+            read_artifact,
+            read_model,
+        )
+        from conscience_foundry.execution.ports import BudgetProof, EvidenceBinding
+        from conscience_foundry.ledger.budget import BudgetEvidenceClaim, apply_budget_event
+
+        control = rt.control
+        if (
+            rt.services.local is not self
+            or type(cast(object, control.evidence_authority)) is not LocalControlAuthority
+        ):
+            raise ContractError("adapter_unavailable")
+        project = rt.config.project_id
+        with rt.ledger.transaction() as tx:
+            tx.lock(project, run)
+            rows = tx.connection.execute(
+                sql.SQL(
+                    "SELECT r.reservation_id::text, a.authorization_ref, r.final_billing "
+                    "FROM {} r JOIN {} a ON (r.project_id,r.run_id,r.authorization_id)="
+                    "(a.project_id,a.run_id,a.authorization_id) "
+                    "WHERE r.project_id=%s AND r.run_id=%s AND r.scope='run_storage'"
+                ).format(tx.table("reservations"), tx.table("authorizations")),
+                (project, run),
+            ).fetchall()
+            if len(rows) != 1:
+                raise ContractError("forbidden")
+            reservation, auth_data, settled = rows[0]
+            auth_ref = Ref.model_validate(auth_data)
+            if auth_ref != self.pins.authorization_ref:
+                raise ContractError("forbidden")
+            prior = tx.connection.execute(
+                sql.SQL(
+                    "SELECT record_bytes FROM {} WHERE project_id=%s AND run_id=%s "
+                    "AND reservation_id=%s"
+                ).format(tx.table("budget_events")),
+                (project, run, reservation),
+            ).fetchall()
+            final = [
+                event
+                for row in prior
+                if (
+                    event := BudgetEvent.from_wire(bytes(row[0]), rt.limit("cf.budget-event.v1"))
+                ).event_type
+                == "settle"
+            ]
+            if settled:
+                if (
+                    len(final) != 1
+                    or final[0].evidence_ref != candidate
+                    or final[0].amount_usd != self.allocator.policy.storage_price_usd
+                ):
+                    raise ContractError("determinism_conflict")
+                event = final[0]
+            else:
+                if final:
+                    raise ContractError("forbidden")
+                event = BudgetEvent(
+                    schema_version="cf.budget-event.v1",
+                    project_id=project,
+                    run_id=run,
+                    reservation_id=reservation,
+                    scope="run_storage",
+                    event_id=str(uuid4()),
+                    event_type="settle",
+                    amount_usd=self.allocator.policy.storage_price_usd,
+                    cost_status="actual",
+                    evidence_ref=candidate,
+                    created_at=rt.clock(),
+                )
+            raw, _ = read_artifact(candidate, control, evidence=True)
+            _, auth = read_model(auth_ref, RunAuthorization, control)
+            request = encoded(event)
+            claim = BudgetEvidenceClaim(
+                "final_billing",
+                candidate,
+                project,
+                run,
+                reservation,
+                None,
+                rt.clock(),
+                auth_ref,
+                None,
+                None,
+                request,
+                hashlib.sha256(request).hexdigest(),
+            )
+            proof = BudgetProof(claim, EvidenceBinding.from_budget(claim), raw, auth, ())
+            authority = cast(LocalControlAuthority, cast(object, control.evidence_authority))
+            if settled:
+                authority.budget(proof)
+            else:
+                authority.preclose_storage_candidate(proof)
+        if not settled:
+            self.allocator.closure_guard = LocalClosureGuard(
+                ledger=rt.ledger, control=control, allocator=self.allocator, candidate=candidate
+            )
+            self.allocator.close_storage(run, self.allocator.durable_refs(project, run))
+            with rt.ledger.transaction() as tx:
+                apply_budget_event(
+                    event, tx, event_bytes=encoded(event), context=budget_context(control, tx=tx)
+                )
+        return event
 
     def bind(self, rt: Runtime) -> TrustedServices:
         from dataclasses import replace

@@ -41,3 +41,31 @@ been run.
 ## License
 
 Apache License 2.0; see `LICENSE`.
+
+## Cooperative local execution and settlement
+
+Local execution requires independently approved operator configuration: an existing allocator and
+bootstrap bound to its roots, a runtime manifest matching every approved execution configuration,
+and a separately approved quote manifest outside the repository. Supply explicit installed limits
+for `cfoundry.local-allocation-estimate.v1`, `cf.local-process-observation.v1`,
+`cfoundry.local-attempt-allocation.v1`, and `cfoundry.local-storage-allocation.v1`; the manifest
+envelope uses the existing `cf.metadata-schema.v1` limit. Setup is a separate operator action:
+commands reopen trusted state and never initialize or reset it. Each effect requires its own
+explicit command grant. This worker is cooperative and deterministic; it is not a hard OS sandbox
+or a CPU/RSS quota.
+
+After an attempt has reached a confirmed terminal state and been reconciled, while its funding
+window is open, issue `cfoundry local-receipts --attempt-id ID --execute`. Save both returned
+Refs as JSON files. Settle each terminal attempt using `cfoundry record-billing --attempt-id ID
+--amount AMOUNT --evidence ATTEMPT_REF_FILE --execute`, using the configured fixed internal
+allocation charge. This charge is not a provider bill. Once every attempt is terminal, reconciled,
+and settled, use `cfoundry close-local-storage --run-id ID --evidence STORAGE_REF_FILE --execute`.
+It verifies the retained candidate, closes the complete durable allocation and settles its fixed
+storage charge. No command automatically cleans retained data.
+
+An uncertain process or result keeps its reservation; do not retry a dispatch automatically.
+Funding expiry prevents new candidates and artifact copies, but already durable valid evidence
+can finish a historical close or settlement with current operator authorization. If closure
+succeeds but settlement is interrupted, retry the close command with an already retained valid
+candidate. Before the first settlement any equivalent retained candidate can finalize; afterward
+the committed exact Ref and amount bind retries, and a different Ref is refused.

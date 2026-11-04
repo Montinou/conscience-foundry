@@ -88,6 +88,8 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
                 "pause",
                 "resume",
                 "record-billing",
+                "local-receipts",
+                "close-local-storage",
             }
         ),
         "review": frozenset({"review"}),
@@ -111,7 +113,7 @@ GRANT_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
 # recorded settlement, manual unknown-outcome marks, budget reconciliation and control reads
 # still have no CLI command, so no grant can authorize them.
 _SETTLEMENT = frozenset({"reconcile", "cancel"})
-_BILLING = _SETTLEMENT | {"record-billing"}
+_BILLING = _SETTLEMENT | {"record-billing", "close-local-storage"}
 _DEADLINE = frozenset({"dispatch", "reconcile"})
 ACTION_COMMANDS: Mapping[str, frozenset[str]] = MappingProxyType(
     {

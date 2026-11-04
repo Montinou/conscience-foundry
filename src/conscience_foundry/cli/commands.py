@@ -814,11 +814,57 @@ def _reconcile(inv: Invocation) -> Outcome:
     )
 
 
+def _local_receipts(inv: Invocation) -> Outcome:
+    rt = inv.rt
+    local = rt.services.local
+    if local is None or rt.config.local_execution is None:
+        raise ContractError("adapter_unavailable")
+    attempt, _ = local.committed(rt.config.project_id, _id(inv.args.attempt_id))
+    issuer = local.receipt_issuer(attempt)
+    return _ok(
+        attemptRef=_dump(issuer.attempt_candidate(attempt)),
+        storageRef=_dump(issuer.storage_candidate(attempt)),
+    )
+
+
+def _close_local_storage_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--evidence", required=True, help="reference file for the storage candidate"
+    )
+
+
+def _close_local_storage(inv: Invocation) -> Outcome:
+    from conscience_foundry.execution.evidence import authorize, current_policy
+
+    rt = inv.rt
+    local = rt.services.local
+    if local is None or rt.config.local_execution is None:
+        raise ContractError("adapter_unavailable")
+    run = _id(inv.args.run_id)
+    candidate = _ref_file(rt, inv.args.evidence)
+    authorize(rt.control, "final_billing", rt.config.project_id, run)
+    current_policy(rt.control, rt.config.project_id)
+    event = local.close_storage(rt, run, candidate)
+    return _ok(
+        runId=run,
+        reservationId=event.reservation_id,
+        amountUsd=event.amount_usd,
+        evidenceRef=_dump(candidate),
+    )
+
+
 def _record_billing_arguments(parser: argparse.ArgumentParser) -> None:
     _attempt_argument(parser)
-    parser.add_argument("--amount", required=True, help="USD actually billed for the attempt")
     parser.add_argument(
-        "--evidence", required=True, help="reference of the operator's billing document"
+        "--amount",
+        required=True,
+        help="USD settled: configured local allocation charge or actual provider bill",
+    )
+    parser.add_argument(
+        "--evidence",
+        required=True,
+        help="reference file for local allocation evidence or provider billing document",
     )
 
 
@@ -1327,8 +1373,22 @@ COMMANDS: tuple[Command, ...] = (
         (DATABASE, EVIDENCE, EXECUTOR),
     ),
     Command(
+        "local-receipts",
+        "publish local allocation candidates",
+        _attempt_argument,
+        _local_receipts,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
+        "close-local-storage",
+        "close and settle local storage",
+        _close_local_storage_arguments,
+        _close_local_storage,
+        (DATABASE, EVIDENCE),
+    ),
+    Command(
         "record-billing",
-        "record the final actual billing of an attempt from the operator's billing document",
+        "settle an attempt using local allocation evidence or an operator billing document",
         _record_billing_arguments,
         _record_billing,
         (DATABASE, EVIDENCE),

@@ -34,17 +34,28 @@ pytestmark = pytest.mark.database
 
 
 @pytest.mark.parametrize(
-    ("pretty_bootstrap", "interrupted", "expired", "rollback", "drift"),
+    ("pretty_bootstrap", "interrupted", "expired", "rollback", "drift", "cancelled", "failed"),
     [
-        (False, False, False, False, False),
-        (True, True, False, False, False),
-        (False, False, True, False, False),
-        (False, False, False, True, False),
-        (False, False, False, False, True),
+        (False, False, False, False, False, False, False),
+        (False, False, False, False, False, False, True),
+        (False, False, False, False, False, True, False),
+        (True, True, False, False, False, False, False),
+        (False, False, True, False, False, False, False),
+        (False, False, False, True, False, False, False),
+        (False, False, False, False, True, False, False),
     ],
 )
 def test_real_local_cli_canonical_flow(
-    ledger, tmp_path, monkeypatch, pretty_bootstrap, interrupted, expired, rollback, drift
+    ledger,
+    tmp_path,
+    monkeypatch,
+    pretty_bootstrap,
+    interrupted,
+    expired,
+    rollback,
+    drift,
+    cancelled,
+    failed,
 ):
     """No injected estimator or observation facts and no seeded canonical result."""
     current = now()
@@ -63,7 +74,47 @@ def test_real_local_cli_canonical_flow(
 
     monkeypatch.setattr(fixtures, "TIME", current)
     monkeypatch.setattr(fixtures, "EXPIRY", expiry)
-    case = local_case(tmp_path)
+    if failed:
+        from dataclasses import replace
+
+        from test_ledger_db import admission, reference
+
+        def invalid_admission():
+            base = admission()
+            payload = b"\xff"
+            intake = IntakeManifest.from_wire(
+                base.evidence.manifest_bytes, base.evidence.limits_by_schema["cf.intake.v1"]
+            )
+            item = intake.items[0].model_copy(
+                update={
+                    "original_digest": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+            )
+            intake = intake.model_copy(update={"items": (item,)})
+            intake_raw = encoded(intake)
+            snapshot = reference(payload, "cf.raw-original.v1").model_copy(
+                update={"media_type": "text/plain"}
+            )
+            entry = base.report.entries[0].model_copy(update={"snapshot_ref": snapshot})
+            report = base.report.model_copy(
+                update={
+                    "manifest_digest": hashlib.sha256(intake_raw).hexdigest(),
+                    "entries": (entry,),
+                }
+            )
+            report_raw = encoded(report)
+            evidence = replace(base.evidence, manifest_bytes=intake_raw, report_bytes=report_raw)
+            return replace(
+                base,
+                manifest_ref=reference(intake_raw, "cf.intake.v1"),
+                report=report,
+                report_ref=reference(report_raw, "cf.admission-report.v1"),
+                evidence=evidence,
+            )
+
+        monkeypatch.setattr(fixtures, "admission", invalid_admission)
+    case = local_case(tmp_path, source_bytes=b"\xff" if failed else b"Synthetic text")
     manifest = runtime_manifest()
     identity = runtime_digest(manifest)
     case.spec = case.spec.model_copy(update={"image_digest": identity})
@@ -231,6 +282,10 @@ def test_real_local_cli_canonical_flow(
     )
     runtime_path = tmp_path / "runtime.json"
     runtime_path.write_text(json.dumps(manifest))
+    env.grants = {
+        **env.grants,
+        "execution": [*env.grants["execution"], "local-receipts", "close-local-storage"],
+    }
     env.extra.update(
         {
             "releaseAuthority": {"kind": "local"},
@@ -254,7 +309,7 @@ def test_real_local_cli_canonical_flow(
                 "fundedFrom": funded_from,
                 "fundedUntil": funded_until,
                 "semantics": "cooperative",
-                "controlActions": ["mark_unknown_outcome"],
+                "controlActions": ["mark_unknown_outcome", "cancel_attempt"],
             },
         }
     )
@@ -310,6 +365,25 @@ def test_real_local_cli_canonical_flow(
     assert storage_result.exit == 0, storage_result.raw
     from conscience_foundry.execution import local_executor
 
+    if cancelled:
+        # Test-only gate holds the real worker after its own durable handshake.
+        original_bootstrap = local_executor._WORKER_BOOTSTRAP
+        gate = """import time
+import conscience_foundry.execution.local_worker as worker
+original = worker.reconstruct_authority
+def held(*args):
+    time.sleep(30)
+    return original(*args)
+worker.reconstruct_authority = held
+raise SystemExit(worker.main())
+"""
+        target = (
+            "runpy.run_module('conscience_foundry.execution.local_worker', run_name='__main__')"
+        )
+        assert target in original_bootstrap
+        monkeypatch.setattr(
+            local_executor, "_WORKER_BOOTSTRAP", original_bootstrap.replace(target, gate)
+        )
     child_environments = []
     real_popen = local_executor.subprocess.Popen
 
@@ -387,6 +461,63 @@ def test_real_local_cli_canonical_flow(
         assert dispatch.exit == 0, dispatch.raw
         attempt_id = dispatch.payload["attempt"]["attemptId"]
     assert count(ledger, "attempts") == 1
+    if cancelled or failed:
+        import time
+
+        deadline = time.monotonic() + 15
+        while (
+            not (journal / attempt_id / "handshake.json").exists() and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        assert (journal / attempt_id / "handshake.json").exists()
+        if cancelled:
+            cancellation = run(
+                "cancel",
+                "--attempt-id",
+                attempt_id,
+                "--reason-code",
+                "unavailable",
+                "--reason-message",
+                "Synthetic cancellation",
+                "--evidence-ref",
+                ref_file(env, "cancel-evidence.json", case.data.report_ref),
+                "--execute",
+            )
+            assert cancellation.exit == 0, cancellation.raw
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            observed = run("reconcile", "--attempt-id", attempt_id, "--execute")
+            if observed.exit == 0 and observed.payload["attempt"]["state"] == (
+                "cancelled" if cancelled else "failed"
+            ):
+                break
+            time.sleep(0.05)
+        assert observed.payload["attempt"]["state"] == ("cancelled" if cancelled else "failed"), (
+            observed.raw
+        )
+        candidates = run("local-receipts", "--attempt-id", attempt_id, "--execute")
+        assert candidates.exit == 0, candidates.raw
+        billed = run(
+            "record-billing",
+            "--attempt-id",
+            attempt_id,
+            "--amount",
+            "4",
+            "--evidence",
+            env.input("cancel-attempt.json", json.dumps(candidates.payload["attemptRef"])),
+            "--execute",
+        )
+        assert billed.exit == 0, billed.raw
+        closed = run(
+            "close-local-storage",
+            "--run-id",
+            RUN,
+            "--evidence",
+            env.input("cancel-storage.json", json.dumps(candidates.payload["storageRef"])),
+            "--execute",
+        )
+        assert closed.exit == 0, closed.raw
+        return
 
     # Trusted core requires the matching deadline token before consulting local authority.
     from dataclasses import replace
@@ -521,6 +652,220 @@ def test_real_local_cli_canonical_flow(
         "--execute",
     )
     assert reviewed.exit == 0, reviewed.raw
+
+    # A local settlement uses explicit metered candidates and closes the retained set.
+    candidates = run("local-receipts", "--attempt-id", attempt_id, "--execute")
+    assert candidates.exit == 0, candidates.raw
+    attempt_receipt = candidates.payload["attemptRef"]
+    storage_receipt = candidates.payload["storageRef"]
+    storage_file = env.input("storage-receipt.json", json.dumps(storage_receipt))
+    import io
+
+    from test_ledger_db import reference
+
+    from conscience_foundry.cli.local_authority import LocalAllocationReceipt
+    from conscience_foundry.contracts.common import ArtifactLocation
+
+    original_ref = Ref.model_validate(storage_receipt)
+    alternative_ref = original_ref.model_copy(
+        update={
+            "locations": (
+                *original_ref.locations,
+                ArtifactLocation(store_id="synthetic", object_key="alternate"),
+            )
+        }
+    )
+    extra_runtime = Runtime(load_config(env.config_path), services, "local-receipts")
+    try:
+        raw = extra_runtime.store.read_verified(
+            original_ref, extra_runtime.access, case.bound.max_json_bytes
+        ).data
+        writer = extra_runtime.services.local.allocator.import_writer(PROJECT, RUN, attempt_id)
+        writer.put_verified(io.BytesIO(raw), alternative_ref, extra_runtime.access)
+        forged_model = LocalAllocationReceipt.from_wire(raw, case.bound).model_copy(
+            update={"amount_usd": "2"}
+        )
+        forged_raw = encoded(forged_model)
+        forged_storage = reference(forged_raw, forged_model.schema_version)
+        writer.put_verified(io.BytesIO(forged_raw), forged_storage, extra_runtime.access)
+    finally:
+        extra_runtime.close()
+    alternative_file = env.input(
+        "alternate-receipt.json", alternative_ref.model_dump_json(by_alias=True)
+    )
+    forged_file = env.input("forged-storage.json", forged_storage.model_dump_json(by_alias=True))
+    early = run("close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute")
+    assert early.exit != 0
+    billed = run(
+        "record-billing",
+        "--attempt-id",
+        attempt_id,
+        "--amount",
+        "4",
+        "--evidence",
+        env.input("attempt-receipt.json", json.dumps(attempt_receipt)),
+        "--execute",
+    )
+    assert billed.exit == 0, billed.raw
+    # A cross-run or tampered candidate must not mutate the allocator.
+    before_close = (root / "allocator.json").read_bytes()
+    wrong_run = run(
+        "close-local-storage",
+        "--run-id",
+        "00000000-0000-0000-0000-000000000001",
+        "--evidence",
+        storage_file,
+        "--execute",
+    )
+    assert wrong_run.exit != 0
+    tampered = dict(storage_receipt, digest="0" * 64)
+    tampered_file = env.input("tampered-storage.json", json.dumps(tampered))
+    assert (
+        run("close-local-storage", "--run-id", RUN, "--evidence", tampered_file, "--execute").exit
+        != 0
+    )
+    assert (
+        run("close-local-storage", "--run-id", RUN, "--evidence", forged_file, "--execute").exit
+        != 0
+    )
+    assert (root / "allocator.json").read_bytes() == before_close
+
+    # Change the reservation-bound authorization after prevalidation, before the DB-held guard.
+    from contextlib import contextmanager
+
+    from psycopg import sql
+    from psycopg.types.json import Jsonb
+
+    from conscience_foundry.cli.local_authority import LocalClosureGuard
+
+    original_guard = LocalClosureGuard.__call__
+    changed_auth = case.auth_ref.model_copy(
+        update={"locations": (ArtifactLocation(store_id="synthetic", object_key="altered-auth"),)}
+    )
+
+    @contextmanager
+    def substitute_auth(guard, project, run_id):
+        with ledger.transaction() as tx:
+            tx.connection.execute(
+                sql.SQL(
+                    "UPDATE {} SET authorization_ref=%s WHERE project_id=%s AND run_id=%s"
+                ).format(tx.table("authorizations")),
+                (Jsonb(changed_auth.model_dump(mode="json", by_alias=True)), project, run_id),
+            )
+        try:
+            with original_guard(guard, project, run_id) as verify:
+                yield verify
+        finally:
+            with ledger.transaction() as tx:
+                tx.connection.execute(
+                    sql.SQL(
+                        "UPDATE {} SET authorization_ref=%s WHERE project_id=%s AND run_id=%s"
+                    ).format(tx.table("authorizations")),
+                    (Jsonb(case.auth_ref.model_dump(mode="json", by_alias=True)), project, run_id),
+                )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(LocalClosureGuard, "__call__", substitute_auth)
+        swapped = run(
+            "close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute"
+        )
+    assert swapped.exit != 0
+    assert (root / "allocator.json").read_bytes() == before_close
+
+    # A valid later run authorization does not rewrite this reservation's historical binding.
+    from uuid import uuid4
+
+    replacement_auth = case.auth.model_copy(update={"authorization_id": str(uuid4())})
+    replacement_ref = case.put(replacement_auth)
+    with ledger.transaction() as tx:
+        tx.connection.execute(
+            sql.SQL(
+                "INSERT INTO {} (project_id,authorization_id,run_id,authorization_ref, "
+                "allowed_plan_digests,max_run_cost,max_concurrent_attempts,actor_id,"
+                "authorized_at,expires_at) "
+                "SELECT project_id,%s,run_id,%s,allowed_plan_digests,max_run_cost, "
+                "max_concurrent_attempts,actor_id,authorized_at,expires_at FROM {} "
+                "WHERE project_id=%s AND run_id=%s AND authorization_id=%s"
+            ).format(tx.table("authorizations"), tx.table("authorizations")),
+            (
+                replacement_auth.authorization_id,
+                Jsonb(replacement_ref.model_dump(mode="json", by_alias=True)),
+                PROJECT,
+                RUN,
+                case.auth.authorization_id,
+            ),
+        )
+        tx.connection.execute(
+            sql.SQL(
+                "UPDATE {} SET current_authorization_id=%s WHERE project_id=%s AND run_id=%s"
+            ).format(tx.table("runs")),
+            (replacement_auth.authorization_id, PROJECT, RUN),
+        )
+
+    # Expiry refuses new candidates but permits closing already retained evidence.
+    historical = (
+        datetime.fromisoformat(funded_until.replace("Z", "+00:00")) + timedelta(seconds=1)
+    ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    services = replace(services, clock=lambda: historical)
+    assert run("local-receipts", "--attempt-id", attempt_id, "--execute").exit != 0
+
+    # A crash after durable closure can still settle historical evidence.
+    close_original = LocalAllocator.close_storage
+
+    def crash_after_close(self, *args):
+        close_original(self, *args)
+        raise RuntimeError("synthetic interruption")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(LocalAllocator, "close_storage", crash_after_close)
+        crashed = run(
+            "close-local-storage", "--run-id", RUN, "--evidence", alternative_file, "--execute"
+        )
+    assert crashed.exit != 0
+    closed = run("close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute")
+    assert closed.exit == 0, closed.raw
+    before_replay = count(ledger, "budget_events")
+    again = run("close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute")
+    assert again.exit == 0, again.raw
+    assert count(ledger, "budget_events") == before_replay
+    # A restored pre-close allocation cannot prove a committed settlement remains closed.
+    allocator_file = root / "allocator.json"
+    closed_snapshot = allocator_file.read_bytes()
+    try:
+        allocator_file.write_bytes(before_close)
+        inconsistent = run(
+            "close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute"
+        )
+        assert inconsistent.exit != 0
+        assert count(ledger, "budget_events") == before_replay
+    finally:
+        allocator_file.write_bytes(closed_snapshot)
+    assert (
+        run("close-local-storage", "--run-id", RUN, "--evidence", storage_file, "--execute").exit
+        == 0
+    )
+    assert (
+        run(
+            "close-local-storage", "--run-id", RUN, "--evidence", alternative_file, "--execute"
+        ).exit
+        != 0
+    )
+    other_location = dict(
+        storage_receipt, locations=[{"storeId": "synthetic", "objectKey": "wrong"}]
+    )
+    assert (
+        run(
+            "close-local-storage",
+            "--run-id",
+            RUN,
+            "--evidence",
+            env.input("other-receipt.json", json.dumps(other_location)),
+            "--execute",
+        ).exit
+        != 0
+    )
+    assert count(ledger, "budget_events") == before_replay
+    assert run("local-receipts", "--attempt-id", attempt_id, "--execute").exit != 0
 
     # A persisted attempt cannot select a plan outside the independently pinned manifest.
     from psycopg import sql
