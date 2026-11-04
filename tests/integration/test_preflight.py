@@ -347,6 +347,60 @@ def lines_of(wire_estimate: dict[str, Any]) -> list[dict[str, Any]]:
 # -- the packet itself ------------------------------------------------------------------------
 
 
+def test_generated_capability_blocks_preflight_without_opening_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from test_modal_live import CODE_DIGEST, IMAGE_SPEC, make_ref, parse_live, settings_document
+
+    from conscience_foundry.execution.modal_live import (
+        LiveModalSession,
+        capability_record_from_live,
+    )
+
+    opened: list[bool] = []
+    monkeypatch.setattr(LiveModalSession, "__init__", lambda self, *a, **kw: opened.append(True))
+    monkeypatch.setattr(LiveModalSession, "__enter__", lambda self: opened.append(True))
+    baseline = build()
+    plan = ExecutionPlan.model_validate(json.loads(baseline.evidence.plan))
+    record = capability_record_from_live(
+        parse_live(settings_document()),
+        PROJECT,
+        plan.execution_config_ref,
+        "1.6.3",
+        IMAGE_SPEC,
+        CODE_DIGEST,
+        NOW,
+        lambda schema, data: make_ref(data, schema),
+    )
+    generated = json.loads(record.model_dump_json(by_alias=True, exclude_none=True))
+    case = build(
+        capability=lambda value: (value.clear(), value.update(generated)),
+        packet=lambda value: value.update(
+            deploymentVersion=record.deployment_version, imageDigest=record.image_digest
+        ),
+    )
+    cli = Cli(tmp_path / "blocked", monkeypatch, case)
+    recorder = Recorder()
+    runtime_calls: list[bool] = []
+
+    def fake_pilot(*args: Any, **kwargs: Any) -> None:
+        runtime_calls.append(True)
+        return None
+
+    monkeypatch.setattr(pilot_cli.live, "pilot", fake_pilot)
+    monkeypatch.setattr(pilot_cli, "run_command", recorder)
+    result = cli.env.invoke(*bound_argv(cli, cli.bound_steps()), services=cli.services())
+    assert result.exit == 3 and result.code == "preflight_blocked"
+    assert any(reason["code"] == "unsupported_capability" for reason in result.payload["blockers"])
+    assert recorder.ran == [] and runtime_calls == [] and opened == []
+
+    # The same operator path reaches runtime construction when preflight is ready.
+    ready = Cli(tmp_path / "ready", monkeypatch)
+    result = ready.env.invoke(*bound_argv(ready, ready.bound_steps()), services=ready.services())
+    assert result.exit == 0, result.raw
+    assert runtime_calls == [True]
+
+
 def test_complete_packet_is_ready_only_as_dry_preparation() -> None:
     report = build().run()
     assert report.ready and report.blockers == ()
