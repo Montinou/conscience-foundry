@@ -22,9 +22,18 @@ cfoundry = "conscience_foundry.cli.main:run"
 [project.optional-dependencies]
 orchestration = ["dagster>=1.13,<1.14"]
 live = ["modal>=1.2.3,<2", "boto3>=1.43.123,<2"]
+local = [
+    "psutil==7.2.2",
+]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2", "dagster>=1.13,<1.14"]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.14,<1",
+    "mypy>=1.18,<2",
+    "dagster>=1.13,<1.14",
+    "types-psutil>=7.2.2.20260906",
+]
 
 [tool.setuptools]
 # Ship only the listed package data; no VCS or manifest-driven extras enter a distribution.

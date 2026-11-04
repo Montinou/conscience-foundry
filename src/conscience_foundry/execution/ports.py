@@ -18,6 +18,8 @@ from conscience_foundry.contracts.execution import (
     StageAttempt,
 )
 from conscience_foundry.contracts.project import PolicyArtifact
+from conscience_foundry.execution.local_contracts import LocalWorkerGrant
+from conscience_foundry.execution.local_contracts import TransportGrants as TransportGrants
 from conscience_foundry.ledger.budget import BudgetEvidenceClaim
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import ObjectStore
@@ -37,22 +39,7 @@ class Observation:
     evidence: Ref
 
 
-@dataclass(frozen=True)
-class TransportGrants:
-    """Transient tokens; only a trusted transport adapter can establish scope.
-
-    ``material`` holds one opaque piece per credential. For R2 it is exactly two, read-only first
-    and read-write second (see ``conscience_foundry.storage.r2``): the worker reads declared
-    inputs with the first and writes and reads back under its attempt prefix with the second.
-    """
-
-    project_id: Id
-    plan_digest: Digest
-    attempt_id: Id
-    destination_id: str
-    expires_at: Instant
-    material: tuple[bytes, ...] = field(repr=False)
-    output_scope: bytes = field(repr=False)
+ExecutionGrant = TransportGrants | LocalWorkerGrant
 
 
 TransportIssuer = Callable[[StageAttempt], TransportGrants]
@@ -112,7 +99,7 @@ class AttemptStaging(ObjectStore, Protocol):
 
 class Executor(Protocol):
     def submit(
-        self, plan: ExecutionPlan, attempt: StageAttempt, grants: TransportGrants
+        self, plan: ExecutionPlan, attempt: StageAttempt, grants: ExecutionGrant
     ) -> Submission: ...
     def observe(self, attempt: StageAttempt) -> Observation: ...
     def cancel(self, attempt: StageAttempt) -> Observation: ...

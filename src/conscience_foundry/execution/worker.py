@@ -40,6 +40,7 @@ from conscience_foundry.contracts.canonical import DocumentRevision, ExtractionS
 from conscience_foundry.contracts.common import (
     ContractError,
     ContractLimits,
+    Digest,
     Instant,
     Reason,
     Ref,
@@ -47,12 +48,20 @@ from conscience_foundry.contracts.common import (
 )
 from conscience_foundry.contracts.execution import ExecutionPlan, ResultManifest, StageAttempt
 from conscience_foundry.core.identity import RevisionInputs, revision_id, structure_digest
+from conscience_foundry.execution.local_contracts import (
+    LocalGrantAuthority,
+    LocalGrantFacts,
+    LocalGrantProof,
+    LocalWorkerGrant,
+    TransportGrants,
+)
+from conscience_foundry.execution.local_runtime import verify_runtime
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.processing.text_utf8 import process_text
 from conscience_foundry.storage.local import ObjectStore, VerifiedBytes
 
 if TYPE_CHECKING:
-    from conscience_foundry.execution.ports import LeaseStore, TransportGrants
+    from conscience_foundry.execution.ports import LeaseStore
 
 _INSTANT = TypeAdapter(Instant)
 _ARTIFACT_MEDIA = "application/json"
@@ -157,7 +166,10 @@ class _Deadline:
 
 
 def _checked_grants(
-    grants: TransportGrants, plan: ExecutionPlan, attempt: StageAttempt, plan_bytes: bytes
+    grants: TransportGrants | LocalWorkerGrant,
+    plan: ExecutionPlan,
+    attempt: StageAttempt,
+    plan_bytes: bytes,
 ) -> Instant:
     """Bind the transient grants to this exact plan and attempt without reading secrets."""
     try:
@@ -175,7 +187,7 @@ def _checked_grants(
     return expires_at
 
 
-def _bound_to_grants(grants: TransportGrants, store: object) -> None:
+def _bound_to_grants(grants: TransportGrants | LocalWorkerGrant, store: object) -> None:
     """A store that declares where it writes must write exactly where the grants allow.
 
     The reservation gate sees refs, not keys: a store configured with another prefix, bucket or
@@ -226,12 +238,14 @@ def _quantity(delta: timedelta) -> str:
 def run_worker(
     plan_bytes: bytes,
     attempt_bytes: bytes,
-    grants: TransportGrants,
+    grants: TransportGrants | LocalWorkerGrant,
     store: ObjectStore,
     clock: Clock,
     *,
     lease: LeaseStore | None = None,
     nonce: str | None = None,
+    local_authority: LocalGrantAuthority | None = None,
+    expected_runtime_digest: Digest | None = None,
 ) -> Ref | DuplicateExecution:
     """Process the one planned input and return the reference of the result manifest.
 
@@ -256,17 +270,71 @@ def run_worker(
         or attempt.state not in {"dispatching", "running"}
     ):
         raise ContractError("forbidden")
+    if type(grants) not in (TransportGrants, LocalWorkerGrant):
+        raise ContractError("forbidden")
+    if type(grants) is LocalWorkerGrant:
+        if (
+            local_authority is None
+            or expected_runtime_digest is None
+            or grants.run_id != plan.run_id
+            or type(grants.nonce) is not str
+            or not grants.nonce
+            or (lease is not None and nonce != grants.nonce)
+            or type(grants.destination_id) is not str
+            or not grants.destination_id
+            or type(grants.output_scope) is not bytes
+            or not grants.output_scope
+        ):
+            raise ContractError("forbidden")
+        proof = LocalGrantProof(
+            grants.project_id,
+            grants.run_id,
+            grants.plan_digest,
+            grants.attempt_id,
+            grants.destination_id,
+            grants.expires_at,
+            plan.input_refs,
+            grants.output_scope,
+            hashlib.sha256(grants.nonce.encode()).hexdigest(),
+        )
+        try:
+            facts = local_authority.local_grant(proof)
+        except Exception:
+            raise ContractError("forbidden") from None
+        if (
+            type(facts) is not LocalGrantFacts
+            or LocalGrantProof(
+                facts.project_id,
+                facts.run_id,
+                facts.plan_digest,
+                facts.attempt_id,
+                facts.destination_id,
+                facts.expires_at,
+                facts.input_refs,
+                facts.output_scope,
+                facts.nonce_digest,
+            )
+            != proof
+            or type(facts.scopes) is not frozenset
+            or not {"read", "extract"} <= facts.scopes
+        ):
+            raise ContractError("forbidden")
     grant_expiry = _checked_grants(grants, plan, attempt, plan_bytes)
     _bound_to_grants(grants, store)
 
     bounds = _Deadline(clock, min(grant_expiry, plan.expires_at, plan.budget.valid_until))
     started = bounds.check()  # entry: an expired envelope stops here, before any store access
     bounds.tighten(_format(_parse(started) + timedelta(seconds=plan.resources.max_wall_seconds)))
+    if type(grants) is LocalWorkerGrant:
+        assert expected_runtime_digest is not None
+        verify_runtime(expected_runtime_digest)
+        bounds.check()  # runtime hashing can outlast the authorization envelope
     if lease is not None:
         duplicate = _claim(lease, store, attempt.attempt_id, nonce)
         if duplicate is not None:
             return duplicate
-    context = AccessContext(plan.project_id, attempt.attempt_id, _WORKER_SCOPES)
+    scopes = frozenset({"read", "extract"}) if type(grants) is LocalWorkerGrant else _WORKER_SCOPES
+    context = AccessContext(plan.project_id, attempt.attempt_id, scopes)
     memory_bytes = plan.resources.memory_mib * 1024 * 1024
     transferred = 0
 
