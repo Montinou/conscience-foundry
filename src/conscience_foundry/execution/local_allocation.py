@@ -24,12 +24,14 @@ from pydantic import TypeAdapter
 from conscience_foundry.contracts.common import (
     MAX_SAFE_INTEGER,
     ContractError,
+    Digest,
     Id,
     Instant,
     Money,
     PositiveInteger,
     Ref,
 )
+from conscience_foundry.execution.local_contracts import LocalGrantFacts, LocalGrantProof
 from conscience_foundry.policy.access import AccessContext
 from conscience_foundry.storage.local import LocalObjectStore, ObjectStore, VerifiedBytes
 from conscience_foundry.storage.locator import IO_CHUNK_BYTES, _error
@@ -175,6 +177,226 @@ def _write_new(fd: int, name: str, raw: bytes) -> None:
 class LocalAllocator:
     """An explicitly initialized journal; reopening absent state always refuses."""
 
+    def register_worker_bootstrap(self, path: Path, digest: Digest) -> None:
+        raw, record = self._bootstrap_file(path)
+        _valid(Digest, digest)
+        if hashlib.sha256(raw).hexdigest() != digest:
+            raise ContractError("hash_mismatch")
+        record["digest"] = digest
+        with self._locked() as (fd, state):
+            existing = state.get("bootstrap")
+            if existing is not None and existing != record:
+                raise ContractError("determinism_conflict")
+            if existing is None:
+                if state["runs"]:
+                    raise ContractError("forbidden")
+                state["bootstrap"] = record
+                self._save(fd, state)
+
+    def verify_worker_bootstrap(self, path: Path, digest: Digest) -> bytes:
+        raw, record = self._bootstrap_file(path)
+        _valid(Digest, digest)
+        if hashlib.sha256(raw).hexdigest() != digest:
+            raise ContractError("hash_mismatch")
+        record["digest"] = digest
+        with self._locked() as (_, state):
+            if state.get("bootstrap") != record:
+                raise ContractError("forbidden")
+        return raw
+
+    @staticmethod
+    def _bootstrap_file(path: Path) -> tuple[bytes, dict[str, str]]:
+        if not isinstance(path, Path) or not path.is_absolute():
+            raise ContractError("unsafe_path")
+        from conscience_foundry.cli.config import CONFIG_MAX_BYTES, _open_regular
+
+        fd, before = _open_regular(path, "unavailable", "unsafe_path")
+        try:
+            if before.st_uid != os.geteuid() or before.st_mode & 0o022:
+                raise ContractError("forbidden")
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read(CONFIG_MAX_BYTES + 1)
+            after = os.fstat(fd)
+            current = os.stat(path, follow_symlinks=False)
+
+            def key(item: os.stat_result) -> tuple[int, int, int, int, int]:
+                return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+
+            if len(raw) > CONFIG_MAX_BYTES:
+                raise ContractError("limit_exceeded")
+            if key(before) != key(after) or key(after) != key(current):
+                raise ContractError("source_changed")
+            return raw, {"path": str(path), "device": str(after.st_dev), "inode": str(after.st_ino)}
+        except ContractError:
+            raise
+        except OSError:
+            raise ContractError("unsafe_path") from None
+        finally:
+            os.close(fd)
+
+    def bind_grant(self, project_id: Id, run_id: Id, attempt_id: Id, nonce_digest: Digest) -> None:
+        _valid(Digest, nonce_digest)
+        if not callable(self.activation_guard):
+            raise ContractError("forbidden")
+        try:
+            with self.activation_guard(project_id, run_id, attempt_id) as facts:
+                if type(facts) is not LocalActivationFacts:
+                    raise ContractError("forbidden")
+                with self._locked() as (fd, state):
+                    run = state["runs"].get(run_id)
+                    if type(run) is not dict:
+                        raise ContractError("forbidden")
+                    self._live_attempt(run, project_id, attempt_id)
+                    record = run["attempts"][attempt_id]
+                    if self._record_facts(record) != facts:
+                        raise ContractError("forbidden")
+                    previous = record.get("nonce_digest")
+                    if previous is not None and previous != nonce_digest:
+                        raise ContractError("determinism_conflict")
+                    if previous is None:
+                        record["nonce_digest"] = nonce_digest
+                        self._save(fd, state)
+        except ContractError:
+            raise
+        except Exception:
+            raise ContractError("forbidden") from None
+
+    def local_grant(self, proof: LocalGrantProof) -> LocalGrantFacts:
+        if type(proof) is not LocalGrantProof:
+            raise ContractError("forbidden")
+
+        def check(run: object) -> LocalGrantFacts:
+            if type(run) is not dict:
+                raise ContractError("forbidden")
+            self._live_attempt(run, proof.project_id, proof.attempt_id)
+            record = run["attempts"][proof.attempt_id]
+            facts = self._record_facts(record)
+            nonce_digest = record.get("nonce_digest")
+            if nonce_digest is None:
+                raise ContractError("forbidden")
+            scope = json.loads(facts.output_scope)
+            expected = LocalGrantProof(
+                facts.project_id,
+                facts.run_id,
+                facts.plan_ref.digest,
+                facts.attempt_id,
+                scope["destination_id"],
+                facts.expires_at,
+                facts.input_refs,
+                facts.output_scope,
+                nonce_digest,
+            )
+            if proof != expected:
+                raise ContractError("forbidden")
+            return LocalGrantFacts(**expected.__dict__, scopes=frozenset({"read", "extract"}))
+
+        active = getattr(self._local, "active", None)
+        if active is not None:
+            if active[:3] != (proof.project_id, proof.run_id, proof.attempt_id):
+                raise ContractError("forbidden")
+            return check(active[4])
+        with self._locked() as (_, state):
+            return check(state["runs"].get(proof.run_id))
+
+    @contextmanager
+    def recovery_read_permit(
+        self,
+        proof: object,
+        actor_id: Id,
+        ref: Ref | None = None,
+        authorization_digest: Digest | None = None,
+        operator_ref: Ref | None = None,
+        require_closed: bool = False,
+    ) -> Iterator[LocalActivationFacts]:
+        """Authorize retained, durable attempt bytes without reviving write authority."""
+        from conscience_foundry.execution.local_contracts import LocalGrantProof
+
+        _valid(Id, actor_id)
+        if type(proof) is not LocalGrantProof:
+            raise ContractError("forbidden")
+        if ref is not None:
+            _checked_ref(ref, proof.project_id)
+        if operator_ref is not None:
+            _checked_ref(operator_ref, proof.project_id)
+        if getattr(self._local, "active", None) is not None:
+            raise ContractError("forbidden")
+        with self._locked() as (_, state):
+            run = state["runs"].get(proof.run_id)
+            if type(run) is not dict or run["released"] or run["project_id"] != proof.project_id:
+                raise ContractError("forbidden")
+            record = run["attempts"].get(proof.attempt_id)
+            if type(record) is not dict or not callable(self.policy_reader):
+                raise ContractError("forbidden")
+            facts = self._record_facts(record)
+            scope = json.loads(facts.output_scope)
+            nonce_digest = record.get("nonce_digest")
+            if type(nonce_digest) is not str:
+                raise ContractError("forbidden")
+            expected = LocalGrantProof(
+                facts.project_id,
+                facts.run_id,
+                facts.plan_ref.digest,
+                facts.attempt_id,
+                scope["destination_id"],
+                facts.expires_at,
+                facts.input_refs,
+                facts.output_scope,
+                nonce_digest,
+            )
+            if (
+                proof != expected
+                or actor_id != facts.actor_id
+                or (
+                    authorization_digest is not None
+                    and authorization_digest != facts.authorization_ref.digest
+                )
+                or self.policy_reader(facts.project_id, facts.source_id, facts.actor_id) is not None
+            ):
+                raise ContractError("forbidden")
+            if ref is not None and not any(
+                item["status"] == "durable"
+                and item["identity"].get("kind") == "attempt"
+                and item["identity"].get("attempt_id") == proof.attempt_id
+                and Ref.model_validate(item["identity"]["ref"]) == ref
+                for item in run["refs"].values()
+            ):
+                raise ContractError("forbidden")
+            if require_closed and not run["closed"]:
+                raise ContractError("forbidden")
+            if operator_ref is not None:
+                if not any(
+                    item["status"] == "durable"
+                    and item["identity"].get("kind") == "operator"
+                    and item["identity"].get("store_id") == self.operator_store_id
+                    and Ref.model_validate(item["identity"]["ref"]) == operator_ref
+                    for item in run["refs"].values()
+                ):
+                    raise ContractError("forbidden")
+                if require_closed and operator_ref not in tuple(
+                    Ref.model_validate(raw) for raw in run["closed_refs"]
+                ):
+                    raise ContractError("forbidden")
+            yield facts
+
+    @staticmethod
+    def _record_facts(record: dict[str, Any]) -> LocalActivationFacts:
+        return LocalActivationFacts(
+            project_id=record["project_id"],
+            run_id=record["run_id"],
+            attempt_id=record["attempt_id"],
+            reservation_id=record["reservation_id"],
+            storage_reservation_id=record["storage_reservation_id"],
+            authorization_ref=Ref.model_validate(record["authorization_ref"]),
+            plan_ref=Ref.model_validate(record["plan_ref"]),
+            config_ref=Ref.model_validate(record["config_ref"]),
+            source_id=record["source_id"],
+            actor_id=record["actor_id"],
+            input_refs=tuple(Ref.model_validate(ref) for ref in record["input_refs"]),
+            expires_at=record["expires_at"],
+            attempt_root=Path(record["attempt_root"]),
+            output_scope=bytes.fromhex(record["output_scope"]),
+        )
+
     @classmethod
     def initialize(
         cls,
@@ -266,7 +488,7 @@ class LocalAllocator:
             finally:
                 os.close(operatorfd)
             if (
-                set(state)
+                set(state) - {"bootstrap"}
                 != {
                     "version",
                     "root_device",
@@ -288,6 +510,22 @@ class LocalAllocator:
                 or type(state["runs"]) is not dict
             ):
                 raise ContractError("forbidden")
+            if "bootstrap" in state:
+                binding = state["bootstrap"]
+                if type(binding) is not dict or set(binding) != {
+                    "path",
+                    "device",
+                    "inode",
+                    "digest",
+                }:
+                    raise ContractError("forbidden")
+                if any(type(binding[key]) is not str for key in binding):
+                    raise ContractError("forbidden")
+                _valid(Digest, binding["digest"])
+                raw, current = self._bootstrap_file(Path(binding["path"]))
+                current["digest"] = hashlib.sha256(raw).hexdigest()
+                if current != binding:
+                    raise ContractError("forbidden")
             for run_id, run in state["runs"].items():
                 _valid(Id, run_id)
                 if (
@@ -337,7 +575,7 @@ class LocalAllocator:
                     }
                     if (
                         type(item) is not dict
-                        or set(item) != fields
+                        or set(item) not in (fields, fields | {"nonce_digest"})
                         or (item["project_id"], item["run_id"], item["attempt_id"])
                         != (run["project_id"], run_id, attempt_id)
                         or type(item["input_refs"]) is not list
@@ -353,6 +591,8 @@ class LocalAllocator:
                         "actor_id",
                     ):
                         _valid(Id, item[name])
+                    if "nonce_digest" in item:
+                        _valid(Digest, item["nonce_digest"])
                     _valid(Instant, item["expires_at"])
                     refs = [
                         item[name] for name in ("authorization_ref", "plan_ref", "config_ref")
@@ -569,6 +809,72 @@ class LocalAllocator:
                 "refs": {},
             }
             self._save(fd, state)
+
+    def durable_refs(self, project_id: Id, run_id: Id) -> tuple[Ref, ...]:
+        _valid(Id, project_id)
+        _valid(Id, run_id)
+        with self._locked() as (_, state):
+            run = state["runs"].get(run_id)
+            if type(run) is not dict or run["project_id"] != project_id or run["released"]:
+                raise ContractError("forbidden")
+            if any(item["status"] != "durable" for item in run["refs"].values()):
+                raise ContractError("dispatch_unknown")
+            refs: list[Ref] = []
+            for item in run["refs"].values():
+                ref = Ref.model_validate(item["identity"]["ref"])
+                if ref not in refs:
+                    refs.append(ref)
+            return tuple(refs)
+
+    def check_new_reservation(
+        self,
+        project_id: Id,
+        run_id: Id,
+        *,
+        scope: str,
+        reservation_id: Id | None,
+        attempt_id: Id | None,
+        authorization_ref: Ref,
+        plan_ref: Ref | None,
+        config_ref: Ref | None,
+    ) -> None:
+        """Allow new funded work only while open, and exact historical proof after closure."""
+        _valid(Id, project_id)
+        _valid(Id, run_id)
+        if project_id != self.policy.resource_policy_ref.project_id:
+            raise ContractError("forbidden")
+        with self._locked() as (_, state):
+            run = state["runs"].get(run_id)
+            if run is None:
+                return
+            if run["project_id"] != project_id:
+                raise ContractError("forbidden")
+            if run["closed"] or run["released"]:
+                if reservation_id is None:
+                    raise ContractError("forbidden")
+                matched = False
+                for record in run["attempts"].values():
+                    facts = self._record_facts(record)
+                    if facts.authorization_ref != authorization_ref:
+                        continue
+                    if (
+                        scope == "run_storage"
+                        and attempt_id is None
+                        and plan_ref is None
+                        and config_ref is None
+                        and facts.storage_reservation_id == reservation_id
+                    ):
+                        matched = True
+                    elif (
+                        scope == "attempt"
+                        and facts.attempt_id == attempt_id
+                        and facts.reservation_id == reservation_id
+                        and facts.plan_ref == plan_ref
+                        and facts.config_ref == config_ref
+                    ):
+                        matched = True
+                if not matched:
+                    raise ContractError("forbidden")
 
     def close_storage(self, run_id: Id, durable_refs: tuple[Ref, ...]) -> None:
         _valid(Id, run_id)
@@ -807,7 +1113,10 @@ class LocalAllocator:
                     ):
                         raise ContractError("forbidden")
                     previous = run["attempts"].get(attempt_id)
-                    if previous is not None and previous != record:
+                    if (
+                        previous is not None
+                        and {k: v for k, v in previous.items() if k != "nonce_digest"} != record
+                    ):
                         raise ContractError("determinism_conflict")
                     if previous is None:
                         run["attempts"][attempt_id] = record

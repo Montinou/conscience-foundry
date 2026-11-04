@@ -39,7 +39,7 @@ def situation(tmp_path, monkeypatch):
     store.root = tmp_path
     store.input_refs = closure
 
-    def evidence(schema, data):
+    def evidence(attempt, schema, data):
         return make_ref(data, schema)
 
     executor = LocalExecutor(tmp_path, "local", "a" * 64, StepClock(), evidence, lambda a, g: store)
@@ -333,7 +333,7 @@ def test_restart_observes_durable_pointer_before_worker_record(tmp_path, monkeyp
         SyntheticAuthority(),
     )
 
-    def evidence(schema, data):
+    def evidence(attempt, schema, data):
         return make_ref(data, schema)
 
     executor = LocalExecutor(
@@ -443,6 +443,10 @@ def test_confirmed_owned_termination_is_recorded_for_restart(situation, monkeypa
     assert observation.state == "cancel_requested"
     executor._waiters[scenario.attempt.attempt_id].join(timeout=2)
     process.terminate.assert_called_once_with()
+    inspected = executor._inspect_cancel(scenario.attempt)
+    assert inspected.state == "cancel_requested"
+    assert inspected.pid is not None
+    assert inspected.confirmed_termination is False
     assert (executor.journal_root / scenario.attempt.attempt_id / "exit.json").is_file()
 
 

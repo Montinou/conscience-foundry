@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,6 @@ from conscience_foundry.contracts.execution import ExecutionPlan, StageAttempt
 from conscience_foundry.execution import local_runtime
 from conscience_foundry.execution.local_contracts import LocalWorkerGrant
 from conscience_foundry.execution.local_runtime import verify_runtime
-from conscience_foundry.execution.modal_adapter import EvidenceSink
 from conscience_foundry.execution.ports import ExecutionGrant, Observation, Submission
 from conscience_foundry.execution.worker import Clock
 from conscience_foundry.policy.access import AccessContext
@@ -32,6 +32,7 @@ from conscience_foundry.storage.local_attempt import LocalAttemptStore, read_loc
 
 _SCHEMA = "cf.local-process-observation.v1"
 _MAX_RECORD = 1024 * 1024
+LocalEvidenceSink = Callable[[StageAttempt, str, bytes], Ref]
 _WORKER_BOOTSTRAP = """\
 import importlib.util, pathlib, runpy, sys
 spec = importlib.util.find_spec('conscience_foundry')
@@ -39,7 +40,7 @@ paths = None if spec is None else spec.submodule_search_locations
 if (paths is None or len(paths) != 1
         or pathlib.Path(paths[0]).resolve() != pathlib.Path(sys.argv[1]).resolve()):
     raise SystemExit(3)
-sys.argv = ['conscience_foundry.execution.local_worker', sys.argv[2]]
+sys.argv = ['conscience_foundry.execution.local_worker', *sys.argv[2:]]
 runpy.run_module('conscience_foundry.execution.local_worker', run_name='__main__')
 """
 
@@ -156,6 +157,14 @@ def _attempt_matches(intent: dict[str, Any], attempt: StageAttempt) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class LocalInspection:
+    state: str
+    result_ref: Ref | None
+    pid: str | None
+    confirmed_termination: bool
+
+
 class LocalExecutor:
     def __init__(
         self,
@@ -163,9 +172,22 @@ class LocalExecutor:
         destination_id: str,
         runtime_digest: Digest,
         clock: Clock,
-        evidence: EvidenceSink,
+        evidence: LocalEvidenceSink,
         store_factory: Callable[[StageAttempt, LocalWorkerGrant], LocalAttemptStore],
+        *,
+        bootstrap_path: Path | None = None,
+        bootstrap_digest: Digest | None = None,
     ):
+        if (bootstrap_path is None) != (bootstrap_digest is None):
+            raise ContractError("forbidden")
+        if bootstrap_path is not None:
+            try:
+                if not isinstance(bootstrap_path, Path) or not bootstrap_path.is_absolute():
+                    raise ValueError("bootstrap path")
+                TypeAdapter(Digest).validate_python(bootstrap_digest)
+            except Exception:
+                raise ContractError("forbidden") from None
+        self.bootstrap_path, self.bootstrap_digest = bootstrap_path, bootstrap_digest
         self.journal_root = journal_root
         self.destination_id = destination_id
         self.runtime_digest = runtime_digest
@@ -267,6 +289,11 @@ class LocalExecutor:
                     _WORKER_BOOTSTRAP,
                     str(Path(local_runtime.__file__).resolve().parent.parent),
                     str(directory / "job.json"),
+                    *(
+                        [str(self.bootstrap_path), str(self.bootstrap_digest)]
+                        if self.bootstrap_path is not None
+                        else []
+                    ),
                 ],
                 env={"PATH": os.defpath, "PYTHONNOUSERSITE": "1"},
                 stdin=subprocess.DEVNULL,
@@ -359,7 +386,7 @@ class LocalExecutor:
             }
         )
         try:
-            ref = self.evidence(_SCHEMA, data)
+            ref = self.evidence(attempt, _SCHEMA, data)
             if type(ref) is not Ref:
                 raise ValueError("invalid evidence")
             return Observation(state, result, None, ref)  # type: ignore[arg-type]
@@ -367,6 +394,10 @@ class LocalExecutor:
             raise ContractError("unavailable") from None
 
     def observe(self, attempt: StageAttempt) -> Observation:
+        inspection = self._inspect(attempt)
+        return self._finish(attempt, "observe", inspection.state, inspection.result_ref)
+
+    def _inspect(self, attempt: StageAttempt) -> LocalInspection:
         standing = attempt.state == "cancel_requested"
         try:
             TypeAdapter(Id).validate_python(attempt.attempt_id)
@@ -432,12 +463,15 @@ class LocalExecutor:
                     or set(terminal) != {"pid", "create_time", "nonce", "exit_code"}
                     or {k: terminal[k] for k in ("pid", "create_time", "nonce")} != parent
                     or type(terminal["exit_code"]) is not int
+                    or type(parent.get("pid")) is not int
+                    or parent["pid"] <= 0
+                    or type(parent.get("create_time")) not in (int, float)
                 ):
                     raise ValueError("invalid exit evidence")
                 if found is not None and terminal["exit_code"] == 0:
-                    return self._finish(attempt, "observe", result.status, ref)
+                    return LocalInspection(result.status, ref, str(parent["pid"]), True)
                 if found is not None:
-                    return self._finish(attempt, "observe", "unknown_outcome")
+                    return LocalInspection("unknown_outcome", None, str(parent["pid"]), False)
                 sent: dict[str, Any] | None
                 request: dict[str, Any] | None
                 try:
@@ -450,14 +484,70 @@ class LocalExecutor:
                     and sent == parent
                     and request == {"nonce": intent.get("nonce")}
                 ):
-                    return self._finish(attempt, "observe", "cancelled")
-                return self._finish(attempt, "observe", "unknown_outcome")
-            self._identity(directory, attempt)
-            return self._finish(attempt, "observe", "cancel_requested" if standing else "running")
-        except Exception:
-            return self._finish(
-                attempt, "observe", "cancel_requested" if standing else "unknown_outcome"
+                    return LocalInspection("cancelled", None, str(parent["pid"]), True)
+                return LocalInspection("unknown_outcome", None, str(parent["pid"]), False)
+            process, _ = self._identity(directory, attempt)
+            return LocalInspection(
+                "cancel_requested" if standing else "running", None, str(process.pid), False
             )
+        except Exception:
+            return LocalInspection(
+                "cancel_requested" if standing else "unknown_outcome", None, None, False
+            )
+
+    def _historical_pid(self, attempt: StageAttempt) -> str | None:
+        """Correlate the committed ID with the original launch record, without claiming liveness."""
+        try:
+            TypeAdapter(Id).validate_python(attempt.attempt_id)
+            directory = self.journal_root / attempt.attempt_id
+            intent = _read(directory, "intent.json")
+            process = _read(directory, "process.json")
+            if (
+                intent.get("project_id") != attempt.project_id
+                or intent.get("attempt_id") != attempt.attempt_id
+                or not _attempt_matches(intent, attempt)
+                or set(process) != {"pid", "create_time", "nonce"}
+                or type(process.get("pid")) is not int
+                or process["pid"] <= 0
+                or type(process.get("create_time")) not in (int, float)
+                or type(intent.get("nonce")) is not str
+                or not intent["nonce"]
+                or process.get("nonce") != intent["nonce"]
+                or attempt.remote_call_id != str(process["pid"])
+            ):
+                return None
+            return str(process["pid"])
+        except Exception:
+            return None
+
+    def _inspect_cancel(self, attempt: StageAttempt) -> LocalInspection:
+        try:
+            TypeAdapter(Id).validate_python(attempt.attempt_id)
+            directory = self.journal_root / attempt.attempt_id
+            intent = _read(directory, "intent.json")
+            parent = _read(directory, "process.json")
+            child = _read(directory, "handshake.json")
+            request = _read(directory, "cancel.json")
+            sent = _read(directory, "signal_sent.json")
+            if (
+                intent.get("project_id") != attempt.project_id
+                or intent.get("attempt_id") != attempt.attempt_id
+                or not _attempt_matches(intent, attempt)
+                or parent != child
+                or sent != parent
+                or set(parent) != {"pid", "create_time", "nonce"}
+                or type(parent.get("pid")) is not int
+                or parent["pid"] <= 0
+                or type(parent.get("create_time")) not in (int, float)
+                or type(intent.get("nonce")) is not str
+                or not intent["nonce"]
+                or parent.get("nonce") != intent["nonce"]
+                or request != {"nonce": intent["nonce"]}
+            ):
+                raise ValueError("invalid cancellation evidence")
+            return LocalInspection("cancel_requested", None, str(parent["pid"]), False)
+        except Exception:
+            return LocalInspection("unknown_outcome", None, None, False)
 
     def cancel(self, attempt: StageAttempt) -> Observation:
         try:
