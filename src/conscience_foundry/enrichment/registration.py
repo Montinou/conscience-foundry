@@ -169,18 +169,12 @@ def _read_spec_metadata(ref: Ref, context: EnrichmentContext) -> bytes:
 def _verify_omitted_ref(
     ref: Ref, canonical: VerifiedCanonicalInput, *, revision_ref: Ref, context: EnrichmentContext
 ) -> None:
-    from conscience_foundry.contracts.canonical import DocumentSpan, validate_span_shape
     from conscience_foundry.enrichment.task_schemas import _VerificationContext
 
     if ref == revision_ref or ref == canonical.revision.text_ref:
         read_artifact(ref, _VerificationContext(context))
         return
-    if ref.artifact_schema != "cf.document-span.v1":
-        raise ContractError("forbidden")
-    _, value = read_artifact(ref, _VerificationContext(context))
-    if type(value) is not DocumentSpan:
-        raise ContractError("unsupported_schema")
-    validate_span_shape(value, canonical.revision, len(canonical.text.decode("utf-8")))
+    raise ContractError("forbidden")
 
 
 def register_operation(

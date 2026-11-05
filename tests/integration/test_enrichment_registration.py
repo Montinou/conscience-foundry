@@ -671,6 +671,7 @@ def test_verified_canonical_requires_current_accepted_review(release_case) -> No
                 context=context,
             )
     from conscience_foundry.contracts.canonical import DocumentSpan
+    from conscience_foundry.contracts.common import ArtifactLocation
     from conscience_foundry.enrichment.registration import _verify_omitted_ref
 
     span = DocumentSpan(
@@ -684,8 +685,23 @@ def test_verified_canonical_requires_current_accepted_review(release_case) -> No
         offset_unit="unicode_scalar",
     )
     span_ref = case.put(span)
-    _verify_omitted_ref(span_ref, value, revision_ref=revision_ref, context=context)
+    foreign_span_ref = case.put(span.model_copy(update={"source_id": B_SOURCE}))
+    release_case.reads.clear()
+    with pytest.raises(ContractError):
+        _verify_omitted_ref(foreign_span_ref, value, revision_ref=revision_ref, context=context)
+    assert foreign_span_ref.digest not in release_case.reads
+    with pytest.raises(ContractError):
+        _verify_omitted_ref(span_ref, value, revision_ref=revision_ref, context=context)
+    assert span_ref.digest not in release_case.reads
+    _verify_omitted_ref(revision_ref, value, revision_ref=revision_ref, context=context)
     _verify_omitted_ref(value.revision.text_ref, value, revision_ref=revision_ref, context=context)
+    altered_ref = value.revision.text_ref.model_copy(
+        update={"locations": (ArtifactLocation(store_id="other", object_key="other"),)}
+    )
+    release_case.reads.clear()
+    with pytest.raises(ContractError):
+        _verify_omitted_ref(altered_ref, value, revision_ref=revision_ref, context=context)
+    assert altered_ref.digest not in release_case.reads
     with pytest.raises(ContractError):
         _verify_omitted_ref(case.limits_ref, value, revision_ref=revision_ref, context=context)
     reduced = AccessContext(
@@ -1076,6 +1092,29 @@ def test_register_operation_production_authority_and_replay(release_case) -> Non
                     "WHERE project_id=%s AND operation_key=%s"
                 ).format(sql.Identifier(tx.schema)),
                 (PROJECT, invalid_key),
+            ).fetchone()[0]
+            == 0
+        )
+
+    from test_release_build import B_SOURCE
+
+    foreign_span_ref = case.put(span.model_copy(update={"source_id": B_SOURCE, "end": 2}))
+    omitted_operation = operation.model_copy(update={"omitted_context_refs": (foreign_span_ref,)})
+    candidate_ref, variant_ref, grant_ref, omitted_key = grant_variant({}, omitted_operation)
+    release_case.reads.clear()
+    with pytest.raises(ContractError, match="forbidden"):
+        register_operation(
+            candidate_ref, variant_ref, grant_ref, ledger=release_case.ledger, context=context
+        )
+    assert foreign_span_ref.digest not in release_case.reads
+    with release_case.ledger.transaction() as tx:
+        assert (
+            tx.connection.execute(
+                sql.SQL(
+                    "SELECT count(*) FROM {}.enrichment_operations "
+                    "WHERE project_id=%s AND operation_key=%s"
+                ).format(sql.Identifier(tx.schema)),
+                (PROJECT, omitted_key),
             ).fetchone()[0]
             == 0
         )
