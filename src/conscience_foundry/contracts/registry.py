@@ -44,6 +44,15 @@ from conscience_foundry.contracts.common import (
     Version,
     WireModel,
 )
+from conscience_foundry.contracts.enrichment import (
+    EnrichmentAllocationPolicy,
+    EnrichmentAttempt,
+    EnrichmentAttemptReport,
+    EnrichmentOperation,
+    EnrichmentPayload,
+    EnrichmentPlan,
+    TaskSchemaInstallation,
+)
 from conscience_foundry.contracts.execution import (
     ExecutionConfig,
     ExecutionPlan,
@@ -87,6 +96,7 @@ from conscience_foundry.contracts.release import (
     PublicationRecord,
     RetentionPolicy,
 )
+from conscience_foundry.contracts.task_schema_registry import TaskSchemaRegistry
 from conscience_foundry.intake.metadata_schema import MetadataSchemaDocument
 
 JSON_SCHEMA_ID = "json-schema.2020-12"
@@ -201,6 +211,13 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.intake-diff.v1": IntakeDiff,
         "cf.curated-batch.v1": CuratedBatch,
         "cf.new-sources.v1": NewSources,
+        "cf.enrichment-allocation-policy.v1": EnrichmentAllocationPolicy,
+        "cf.enrichment-operation.v1": EnrichmentOperation,
+        "cf.enrichment-plan.v1": EnrichmentPlan,
+        "cf.enrichment-payload.v1": EnrichmentPayload,
+        "cf.enrichment-attempt.v1": EnrichmentAttempt,
+        "cf.enrichment-attempt-report.v1": EnrichmentAttemptReport,
+        "cf.enrichment-schema-installation.v1": TaskSchemaInstallation,
         "cf.enrichment-spec.v1": EnrichmentSpec,
         "cf.enrichment-request.v1": EnrichmentRequest,
         "cf.enrichment-result.v1": EnrichmentResult,
@@ -211,6 +228,64 @@ SCHEMA_MODELS: Mapping[str, type[WireModel]] = MappingProxyType(
         "cf.decision-result.v1": DecisionResult,
         SEMANTIC_RULES_ID: SemanticRulesDescriptor,
     }
+)
+
+
+PRE_ENRICHMENT_SCHEMA_IDS: tuple[str, ...] = (
+    "cf.activation.v1",
+    "cf.admission-report.v1",
+    "cf.annotation-set.v1",
+    "cf.artifact-manifest.v1",
+    "cf.artifact-ref.v1",
+    "cf.billing-adjustment.v1",
+    "cf.budget-event.v1",
+    "cf.canonical-text.v1",
+    "cf.contract-limits.v1",
+    "cf.contract-set.v1",
+    "cf.coverage-report.v1",
+    "cf.curated-batch.v1",
+    "cf.decision-release.v1",
+    "cf.decision-request.v1",
+    "cf.decision-result.v1",
+    "cf.decision-task.v1",
+    "cf.document-revision.v1",
+    "cf.document-span.v1",
+    "cf.enrichment-request.v1",
+    "cf.enrichment-result.v1",
+    "cf.enrichment-spec.v1",
+    "cf.execution-config.v1",
+    "cf.execution-plan.v1",
+    "cf.extraction-spec.v1",
+    "cf.import-receipt.v1",
+    "cf.intake-diff.v1",
+    "cf.intake.v1",
+    "cf.library-release.v1",
+    "cf.local-execution-config.v1",
+    "cf.local-resource-policy.v1",
+    "cf.metadata-schema.v1",
+    "cf.new-sources.v1",
+    "cf.operation-result-record.v1",
+    "cf.origin-map.v1",
+    "cf.policy.v1",
+    "cf.profile.v1",
+    "cf.project.v1",
+    "cf.provenance-report.v1",
+    "cf.publication-authorization.v1",
+    "cf.publication-record.v1",
+    "cf.quality-report.v1",
+    "cf.raw-original.v1",
+    "cf.result.v1",
+    "cf.retention.v1",
+    "cf.revision-review.v1",
+    "cf.run-authorization.v1",
+    "cf.run-report.v1",
+    "cf.semantic-rules.v1",
+    "cf.source-asset.v1",
+    "cf.stage-attempt.v1",
+    "cf.storage-config.v1",
+    "cf.technical-metadata.v1",
+    "cf.withdrawal-list.v1",
+    "json-schema.2020-12",
 )
 
 
@@ -378,11 +453,12 @@ def validate_contract_set(
     No cross-version reader compatibility is installed in F1. New compatibility
     evidence requires a trusted code revision; its presence in JSON is no grant.
     """
-    if tuple(binding.schema_id for binding in bundle.contracts) != registered_schema_ids():
+    installed_ids = tuple(binding.schema_id for binding in bundle.contracts)
+    if installed_ids not in (PRE_ENRICHMENT_SCHEMA_IDS, registered_schema_ids()):
         raise ContractError("unsupported_schema")
     if bundle.compatible_pairs:
         raise ContractError("schema_incompatible")
-    for schema_id in registered_schema_ids():
+    for schema_id in installed_ids:
         _limits(schema_id, limits_by_schema)
     for binding in bundle.contracts:
         for artifact, data, role in (
@@ -424,7 +500,11 @@ def technical_metadata_binding(
 
 
 def validate_artifact(
-    artifact: Ref, data: bytes, *, limits_by_schema: Mapping[str, ContractLimits]
+    artifact: Ref,
+    data: bytes,
+    *,
+    limits_by_schema: Mapping[str, ContractLimits],
+    task_schemas: TaskSchemaRegistry | None = None,
 ) -> WireModel | dict[str, object] | bytes:
     """Validate bytes against installed rules; no traversal or authority claim.
 
@@ -455,7 +535,13 @@ def validate_artifact(
     if schema_id == JSON_SCHEMA_ID:
         parsed = load_json(data, limits, signed=True)
         if data not in {_schema_bytes(key) for key in registered_schema_ids()}:
-            raise ContractError("unsupported_schema")
+            if type(task_schemas) is not TaskSchemaRegistry or not task_schemas.permits(
+                artifact, data
+            ):
+                raise ContractError("unsupported_schema")
+            from conscience_foundry.enrichment.schema import validate_schema
+
+            validate_schema(data, limits=limits)
         return parsed
     model = SCHEMA_MODELS[schema_id].from_wire(data, limits)
     if getattr(model, "project_id", artifact.project_id) != artifact.project_id:
